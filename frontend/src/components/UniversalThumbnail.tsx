@@ -5,6 +5,8 @@ import {
   FileAudio,
   FileText,
   FileArchive,
+  FileCode,
+  FileSpreadsheet,
   File,
 } from "lucide-react";
 import type { Item } from "../../bindings/bowerbird/core/models";
@@ -104,9 +106,11 @@ export function UniversalThumbnail({
           className="w-full h-full pointer-events-none drop-shadow-2xs"
         />
       ) : (
-        <div className="flex flex-col items-center justify-center gap-1 text-muted-foreground p-2 pointer-events-none">
-          <CategoryIcon category={category} className="size-8 stroke-[1.5]" />
-          <span className="font-mono text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-muted/80">
+        <div className="flex flex-col items-center justify-center gap-1.5 p-2 pointer-events-none select-none">
+          <div className="relative size-12 rounded-xl flex items-center justify-center bg-card border border-border/80 shadow-xs">
+            <CategoryIcon category={category} ext={item.extension} className="size-6 stroke-[1.6]" />
+          </div>
+          <span className="font-mono text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/40">
             {item.extension || "FILE"}
           </span>
         </div>
@@ -123,19 +127,34 @@ export function UniversalThumbnail({
   );
 }
 
-function CategoryIcon({ category, className }: { category: string; className?: string }) {
+function CategoryIcon({
+  category,
+  ext,
+  className,
+}: {
+  category: string;
+  ext?: string;
+  className?: string;
+}) {
+  const lowerExt = (ext || "").toLowerCase();
+  if (["js", "ts", "jsx", "tsx", "py", "go", "rs", "c", "cpp", "h", "html", "css", "json", "sh", "sql"].includes(lowerExt)) {
+    return <FileCode className={`${className} text-emerald-500`} />;
+  }
+  if (["csv", "xls", "xlsx", "sheet"].includes(lowerExt)) {
+    return <FileSpreadsheet className={`${className} text-green-500`} />;
+  }
   switch (category) {
     case "image":
-      return <FileImage className={className} />;
+      return <FileImage className={`${className} text-rose-500`} />;
     case "video":
-      return <FileVideo className={className} />;
+      return <FileVideo className={`${className} text-indigo-500`} />;
     case "audio":
-      return <FileAudio className={className} />;
+      return <FileAudio className={`${className} text-pink-500`} />;
     case "document":
-      return <FileText className={className} />;
+      return <FileText className={`${className} text-sky-500`} />;
     case "archive":
-      return <FileArchive className={className} />;
+      return <FileArchive className={`${className} text-amber-500`} />;
     default:
-      return <File className={className} />;
+      return <File className={`${className} text-muted-foreground`} />;
   }
 }

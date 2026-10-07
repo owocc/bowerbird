@@ -8,7 +8,6 @@ import {
   Check,
   Folder as FolderIcon,
   Plus,
-  Info,
   HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -90,12 +89,6 @@ export function ItemDetailPanel({
   if (!item) {
     return (
       <aside className="w-full h-full border-l-0 bg-sidebar/30 flex flex-col select-none overflow-y-auto">
-        <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            <Info className="size-3.5" />
-            <span>概览信息</span>
-          </div>
-        </div>
 
         <div className="p-5 space-y-6 flex-1 text-xs">
           {/* Current view card */}
@@ -175,22 +168,6 @@ export function ItemDetailPanel({
 
   return (
     <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
-      {/* Top Header */}
-      <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Info className="size-3.5 text-muted-foreground" />
-          <span className="text-xs font-semibold tracking-tight truncate">文件详细信息</span>
-        </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            title="关闭面板"
-            className="size-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <X className="size-3.5" />
-          </button>
-        )}
-      </div>
 
       {/* Scrollable Inspector Body */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
