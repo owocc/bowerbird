@@ -9,6 +9,17 @@ type LibraryInfo struct {
 	ItemCount int64  `json:"itemCount"`
 }
 
+// Folder represents a virtual organizational directory in the library.
+type Folder struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	ParentID  string   `json:"parentId"`
+	CreatedAt int64    `json:"createdAt"`
+	SortOrder int      `json:"sortOrder"`
+	Children  []Folder `json:"children,omitempty"`
+	ItemCount int      `json:"itemCount"`
+}
+
 // Item represents a single managed asset in the library.
 type Item struct {
 	ID           string   `json:"id"`
@@ -22,6 +33,7 @@ type Item struct {
 	Height       int      `json:"height"`
 	HasThumbnail bool     `json:"hasThumbnail"`
 	Tags         []string `json:"tags"`
+	Folders      []string `json:"folders"`
 	CreatedAt    int64    `json:"createdAt"`
 	ImportedAt   int64    `json:"importedAt"`
 	ItemPath     string   `json:"itemPath"`     // local disk path of item directory (items/<HEX>)
@@ -46,6 +58,7 @@ type ItemMetadata struct {
 	Height       int      `json:"height"`
 	HasThumbnail bool     `json:"hasThumbnail"`
 	Tags         []string `json:"tags"`
+	Folders      []string `json:"folders"`
 	CreatedAt    int64    `json:"createdAt"`
 	ImportedAt   int64    `json:"importedAt"`
 }

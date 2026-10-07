@@ -7,6 +7,7 @@ export {
 };
 
 export type {
+    Folder,
     Item,
     LibraryInfo,
     LibraryManager

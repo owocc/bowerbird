@@ -145,3 +145,52 @@ func (s *Service) GetRecentLibraries() []string {
 	}
 	return s.mgr.GetUserDataStore().GetRecentLibraries()
 }
+
+func (s *Service) GetFolders() ([]Folder, error) {
+	if s.mgr == nil {
+		return []Folder{}, nil
+	}
+	return s.mgr.GetFolders()
+}
+
+func (s *Service) CreateFolder(name string, parentID string) (*Folder, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.CreateFolder(name, parentID)
+}
+
+func (s *Service) RenameFolder(id string, name string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.RenameFolder(id, name)
+}
+
+func (s *Service) DeleteFolder(id string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.DeleteFolder(id)
+}
+
+func (s *Service) AddItemToFolder(itemID string, folderID string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.AddItemToFolder(itemID, folderID)
+}
+
+func (s *Service) RemoveItemFromFolder(itemID string, folderID string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.RemoveItemFromFolder(itemID, folderID)
+}
+
+func (s *Service) SetItemFolders(itemID string, folderIDs []string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.SetItemFolders(itemID, folderIDs)
+}

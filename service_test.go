@@ -274,5 +274,67 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 		t.Fatalf("Expected remote-avatar.png, got %v", importedRemote)
 	}
 
+	// 9. Test Folder Management & Virtual Multi-directory hierarchy
+	rootFolder, err := svc.CreateFolder("Design", "")
+	if err != nil {
+		t.Fatalf("CreateFolder root failed: %v", err)
+	}
+	if rootFolder.Name != "Design" || rootFolder.ParentID != "" {
+		t.Fatalf("Unexpected root folder: %+v", rootFolder)
+	}
+
+	subFolder, err := svc.CreateFolder("Icons", rootFolder.ID)
+	if err != nil {
+		t.Fatalf("CreateFolder sub failed: %v", err)
+	}
+	if subFolder.ParentID != rootFolder.ID {
+		t.Fatalf("Expected subfolder parent %s, got %s", rootFolder.ID, subFolder.ParentID)
+	}
+
+	folders, err := svc.GetFolders()
+	if err != nil {
+		t.Fatalf("GetFolders failed: %v", err)
+	}
+	if len(folders) != 1 || len(folders[0].Children) != 1 {
+		t.Fatalf("Expected 1 root folder with 1 child, got: %+v", folders)
+	}
+
+	// Add item to both root and subfolder (file exists once, appears in multiple folders)
+	if err := svc.AddItemToFolder(importedRemote.ID, rootFolder.ID); err != nil {
+		t.Fatalf("AddItemToFolder root failed: %v", err)
+	}
+	if err := svc.AddItemToFolder(importedRemote.ID, subFolder.ID); err != nil {
+		t.Fatalf("AddItemToFolder sub failed: %v", err)
+	}
+
+	// Verify item has both folder IDs
+	itemWithFolders, err := svc.GetItem(importedRemote.ID)
+	if err != nil {
+		t.Fatalf("GetItem failed: %v", err)
+	}
+	if len(itemWithFolders.Folders) != 2 {
+		t.Fatalf("Expected 2 folders on item, got: %v", itemWithFolders.Folders)
+	}
+
+	// Rename folder
+	if err := svc.RenameFolder(subFolder.ID, "SVG Icons"); err != nil {
+		t.Fatalf("RenameFolder failed: %v", err)
+	}
+
+	// Delete subFolder - item must remain untouched in library!
+	if err := svc.DeleteFolder(subFolder.ID); err != nil {
+		t.Fatalf("DeleteFolder failed: %v", err)
+	}
+
+	itemAfterFolderDelete, err := svc.GetItem(importedRemote.ID)
+	if err != nil {
+		t.Fatalf("GetItem after folder delete failed: %v", err)
+	}
+	if itemAfterFolderDelete == nil {
+		t.Fatalf("Item should not be deleted when folder is deleted")
+	}
+	if len(itemAfterFolderDelete.Folders) != 1 || itemAfterFolderDelete.Folders[0] != rootFolder.ID {
+		t.Fatalf("Expected item to retain only rootFolder, got: %v", itemAfterFolderDelete.Folders)
+	}
 	_ = svc.CloseLibrary()
 }

@@ -1,61 +1,83 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Search,
-  Filter,
   ArrowUpDown,
-  FolderOpen,
   Upload,
-  Trash2,
-  FileImage,
-  FileVideo,
-  FileAudio,
-  FileText,
-  FileArchive,
-  File,
-  Layers,
-  Database,
   X,
-  Copy,
-  Check,
+  Database,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+import { Slider } from "@/components/ui/slider";
+import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
+import { JustifiedGallery } from "@/components/JustifiedGallery";
+import { ItemDetailPanel } from "@/components/ItemDetailPanel";
+import { MultiItemInspector } from "@/components/MultiItemInspector";
+import { UnifiedPreviewModal } from "@/components/UnifiedPreviewModal";
+import { CustomContextMenu, type ContextMenuPosition } from "@/components/CustomContextMenu";
+import { DropzoneOverlay } from "@/components/DropzoneOverlay";
 import {
   GetItems,
   DeleteItem,
   RevealInFinder,
   CloseLibrary,
-  StartDrag,
+  GetFolders,
+  CreateFolder,
+  RenameFolder,
+  DeleteFolder,
+  AddItemToFolder,
+  RemoveItemFromFolder,
 } from "../../bindings/bowerbird/core/service";
-import type { Item, LibraryInfo } from "../../bindings/bowerbird/core/models";
-import { formatBytes, formatDate, getFileCategory, escapePathForShell } from "@/lib/formatters";
+import type { Item, Folder, LibraryInfo } from "../../bindings/bowerbird/core/models";
+import { formatBytes, getFileCategory, escapePathForShell } from "@/lib/formatters";
 import { useFileDrop } from "@/hooks/useFileDrop";
-import { DropzoneOverlay } from "@/components/DropzoneOverlay";
 
-interface LibraryWorkspaceProps {
+export interface LibraryWorkspaceProps {
   library: LibraryInfo;
   onLibraryClosed: () => void;
 }
 
 export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceProps) {
+  // Items and folder state
   const [items, setItems] = useState<Item[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
+  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Search & Filter & Sort state
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
-  const [copiedLink, setCopiedLink] = useState(false);
+  const [rowHeight, setRowHeight] = useState<number>(80);
+
+  // Selection & Previews State
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+
+  // Preview modes: Double click -> main inline; Space -> full-window popup
+  const [inlinePreviewOpen, setInlinePreviewOpen] = useState(false);
+  const [fullWindowPreviewOpen, setFullWindowPreviewOpen] = useState(false);
+
+  // Custom Context Menu State
+  const [contextMenu, setContextMenu] = useState<{
+    position: ContextMenuPosition;
+    isItemContext: boolean;
+  } | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Load items from libSQL database
+
+  // Disable native browser context menu globally
+  useEffect(() => {
+    const disableContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("contextmenu", disableContextMenu);
+    return () => window.removeEventListener("contextmenu", disableContextMenu);
+  }, []);
+
+  // Load items from database
   const refreshItems = useCallback(async () => {
     try {
       const data = await GetItems(searchQuery, sortOrder);
@@ -67,16 +89,53 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     }
   }, [searchQuery, sortOrder]);
 
+  // Load folders from database
+  const refreshFolders = useCallback(async () => {
+    try {
+      const data = await GetFolders();
+      setFolders(data || []);
+    } catch (err) {
+      console.error("加载文件夹目录失败:", err);
+    }
+  }, []);
+
+  // Initial & search/sort reload
   useEffect(() => {
     refreshItems();
   }, [refreshItems]);
 
-  // Encapsulated native file drop & network import hook
+  useEffect(() => {
+    refreshFolders();
+  }, [refreshFolders]);
+
+  // Full refresh helper
+  const handleFullRefresh = useCallback(async () => {
+    await Promise.all([refreshItems(), refreshFolders()]);
+  }, [refreshItems, refreshFolders]);
+
+  const activeFolderIdRef = useRef<string | null>(activeFolderId);
+  useEffect(() => {
+    activeFolderIdRef.current = activeFolderId;
+  }, [activeFolderId]);
+
+  // File drop hook (ignoring intra-app drags, auto-assigning newly imported IDs)
   const { state: dropState, importFileList, dragHandlers } = useFileDrop({
-    onRefresh: refreshItems,
+    onRefresh: async (newlyImportedIds?: string[]) => {
+      const targetFolderId = activeFolderIdRef.current;
+      if (targetFolderId && newlyImportedIds && newlyImportedIds.length > 0) {
+        for (const id of newlyImportedIds) {
+          try {
+            await AddItemToFolder(id, targetFolderId);
+          } catch (err) {
+            console.error("关联资产到当前目录失败:", err);
+          }
+        }
+      }
+      await handleFullRefresh();
+    },
   });
 
-  // Handle global paste (Cmd+V / Ctrl+V)
+  // Global paste handler (Cmd+V)
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
@@ -102,12 +161,45 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
   }, [importFileList]);
-  // Drag-out using native file session and standard OS file formats
-  const handleDragStart = (e: React.DragEvent, item: Item) => {
-    // 1. Trigger native OS file drag (points directly to physical file on disk)
-    StartDrag(item.id).catch(() => {
-      // Native drag initiated or fallback to HTML5 dataTransfer
+
+  // Selected items array
+  const selectedItems = useMemo(() => {
+    return items.filter((i) => selectedItemIds.has(i.id));
+  }, [items, selectedItemIds]);
+
+  // Active item for single inspector & preview
+  const activeItem = useMemo(() => {
+    if (activeItemId) {
+      const found = items.find((i) => i.id === activeItemId);
+      if (found) return found;
+    }
+    return selectedItems[0] || null;
+  }, [items, activeItemId, selectedItems]);
+
+  // Filter items by folder and category
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      if (activeFolderId !== null) {
+        const itemFolders = item.folders || [];
+        if (!itemFolders.includes(activeFolderId)) {
+          return false;
+        }
+      }
+
+      if (categoryFilter !== "all") {
+        if (getFileCategory(item.extension) !== categoryFilter) {
+          return false;
+        }
+      }
+
+      return true;
     });
+  }, [items, activeFolderId, categoryFilter]);
+
+  // Intra-app HTML5 Drag Start (marked with internal flags to prevent window dropzone re-import)
+  const handleDragStart = (e: React.DragEvent, item: Item) => {
+    e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
+    e.dataTransfer.setData("application/x-bowerbird-item-id", item.id);
 
     const rawPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
     const shellPath = item.shellPath || escapePathForShell(rawPath);
@@ -119,38 +211,37 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     }
     const mime = item.mimeType || "application/octet-stream";
 
-    // 2. Standard OS File URI for Finder and graphical drop targets
-    e.dataTransfer.setData("text/uri-list", fileUrl);
-
-    // 3. Shell-escaped path for Terminal / iTerm (all spaces formatted with \ )
     e.dataTransfer.setData("text/plain", shellPath);
-
-    // 4. Standard DownloadURL format with native file:// scheme
-    e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
-
-    // 5. Raw unescaped path
+    if (fileUrl) {
+      e.dataTransfer.setData("text/uri-list", fileUrl);
+      e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
+    }
     e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
-
-    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.effectAllowed = "copyMove";
   };
 
   // Delete item
-  const handleDeleteItem = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const handleDeleteItem = async (e: React.MouseEvent | undefined, id: string) => {
+    e?.stopPropagation();
     try {
       await DeleteItem(id);
-      if (selectedItem?.id === id) {
-        setSelectedItem(null);
+      setSelectedItemIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+      if (activeItemId === id) {
+        setActiveItemId(null);
       }
-      await refreshItems();
+      await handleFullRefresh();
     } catch (err) {
       console.error("删除资产失败:", err);
     }
   };
 
   // Reveal in Finder
-  const handleReveal = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const handleReveal = async (e: React.MouseEvent | undefined, id: string) => {
+    e?.stopPropagation();
     try {
       await RevealInFinder(id);
     } catch (err) {
@@ -158,434 +249,541 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     }
   };
 
-  // Filter items by category
-  const filteredItems = items.filter((item) => {
-    if (categoryFilter === "all") return true;
-    return getFileCategory(item.extension) === categoryFilter;
-  });
+  // Batch Delete
+  const handleBatchDelete = async () => {
+    if (selectedItemIds.size === 0) return;
+    try {
+      for (const id of selectedItemIds) {
+        await DeleteItem(id);
+      }
+      setSelectedItemIds(new Set());
+      setActiveItemId(null);
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("批量删除失败:", err);
+    }
+  };
+
+  // Batch Reveal
+  const handleBatchReveal = async () => {
+    for (const item of selectedItems.slice(0, 5)) {
+      try {
+        await RevealInFinder(item.id);
+      } catch (err) {
+        console.error("在访达中显示失败:", err);
+      }
+    }
+  };
+
+  // Batch Add to folder
+  const handleBatchAddToFolder = async (folderId: string) => {
+    try {
+      for (const id of selectedItemIds) {
+        await AddItemToFolder(id, folderId);
+      }
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("批量添加到目录失败:", err);
+    }
+  };
+
+  // Batch Remove from folder
+  const handleBatchRemoveFromFolder = async (folderId: string) => {
+    try {
+      for (const id of selectedItemIds) {
+        await RemoveItemFromFolder(id, folderId);
+      }
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("批量移出目录失败:", err);
+    }
+  };
+
+  // Folder CRUD handlers
+  const handleCreateFolder = async (name: string, parentId?: string) => {
+    try {
+      await CreateFolder(name, parentId || "");
+      await refreshFolders();
+    } catch (err) {
+      console.error("创建文件夹失败:", err);
+    }
+  };
+
+  const handleRenameFolder = async (folderId: string, name: string) => {
+    try {
+      await RenameFolder(folderId, name);
+      await refreshFolders();
+    } catch (err) {
+      console.error("重命名文件夹失败:", err);
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    try {
+      await DeleteFolder(folderId);
+      if (activeFolderId === folderId) {
+        setActiveFolderId(null);
+      }
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("删除文件夹失败:", err);
+    }
+  };
+
+  const handleDropItemOnFolder = async (itemId: string, folderId: string) => {
+    try {
+      await AddItemToFolder(itemId, folderId);
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("添加资产引用至文件夹失败:", err);
+    }
+  };
+
+  const handleDropExternalFilesOnFolder = async (fileList: FileList, folderId: string) => {
+    try {
+      const importedIds = await importFileList(fileList);
+      if (importedIds && importedIds.length > 0) {
+        for (const id of importedIds) {
+          await AddItemToFolder(id, folderId);
+        }
+        await handleFullRefresh();
+      }
+    } catch (err) {
+      console.error("外部文件拖入文件夹失败:", err);
+    }
+  };
+
+  // Find active folder metadata
+  const findFolderById = (list: Folder[], id: string): Folder | null => {
+    for (const f of list) {
+      if (f.id === id) return f;
+      if (f.children && f.children.length > 0) {
+        const found = findFolderById(f.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const currentFolder = activeFolderId ? findFolderById(folders, activeFolderId) : null;
+  const totalSizeBytes = filteredItems.reduce((acc, curr) => acc + (curr.size || 0), 0);
+
+  // Global Keyboard shortcuts:
+  // - Space: Full-window popup preview
+  // - Esc: Close previews, close context menu, clear selection
+  // - Cmd+A: Select all
+  // - Delete / Backspace: Delete selected
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (activeItem) {
+          setFullWindowPreviewOpen((prev) => !prev);
+        }
+      } else if (e.code === "Escape") {
+        if (fullWindowPreviewOpen) {
+          setFullWindowPreviewOpen(false);
+        } else if (inlinePreviewOpen) {
+          setInlinePreviewOpen(false);
+        } else if (contextMenu) {
+          setContextMenu(null);
+        } else if (selectedItemIds.size > 0) {
+          setSelectedItemIds(new Set());
+          setActiveItemId(null);
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.code === "KeyA") {
+        e.preventDefault();
+        setSelectedItemIds(new Set(filteredItems.map((i) => i.id)));
+        if (filteredItems.length > 0) {
+          setActiveItemId(filteredItems[0].id);
+        }
+      } else if (e.code === "Backspace" || e.code === "Delete") {
+        if (selectedItemIds.size > 0) {
+          e.preventDefault();
+          handleBatchDelete();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeItem, fullWindowPreviewOpen, inlinePreviewOpen, contextMenu, selectedItemIds, filteredItems]);
 
   return (
-    <div
-      data-file-drop-target="true"
-      className="flex flex-col h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
-      {...dragHandlers}
-    >
-      {/* Hidden file input for manual browse selection */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) {
-            importFileList(e.target.files);
-            e.target.value = "";
-          }
-        }}
-      />
-
-      {/* Encapsulated Drag & Drop State Overlay (active hover + importing progress + feedback) */}
-      <DropzoneOverlay state={dropState} />
-
-      {/* Top Application Bar */}
-      <header
-        className="h-14 border-b border-border bg-sidebar/40 px-5 flex items-center justify-between gap-4 shrink-0 wails-drag"
+    <SidebarProvider defaultOpen={true}>
+      <div
+        data-file-drop-target="true"
+        className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
+        {...dragHandlers}
       >
-        {/* Left: Library Identity */}
-        <div className="flex items-center gap-3 wails-no-drag">
-          <div className="size-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
-            <Layers className="size-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-sm tracking-tight">{library.name}</span>
-              <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0 h-4">
-                {items.length} 项
+        {/* Hidden file input for manual browse selection */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={async (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+              await importFileList(e.target.files);
+              e.target.value = "";
+            }
+          }}
+        />
+
+        {/* Encapsulated Drag & Drop State Overlay for external file drops */}
+        <DropzoneOverlay state={dropState} />
+
+        {/* ========================================================= */}
+        {/* COLUMN 1: LEFT SIDEBAR DIRECTORY TREE (shadcn/ui Sidebar) */}
+        {/* ========================================================= */}
+        <SidebarDirectoryTree
+          library={library}
+          folders={folders}
+          activeFolderId={activeFolderId}
+          totalItemCount={items.length}
+          onSelectFolder={(id) => {
+            setActiveFolderId(id);
+            setSelectedItemIds(new Set());
+            setActiveItemId(null);
+            setInlinePreviewOpen(false);
+            setFullWindowPreviewOpen(false);
+          }}
+          onCreateFolder={handleCreateFolder}
+          onRenameFolder={handleRenameFolder}
+          onDeleteFolder={handleDeleteFolder}
+          onDropItemOnFolder={handleDropItemOnFolder}
+          onDropExternalFilesOnFolder={handleDropExternalFilesOnFolder}
+          onCloseLibrary={async () => {
+            await CloseLibrary();
+            onLibraryClosed();
+          }}
+        />
+
+        {/* ========================================================= */}
+        {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery)          */}
+        {/* ========================================================= */}
+        <main className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background">
+          {/* Top Desktop App Navigation Bar */}
+          <header className="h-12 border-b border-border/80 bg-background/95 backdrop-blur-md px-4 flex items-center justify-between gap-3 shrink-0 select-none wails-drag">
+            {/* Left: View title & count */}
+            <div className="flex items-center gap-2.5 min-w-0 wails-no-drag">
+              <span className="font-semibold text-xs tracking-tight truncate text-foreground">
+                {currentFolder ? currentFolder.name : "全部资产"}
+              </span>
+              <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
+                {filteredItems.length} 项
               </Badge>
+              {selectedItemIds.size > 0 && (
+                <Badge variant="default" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
+                  已选 {selectedItemIds.size}
+                </Badge>
+              )}
             </div>
-            <p className="text-[10px] text-muted-foreground font-mono truncate max-w-xs" title={library.path}>
-              {library.path}
-            </p>
-          </div>
-        </div>
 
-        {/* Center: Search Bar */}
-        <div className="flex-1 max-w-md mx-2 wails-no-drag">
-          <div className="relative">
-            <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索名称、格式、标签..."
-              className="pl-9 h-8 text-xs bg-muted/40 border-border/80 rounded-xl"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Right: Actions */}
-        <div className="flex items-center gap-2 wails-no-drag">
-          <Button
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-            className="h-8 gap-1.5 text-xs shadow-xs"
-          >
-            <Upload className="size-3.5" />
-            <span>导入文件</span>
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={async () => {
-              await CloseLibrary();
-              onLibraryClosed();
-            }}
-            className="h-8 gap-1.5 text-xs"
-          >
-            <FolderOpen className="size-3.5" />
-            <span>切换资源库</span>
-          </Button>
-        </div>
-      </header>
-
-      {/* Sub-bar: Filter Tags and Status */}
-      <div className="h-10 border-b border-border/60 bg-muted/10 px-5 flex items-center justify-between text-xs shrink-0 wails-no-drag">
-        <div className="flex items-center gap-1.5">
-          <Filter className="size-3.5 text-muted-foreground mr-1" />
-          {[
-            { id: "all", label: "全部" },
-            { id: "image", label: "图片" },
-            { id: "video", label: "视频" },
-            { id: "document", label: "文档" },
-            { id: "archive", label: "压缩包" },
-            { id: "other", label: "其他" },
-          ].map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setCategoryFilter(cat.id)}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-                categoryFilter === cat.id
-                  ? "bg-secondary text-secondary-foreground shadow-2xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-3">
-          {dropState.message && (
-            <span className="text-[11px] text-primary font-medium animate-pulse font-mono truncate max-w-xs" title={dropState.message}>
-              {dropState.message}
-            </span>
-          )}
-          <button
-            onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
-            className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 rounded-md"
-          >
-            <ArrowUpDown className="size-3" />
-            <span>{sortOrder === "desc" ? "最新导入" : "最早导入"}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Grid View */}
-      <main className="flex-1 overflow-y-auto p-5 wails-no-drag">
-        {loading ? (
-          <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-            正在载入资产索引...
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-2xl mx-auto my-8">
-            <div className="size-14 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-4">
-              <Upload className="size-7" />
-            </div>
-            <h3 className="text-base font-semibold tracking-tight">暂无资产</h3>
-            <p className="text-xs text-muted-foreground mt-1.5 max-w-sm leading-relaxed">
-              将任意本地文件、文件夹或浏览器图片直接拖拽至此处，或者使用快捷键 <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono">Cmd+V</kbd> 粘贴剪贴板图片。
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              className="mt-4 text-xs h-8 gap-1.5"
-            >
-              <Upload className="size-3.5" />
-              <span>选择文件导入</span>
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4">
-            {filteredItems.map((item) => (
-              <AssetCard
-                key={item.id}
-                item={item}
-                onClick={() => setSelectedItem(item)}
-                onDragStart={(e) => handleDragStart(e, item)}
-                onDelete={(e) => handleDeleteItem(e, item.id)}
-                onReveal={(e) => handleReveal(e, item.id)}
-              />
-            ))}
-          </div>
-        )}
-      </main>
-
-      {/* Footer bar with system stats */}
-      <footer className="h-8 border-t border-border/60 bg-muted/20 px-5 flex items-center justify-between text-[11px] text-muted-foreground shrink-0 font-mono wails-no-drag">
-        <div className="flex items-center gap-2">
-          <Database className="size-3 text-primary" />
-          <span>libSQL 索引库正常</span>
-          <span>·</span>
-          <span>已展示 {filteredItems.length} 项</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span>支持将卡片直接拖拽至访达 (Finder) 导出</span>
-        </div>
-      </footer>
-
-      {/* Item Detail Dialog */}
-      {selectedItem && (
-        <Dialog open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
-          <DialogContent className="max-w-2xl text-xs">
-            <DialogHeader>
-              <DialogTitle className="text-base truncate pr-6">{selectedItem.name}</DialogTitle>
-              <DialogDescription className="text-xs font-mono">
-                {selectedItem.filename}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-2">
-              {/* Preview Box */}
-              <div className="aspect-square rounded-xl border border-border bg-muted/30 overflow-hidden flex items-center justify-center relative">
-                {selectedItem.hasThumbnail || getFileCategory(selectedItem.extension) === "image" ? (
-                  <img
-                    src={selectedItem.originalUrl}
-                    alt={selectedItem.name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <FileIcon category={getFileCategory(selectedItem.extension)} className="size-16" />
-                    <span className="font-mono text-sm uppercase font-bold">{selectedItem.extension}</span>
-                  </div>
+            {/* Center: Search input */}
+            <div className="flex-1 max-w-sm mx-2 wails-no-drag">
+              <div className="relative">
+                <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="搜索名称、格式、指纹..."
+                  className="pl-8 pr-7 h-7.5 text-xs bg-muted/40 border-border/70 rounded-lg focus-visible:bg-background"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
                 )}
               </div>
+            </div>
 
-              {/* Metadata Details */}
-              <div className="space-y-3 font-sans">
-                <div className="space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">基本信息</span>
-                  <div className="p-3 rounded-xl bg-muted/40 border border-border/60 space-y-2">
-                    <div className="flex justify-between py-0.5 border-b border-border/40">
-                      <span className="text-muted-foreground">文件大小</span>
-                      <span className="font-mono">{formatBytes(selectedItem.size)}</span>
-                    </div>
-                    {selectedItem.hex && (
-                      <div className="flex justify-between items-center py-0.5 border-b border-border/40">
-                        <span className="text-muted-foreground">内容指纹 (HEX)</span>
-                        <span className="font-mono text-[10px] truncate max-w-[200px]" title={selectedItem.hex}>
-                          {selectedItem.hex}
-                        </span>
-                      </div>
-                    )}
-                    {selectedItem.width > 0 && (
-                      <div className="flex justify-between py-0.5 border-b border-border/40">
-                        <span className="text-muted-foreground">图片尺寸</span>
-                        <span className="font-mono">{selectedItem.width} × {selectedItem.height} px</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between py-0.5 border-b border-border/40">
-                      <span className="text-muted-foreground">MIME 类型</span>
-                      <span className="font-mono">{selectedItem.mimeType}</span>
-                    </div>
-                    <div className="flex justify-between py-0.5 border-b border-border/40">
-                      <span className="text-muted-foreground">创建时间</span>
-                      <span className="font-mono">{formatDate(selectedItem.createdAt)}</span>
-                    </div>
-                    <div className="flex justify-between py-0.5">
-                      <span className="text-muted-foreground">导入时间</span>
-                      <span className="font-mono">{formatDate(selectedItem.importedAt)}</span>
-                    </div>
-                  </div>
+            {/* Right: Import button */}
+            <div className="flex items-center gap-2 wails-no-drag">
+              <Button
+                size="xs"
+                onClick={() => fileInputRef.current?.click()}
+                className="h-7.5 gap-1.5 text-xs shadow-xs"
+              >
+                <Upload className="size-3.5" />
+                <span>导入文件</span>
+              </Button>
+            </div>
+          </header>
+
+          {/* Sub-toolbar: Category Pills & Size Slider */}
+          <div className="h-9 border-b border-border/60 bg-muted/15 px-4 flex items-center justify-between text-xs shrink-0 select-none wails-no-drag">
+            {/* Category pills */}
+            <div className="flex items-center gap-1">
+              {[
+                { id: "all", label: "全部" },
+                { id: "image", label: "图片" },
+                { id: "video", label: "视频" },
+                { id: "document", label: "文档" },
+                { id: "archive", label: "压缩包" },
+                { id: "other", label: "其他" },
+              ].map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCategoryFilter(cat.id)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors ${
+                    categoryFilter === cat.id
+                      ? "bg-secondary text-secondary-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Right controls: sort toggle and justified row height slider */}
+            <div className="flex items-center gap-2.5">
+              {dropState.message && (
+                <span className="text-[11px] text-primary font-medium animate-pulse font-mono truncate max-w-xs">
+                  {dropState.message}
+                </span>
+              )}
+
+              <button
+                onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-md hover:bg-muted/50"
+              >
+                <ArrowUpDown className="size-3" />
+                <span>{sortOrder === "desc" ? "最新导入" : "最早导入"}</span>
+              </button>
+
+              {/* Justified row height slider */}
+              <div className="flex items-center gap-1.5 pl-2.5 border-l border-border/60">
+                <span className="text-[10px] text-muted-foreground font-mono">高度</span>
+                <div className="w-20">
+                  <Slider
+                    min={60}
+                    max={200}
+                    step={5}
+                    value={rowHeight}
+                    onValueChange={(val) => setRowHeight(Array.isArray(val) ? val[0] : val)}
+                  />
                 </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground uppercase font-semibold">本地物理文件路径</span>
-                    <span className="text-[10px] text-muted-foreground">支持终端直接执行 (\转义)</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-muted/40 border border-border/60 font-mono text-[11px] text-foreground break-all select-text">
-                    {selectedItem.shellPath || escapePathForShell(selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`)}
-                  </div>
-                </div>
-
-                <div className="pt-2 flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => RevealInFinder(selectedItem.id)}
-                    className="h-8 gap-1.5 text-xs"
-                  >
-                    <FolderOpen className="size-3.5" />
-                    <span>在访达中定位</span>
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={async () => {
-                      const path = selectedItem.shellPath || escapePathForShell(selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`);
-                      await navigator.clipboard.writeText(path);
-                      setCopiedLink(true);
-                      setTimeout(() => setCopiedLink(false), 2000);
-                    }}
-                    className="h-8 gap-1.5 text-xs"
-                  >
-                    {copiedLink ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
-                    <span>{copiedLink ? "已复制终端路径" : "复制终端路径 (\\空格)"}</span>
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={async () => {
-                      await DeleteItem(selectedItem.id);
-                      setSelectedItem(null);
-                      await refreshItems();
-                    }}
-                    className="h-8 gap-1.5 text-xs"
-                  >
-                    <Trash2 className="size-3.5" />
-                    <span>删除资产</span>
-                  </Button>
-                </div>
+                <span className="text-[10px] text-muted-foreground font-mono">{rowHeight}px</span>
               </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
-  );
-}
+          </div>
 
-// Single Asset Card
-interface AssetCardProps {
-  item: Item;
-  onClick: () => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onReveal: (e: React.MouseEvent) => void;
-}
+          {/* Center Main Scrollable Area with Justified Gallery & Marquee Selection */}
+          <div className="flex-1 overflow-y-auto p-4 wails-no-drag">
+            {loading ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                正在载入资产索引...
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
+                <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                  <Upload className="size-6" />
+                </div>
+                <h4 className="text-sm font-semibold tracking-tight">暂无资产</h4>
+                <p className="text-xs text-muted-foreground mt-1 max-w-xs leading-relaxed">
+                  拖拽任意本地文件至此，或按快捷键 <kbd className="px-1 py-0.5 rounded bg-muted border font-mono text-[10px]">Cmd+V</kbd> 粘贴剪贴板图片。
+                </p>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mt-3 text-xs h-7 gap-1.5"
+                >
+                  <Upload className="size-3" />
+                  <span>选择文件导入</span>
+                </Button>
+              </div>
+            ) : (
+              <JustifiedGallery
+                items={filteredItems}
+                selectedItemIds={selectedItemIds}
+                targetRowHeight={rowHeight}
+                onSelectionChange={(newSet, lastItem) => {
+                  setSelectedItemIds(newSet);
+                  if (lastItem) {
+                    setActiveItemId(lastItem.id);
+                  } else if (newSet.size === 0) {
+                    setActiveItemId(null);
+                  }
+                }}
+                onDoubleClickItem={(item) => {
+                  setActiveItemId(item.id);
+                  setSelectedItemIds(new Set([item.id]));
+                  setInlinePreviewOpen(true);
+                }}
+                onDragStartItem={(e, item) => handleDragStart(e, item)}
+                onItemContextMenu={(e, item) => {
+                  if (!selectedItemIds.has(item.id)) {
+                    setSelectedItemIds(new Set([item.id]));
+                    setActiveItemId(item.id);
+                  }
+                  setContextMenu({
+                    position: { x: e.clientX, y: e.clientY },
+                    isItemContext: true,
+                  });
+                }}
+                onCanvasContextMenu={(e) => {
+                  setContextMenu({
+                    position: { x: e.clientX, y: e.clientY },
+                    isItemContext: false,
+                  });
+                }}
+              />
+            )}
+          </div>
 
-function AssetCard({ item, onClick, onDragStart, onDelete, onReveal }: AssetCardProps) {
-  const category = getFileCategory(item.extension);
-  const isImage = category === "image";
+          {/* Desktop App Status Footer */}
+          <footer className="h-7 border-t border-border/60 bg-muted/20 px-4 flex items-center justify-between text-[10px] text-muted-foreground shrink-0 font-mono select-none wails-no-drag">
+            <div className="flex items-center gap-2">
+              <Database className="size-3 text-primary" />
+              <span>libSQL 就绪</span>
+              <span>·</span>
+              <span>已展示 {filteredItems.length} 项</span>
+              {selectedItemIds.size > 0 && (
+                <>
+                  <span>·</span>
+                  <span className="text-primary font-semibold">已选 {selectedItemIds.size} 项</span>
+                </>
+              )}
+              {totalSizeBytes > 0 && (
+                <>
+                  <span>·</span>
+                  <span>{formatBytes(totalSizeBytes)}</span>
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span>双击中间预览 · 空格全屏弹窗 · 右键管理资产</span>
+            </div>
+          </footer>
 
-  return (
-    <Card
-      draggable={true}
-      onDragStart={onDragStart}
-      onClick={onClick}
-      className="group relative flex flex-col overflow-hidden border-border bg-card/60 hover:bg-card hover:border-primary/50 transition-all cursor-pointer shadow-2xs hover:shadow-md select-none draggable-asset-card wails-no-drag"
-    >
-      {/* Thumbnail or Fallback Icon */}
-      <div className="aspect-square w-full bg-muted/40 overflow-hidden flex items-center justify-center relative">
-        {item.hasThumbnail ? (
-          <img
-            src={item.thumbnailUrl}
-            alt={item.name}
-            loading="lazy"
-            draggable={false}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
-          />
-        ) : isImage ? (
-          <img
-            src={item.originalUrl}
-            alt={item.name}
-            loading="lazy"
-            draggable={false}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
+          {/* 
+            ====================================================================
+            INLINE PREVIEW: Double-click preview inside main center column
+            ====================================================================
+          */}
+          {inlinePreviewOpen && activeItem && (
+            <UnifiedPreviewModal
+              open={inlinePreviewOpen}
+              mode="inline"
+              activeItem={activeItem}
+              items={filteredItems}
+              onClose={() => setInlinePreviewOpen(false)}
+              onIndexChange={(newItem) => setActiveItemId(newItem.id)}
+            />
+          )}
+        </main>
+
+        {/* ========================================================= */}
+        {/* COLUMN 3: RIGHT DETAIL INSPECTOR PANEL                    */}
+        {/* Multi-selection inspector when > 1 items selected,        */}
+        {/* Single detail panel when 1 item selected,                 */}
+        {/* Overview panel when 0 items selected.                     */}
+        {/* ========================================================= */}
+        {selectedItems.length > 1 ? (
+          <MultiItemInspector
+            selectedItems={selectedItems}
+            allFolders={folders}
+            activeFolderId={activeFolderId}
+            onClearSelection={() => {
+              setSelectedItemIds(new Set());
+              setActiveItemId(null);
+            }}
+            onBatchReveal={handleBatchReveal}
+            onBatchDelete={handleBatchDelete}
+            onBatchAddToFolder={handleBatchAddToFolder}
+            onBatchRemoveFromFolder={
+              activeFolderId ? () => handleBatchRemoveFromFolder(activeFolderId) : undefined
+            }
           />
         ) : (
-          <div className="flex flex-col items-center gap-1.5 text-muted-foreground p-3">
-            <FileIcon category={category} className="size-10" />
-            <span className="font-mono text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-muted">
-              {item.extension}
-            </span>
-          </div>
+          <ItemDetailPanel
+            item={activeItem}
+            currentFolder={currentFolder}
+            allFolders={folders}
+            totalItemCount={filteredItems.length}
+            totalSizeBytes={totalSizeBytes}
+            onClose={() => {
+              setSelectedItemIds(new Set());
+              setActiveItemId(null);
+            }}
+            onPreview={() => setFullWindowPreviewOpen(true)}
+            onReveal={() => activeItem && handleReveal(undefined, activeItem.id)}
+            onDelete={() => activeItem && handleDeleteItem(undefined, activeItem.id)}
+            onFolderUpdated={handleFullRefresh}
+          />
         )}
 
-        {/* Quick action bar on hover */}
-        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-md rounded-lg p-1 shadow-sm">
-          <button
-            onClick={onReveal}
-            title="在访达中显示"
-            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
-          >
-            <FolderOpen className="size-3.5" />
-          </button>
-          <button
-            onClick={onDelete}
-            title="删除"
-            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-          >
-            <Trash2 className="size-3.5" />
-          </button>
-        </div>
+        {/* 
+          ========================================================================
+          FULL-WINDOW POPUP PREVIEW:
+          Triggered by Space bar, QuickLook style full-screen modal
+          ========================================================================
+        */}
+        <UnifiedPreviewModal
+          open={fullWindowPreviewOpen}
+          mode="full-window"
+          activeItem={activeItem}
+          items={filteredItems}
+          onClose={() => setFullWindowPreviewOpen(false)}
+          onIndexChange={(newItem) => setActiveItemId(newItem.id)}
+        />
 
-        {/* Drag out hint badge */}
-        <div className="absolute bottom-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 bg-background/80 backdrop-blur-md">
-            拖拽到访达
-          </Badge>
-        </div>
+        {/* 
+          ========================================================================
+          CUSTOM CONTEXT MENU:
+          Replaces native system context menu for items and background canvas
+          ========================================================================
+        */}
+        <CustomContextMenu
+          position={contextMenu?.position || null}
+          onClose={() => setContextMenu(null)}
+          selectedCount={selectedItemIds.size}
+          isItemContext={contextMenu?.isItemContext || false}
+          activeFolderId={activeFolderId}
+          allFolders={folders}
+          onPreview={() => setFullWindowPreviewOpen(true)}
+          onReveal={handleBatchReveal}
+          onCopyPath={async () => {
+            if (activeItem) {
+              const path = activeItem.shellPath || escapePathForShell(activeItem.filePath || "");
+              await navigator.clipboard.writeText(path);
+            }
+          }}
+          onDelete={handleBatchDelete}
+          onAddToFolder={handleBatchAddToFolder}
+          onRemoveFromCurrentFolder={() => {
+            if (activeFolderId) handleBatchRemoveFromFolder(activeFolderId);
+          }}
+          onSelectAll={() => {
+            setSelectedItemIds(new Set(filteredItems.map((i) => i.id)));
+            if (filteredItems.length > 0) setActiveItemId(filteredItems[0].id);
+          }}
+          onClearSelection={() => {
+            setSelectedItemIds(new Set());
+            setActiveItemId(null);
+          }}
+          onImportFiles={() => fileInputRef.current?.click()}
+          onCreateFolder={() => {
+            // Focus create folder in sidebar
+          }}
+        />
       </div>
-
-      {/* Card Info Footer */}
-      <div className="p-2.5 flex flex-col gap-1">
-        <p className="text-xs font-medium truncate leading-tight" title={item.filename}>
-          {item.name}
-        </p>
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-          <span>{formatBytes(item.size)}</span>
-          {item.hex ? (
-            <span className="text-[9px] uppercase tracking-wider text-muted-foreground/80 font-mono" title={`SHA256: ${item.hex}`}>
-              {item.hex.slice(0, 8)}
-            </span>
-          ) : item.width > 0 ? (
-            <span>{item.width}×{item.height}</span>
-          ) : (
-            <span className="uppercase">{item.extension}</span>
-          )}
-        </div>
-      </div>
-    </Card>
+    </SidebarProvider>
   );
-}
-
-// Icon selector based on file category
-function FileIcon({ category, className }: { category: string; className?: string }) {
-  switch (category) {
-    case "image":
-      return <FileImage className={className} />;
-    case "video":
-      return <FileVideo className={className} />;
-    case "audio":
-      return <FileAudio className={className} />;
-    case "document":
-      return <FileText className={className} />;
-    case "archive":
-      return <FileArchive className={className} />;
-    default:
-      return <File className={className} />;
-  }
 }
