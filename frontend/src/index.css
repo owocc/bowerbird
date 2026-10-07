@@ -157,6 +157,25 @@
   -webkit-app-region: no-drag !important;
 }
 
+/* Dynamically disable all window dragging when files are dragged into the window (Electron / Wails best practice) */
+body[data-dragging-files="true"],
+body[data-dragging-files="true"] *,
+[data-dragging-files="true"] .wails-drag {
+  --wails-draggable: no-drag !important;
+  -webkit-app-region: no-drag !important;
+}
+
+/* Strictly ensure search input and its vicinity cannot trigger window dragging */
+.search-input-container,
+.search-input-container *,
+input[type="search"],
+input[placeholder="Search"] {
+  --wails-draggable: no-drag !important;
+  -webkit-app-region: no-drag !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}
+
 /* Draggable asset cards: strictly opt-out of window drag and enable HTML5 element drag */
 .draggable-asset-card {
   --wails-draggable: no-drag !important;

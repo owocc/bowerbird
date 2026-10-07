@@ -111,6 +111,59 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       clearTimer();
     };
   }, [onRefresh]);
+  // Window-level listener: whenever external files are dragged over the window,
+  // dynamically set document.body[data-dragging-files="true"] to disable all window dragging (-webkit-app-region: drag)
+  useEffect(() => {
+    let windowDragCounter = 0;
+
+    const onWindowDragEnter = (e: DragEvent) => {
+      const types = Array.from(e.dataTransfer?.types || []);
+      const isFileDrag =
+        types.some(
+          (t) =>
+            t.toLowerCase() === "files" ||
+            t === "text/uri-list" ||
+            t === "public.file-url" ||
+            t === "nsfilenamespboardtype"
+        ) || ((e.dataTransfer?.files?.length || 0) > 0);
+
+      if (isFileDrag) {
+        windowDragCounter++;
+        document.body.setAttribute("data-dragging-files", "true");
+      }
+    };
+
+    const onWindowDragLeave = () => {
+      windowDragCounter--;
+      if (windowDragCounter <= 0) {
+        windowDragCounter = 0;
+        document.body.removeAttribute("data-dragging-files");
+      }
+    };
+
+    const onWindowDrop = () => {
+      windowDragCounter = 0;
+      document.body.removeAttribute("data-dragging-files");
+    };
+
+    const onWindowDragEnd = () => {
+      windowDragCounter = 0;
+      document.body.removeAttribute("data-dragging-files");
+    };
+
+    window.addEventListener("dragenter", onWindowDragEnter);
+    window.addEventListener("dragleave", onWindowDragLeave);
+    window.addEventListener("drop", onWindowDrop);
+    window.addEventListener("dragend", onWindowDragEnd);
+
+    return () => {
+      window.removeEventListener("dragenter", onWindowDragEnter);
+      window.removeEventListener("dragleave", onWindowDragLeave);
+      window.removeEventListener("drop", onWindowDrop);
+      window.removeEventListener("dragend", onWindowDragEnd);
+      document.body.removeAttribute("data-dragging-files");
+    };
+  }, []);
 
   // Import single File object via FileReader and return its new item ID
   const importFileObject = useCallback(async (file: globalThis.File): Promise<string | null> => {
