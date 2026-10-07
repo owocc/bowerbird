@@ -89,7 +89,7 @@ export function ItemDetailPanel({
   // If no item is selected, display library / current directory summary
   if (!item) {
     return (
-      <aside className="w-80 h-full border-l border-border bg-sidebar/30 flex flex-col shrink-0 select-none overflow-y-auto">
+      <aside className="w-full h-full border-l-0 bg-sidebar/30 flex flex-col select-none overflow-y-auto">
         <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             <Info className="size-3.5" />
@@ -174,7 +174,7 @@ export function ItemDetailPanel({
   const unassignedFolders = flatFolderList.filter((f) => !assignedFolderIds.has(f.id));
 
   return (
-    <aside className="w-80 h-full border-l border-border bg-sidebar/40 flex flex-col shrink-0 select-none overflow-hidden">
+    <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
       {/* Top Header */}
       <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 min-w-0">

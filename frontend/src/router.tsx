@@ -11,12 +11,15 @@ import { GetActiveLibrary } from "../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../bindings/bowerbird/core/models";
 import { LibrarySetup } from "@/components/LibrarySetup";
 import { LibraryWorkspace } from "@/components/LibraryWorkspace";
+import { ThemeProvider } from "@/components/theme-provider";
 
 function RootLayout() {
   return (
-    <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
-      <Outlet />
-    </div>
+    <ThemeProvider defaultTheme="system" storageKey="bowerbird-ui-theme">
+      <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
+        <Outlet />
+      </div>
+    </ThemeProvider>
   );
 }
 
@@ -56,6 +59,7 @@ function HomePage() {
     <LibraryWorkspace
       library={activeLibrary}
       onLibraryClosed={() => setActiveLibrary(null)}
+      onLibraryChanged={(lib) => setActiveLibrary(lib)}
     />
   );
 }

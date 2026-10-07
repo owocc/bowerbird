@@ -184,7 +184,7 @@ export function CustomContextMenu({
                       }}
                       className="w-full flex items-center gap-2 px-2 py-1 rounded-md text-left text-xs hover:bg-muted truncate"
                     >
-                      <Folder className="size-3 text-amber-500 shrink-0" />
+                      <Folder className="size-3 text-muted-foreground shrink-0" />
                       <span className="truncate">{f.name}</span>
                     </button>
                   ))}

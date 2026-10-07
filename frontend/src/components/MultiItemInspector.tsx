@@ -62,7 +62,7 @@ export function MultiItemInspector({
   collect(allFolders);
 
   return (
-    <aside className="w-80 h-full border-l border-border bg-sidebar/40 flex flex-col shrink-0 select-none overflow-hidden">
+    <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
       {/* Top Header */}
       <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -185,7 +185,7 @@ export function MultiItemInspector({
                     }}
                     className="w-full text-left px-2 py-1 rounded text-[11px] hover:bg-muted flex items-center gap-1.5 truncate"
                   >
-                    <FolderIcon className="size-3 text-amber-500 shrink-0" />
+                    <FolderIcon className="size-3 text-muted-foreground shrink-0" />
                     <span className="truncate">{f.name}</span>
                   </button>
                 ))}

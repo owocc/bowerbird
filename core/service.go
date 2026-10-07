@@ -22,6 +22,16 @@ func (s *Service) SetManager(mgr *LibraryManager) {
 	s.mgr = mgr
 }
 
+func (s *Service) getApp() *application.App {
+	if s.app != nil {
+		return s.app
+	}
+	if s.mgr != nil {
+		return s.mgr.GetApp()
+	}
+	return nil
+}
+
 // Exported Wails Service RPC methods
 
 func (s *Service) GetActiveLibrary() (*LibraryInfo, error) {
@@ -116,10 +126,11 @@ func (s *Service) GetAssetServerPort() int {
 }
 
 func (s *Service) SelectDirectory() (string, error) {
-	if s.app == nil {
+	app := s.getApp()
+	if app == nil {
 		return "", errors.New("application not initialized")
 	}
-	dialog := s.app.Dialog.OpenFile().
+	dialog := app.Dialog.OpenFile().
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(true).
@@ -128,10 +139,11 @@ func (s *Service) SelectDirectory() (string, error) {
 }
 
 func (s *Service) SelectLibraryDialog() (string, error) {
-	if s.app == nil {
+	app := s.getApp()
+	if app == nil {
 		return "", errors.New("application not initialized")
 	}
-	dialog := s.app.Dialog.OpenFile().
+	dialog := app.Dialog.OpenFile().
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(false).
