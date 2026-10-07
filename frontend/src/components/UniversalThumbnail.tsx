@@ -8,7 +8,7 @@ import {
   File,
 } from "lucide-react";
 import type { Item } from "../../bindings/bowerbird/core/models";
-import { getFileCategory, escapePathForShell } from "@/lib/formatters";
+import { getFileCategory } from "@/lib/formatters";
 
 export interface UniversalThumbnailProps {
   item: Item;
@@ -49,7 +49,7 @@ export function UniversalThumbnail({
       ? item.thumbnailUrl
       : item.originalUrl;
 
-  // Default drag handler if none provided: sets standard OS and internal drag payloads
+  // Default drag handler: sets raw physical file path and RFC URI list for native OS drag interception
   const defaultDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
     e.dataTransfer.setData("application/x-bowerbird-item-id", item.id);
@@ -57,7 +57,6 @@ export function UniversalThumbnail({
     const rawPath =
       item.filePath ||
       (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
-    const shellPath = item.shellPath || escapePathForShell(rawPath);
     let fileUrl = item.fileUrl;
     if (!fileUrl && rawPath) {
       fileUrl = encodeURI(`file://${rawPath.startsWith("/") ? "" : "/"}${rawPath}`);
@@ -66,12 +65,15 @@ export function UniversalThumbnail({
     }
     const mime = item.mimeType || "application/octet-stream";
 
-    e.dataTransfer.setData("text/plain", shellPath);
+    if (rawPath) {
+      e.dataTransfer.setData("text/plain", rawPath);
+      e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
+      e.dataTransfer.setData("application/x-bowerbird-paths", JSON.stringify([rawPath]));
+    }
     if (fileUrl) {
       e.dataTransfer.setData("text/uri-list", fileUrl);
       e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
     }
-    e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
     e.dataTransfer.effectAllowed = "copyMove";
   };
 

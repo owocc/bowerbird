@@ -196,27 +196,64 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     });
   }, [items, activeFolderId, categoryFilter]);
 
-  // Intra-app HTML5 Drag Start (marked with internal flags to prevent window dropzone re-import)
+  // Native OS & In-App Drag Start:
+  // Prepares physical file paths and RFC URI lists. Native backend hooks (macOS / Windows) intercept
+  // the drag session, clear plain text, and inject genuine OS file objects (public.file-url / CF_HDROP)
+  // so external programs (Figma, Finder, Explorer) read the original files directly.
   const handleDragStart = (e: React.DragEvent, item: Item) => {
+    // If dragged item is part of multi-selection, drag all selected items; otherwise drag only item
+    const isMulti = selectedItemIds.has(item.id) && selectedItemIds.size > 1;
+    const targetItems = isMulti
+      ? items.filter((i) => selectedItemIds.has(i.id))
+      : [item];
+
+    const rawPaths = targetItems
+      .map((i) => i.filePath || (i.itemPath ? `${i.itemPath}/${i.filename}` : ""))
+      .filter(Boolean);
+
+    const fileUrls = targetItems
+      .map((i) => {
+        const raw = i.filePath || (i.itemPath ? `${i.itemPath}/${i.filename}` : "");
+        let u = i.fileUrl;
+        if (!u && raw) {
+          u = encodeURI(`file://${raw.startsWith("/") ? "" : "/"}${raw}`);
+        } else if (u && u.includes(" ")) {
+          u = encodeURI(u);
+        }
+        return u;
+      })
+      .filter((u): u is string => Boolean(u));
+
+    // Internal Bowerbird flags
     e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
     e.dataTransfer.setData("application/x-bowerbird-item-id", item.id);
-
-    const rawPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
-    const shellPath = item.shellPath || escapePathForShell(rawPath);
-    let fileUrl = item.fileUrl;
-    if (!fileUrl && rawPath) {
-      fileUrl = encodeURI(`file://${rawPath.startsWith("/") ? "" : "/"}${rawPath}`);
-    } else if (fileUrl && fileUrl.includes(" ")) {
-      fileUrl = encodeURI(fileUrl);
+    if (isMulti) {
+      e.dataTransfer.setData(
+        "application/x-bowerbird-item-ids",
+        JSON.stringify(targetItems.map((i) => i.id))
+      );
     }
-    const mime = item.mimeType || "application/octet-stream";
 
-    e.dataTransfer.setData("text/plain", shellPath);
-    if (fileUrl) {
-      e.dataTransfer.setData("text/uri-list", fileUrl);
-      e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
+    // Raw unescaped physical file paths for OS / external programs
+    if (rawPaths.length > 0) {
+      e.dataTransfer.setData("text/plain", rawPaths.join("\n"));
+      e.dataTransfer.setData("application/x-bowerbird-path", rawPaths[0]);
+      e.dataTransfer.setData(
+        "application/x-bowerbird-paths",
+        JSON.stringify(rawPaths)
+      );
     }
-    e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
+
+    // Standard RFC uri-list
+    if (fileUrls.length > 0) {
+      e.dataTransfer.setData("text/uri-list", fileUrls.join("\r\n"));
+      const mime = item.mimeType || "application/octet-stream";
+      e.dataTransfer.setData(
+        "DownloadURL",
+        `${mime}:${item.filename}:${fileUrls[0]}`
+      );
+    }
+
     e.dataTransfer.effectAllowed = "copyMove";
   };
 
