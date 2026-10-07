@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { ZoomControls } from "@/components/ZoomControls";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { getFileCategory, formatBytes } from "@/lib/formatters";
+import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
 
 export interface UnifiedPreviewModalProps {
   open: boolean;
@@ -29,8 +30,9 @@ export interface UnifiedPreviewModalProps {
   items: Item[];
   onClose: () => void;
   onIndexChange?: (item: Item) => void;
+  sidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
-
 /**
  * Unified Preview Component shared by both:
  * 1. Double-click inline preview in main
@@ -44,6 +46,8 @@ export function UnifiedPreviewModal({
   items,
   onClose,
   onIndexChange,
+  sidebarOpen = true,
+  onToggleSidebar,
 }: UnifiedPreviewModalProps) {
   const transformRef = useRef<ReactZoomPanPinchRef>(null);
   // Default preview scale is strictly 100% (1.0)
@@ -180,15 +184,18 @@ export function UnifiedPreviewModal({
         ========================================================================
       */}
       {isInline ? (
-        <header className="h-12 border-b border-border/80 px-4 flex items-center justify-between gap-4 shrink-0 bg-background/90 z-20">
-          {/* Left: Return button (icon only) + Turn-page pagination */}
-          <div className="flex items-center gap-2">
+        <header className="h-(--titlebar-height) border-b-0 px-3 flex items-center justify-between gap-4 shrink-0 bg-background/95 z-20 wails-drag">
+          {/* Left: Shared safe prefix + Back button + Turn-page pagination */}
+          <MainHeaderSafePrefix
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={onToggleSidebar}
+          >
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={onClose}
-              className="size-7 rounded-lg text-muted-foreground hover:text-foreground"
-              title="返回网格 (Esc / 双击)"
+              className="size-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
+              title="Back (Esc / Double-click)"
             >
               <ArrowLeft className="size-4" />
             </Button>
@@ -200,7 +207,7 @@ export function UnifiedPreviewModal({
                   variant="ghost"
                   size="icon-xs"
                   onClick={handlePrev}
-                  title="上一张 (←)"
+                  title="Previous (←)"
                   className="size-6 text-muted-foreground hover:text-foreground rounded"
                 >
                   <ChevronLeft className="size-3.5" />
@@ -214,14 +221,14 @@ export function UnifiedPreviewModal({
                   variant="ghost"
                   size="icon-xs"
                   onClick={handleNext}
-                  title="下一张 (→)"
+                  title="Next (→)"
                   className="size-6 text-muted-foreground hover:text-foreground rounded"
                 >
                   <ChevronRight className="size-3.5" />
                 </Button>
               </div>
             )}
-          </div>
+          </MainHeaderSafePrefix>
 
           {/* Center: ZoomControls slider & dropdown */}
           <ZoomControls
@@ -229,16 +236,16 @@ export function UnifiedPreviewModal({
             onScaleChange={handleManualScaleChange}
             onActualSize={handleActualSize}
             onZoomToFit={handleZoomToFit}
-            className="max-w-xs flex-1 justify-center"
+            className="max-w-xs flex-1 justify-center wails-no-drag"
           />
 
           {/* Right: Close button */}
-          <div className="flex items-center">
+          <div className="flex items-center wails-no-drag">
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={onClose}
-              title="关闭预览 (Esc)"
+              title="Close Preview (Esc)"
               className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
             >
               <X className="size-3.5" />
