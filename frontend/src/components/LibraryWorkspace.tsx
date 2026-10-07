@@ -5,6 +5,8 @@ import {
   Upload,
   X,
   Trash2,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -568,18 +570,34 @@ export function LibraryWorkspace({
                       <span className="font-semibold text-xs tracking-tight truncate text-foreground">
                         {activeFolderId === "__trash__" ? "Trash" : (currentFolder ? currentFolder.name : "All")}
                       </span>
-                      {/* Thumbnail row height zoom slider right after name */}
-                      <div className="flex items-center gap-1.5 ml-2.5 wails-no-drag">
-                        <div className="w-20">
+                      {/* Thumbnail row height zoom slider: [-] [slider] [+] */}
+                      <div className="flex items-center gap-0.5 ml-2 wails-no-drag select-none">
+                        <button
+                          type="button"
+                          onClick={() => setRowHeight((h) => Math.max(60, h - 10))}
+                          className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
+                          title="Decrease height"
+                        >
+                          <Minus className="size-3" />
+                        </button>
+                        <div className="w-16 wails-no-drag">
                           <Slider
                             min={60}
                             max={200}
                             step={5}
                             value={rowHeight}
                             onValueChange={(val) => setRowHeight(Array.isArray(val) ? val[0] : val)}
+                            className="wails-no-drag"
                           />
                         </div>
-                        <span className="text-[10px] text-muted-foreground font-mono">{rowHeight}px</span>
+                        <button
+                          type="button"
+                          onClick={() => setRowHeight((h) => Math.min(200, h + 10))}
+                          className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
+                          title="Increase height"
+                        >
+                          <Plus className="size-3" />
+                        </button>
                       </div>
                     </MainHeaderSafePrefix>
                     {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search", strictly no window dragging) */}

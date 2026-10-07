@@ -30,7 +30,7 @@ export function Slider({
       step={step}
       disabled={disabled}
       className={cn(
-        "relative flex w-full touch-none select-none items-center",
+        "relative flex w-full touch-none select-none items-center wails-no-drag",
         className
       )}
       {...props}
