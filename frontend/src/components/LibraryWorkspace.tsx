@@ -485,9 +485,7 @@ export function LibraryWorkspace({
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
       <div
-        data-file-drop-target="true"
         className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
-        {...dragHandlers}
       >
         {/* Hidden file input for manual browse selection */}
         <input
@@ -503,8 +501,6 @@ export function LibraryWorkspace({
           }}
         />
 
-        {/* Encapsulated Drag & Drop State Overlay for external file drops */}
-        <DropzoneOverlay state={dropState} />
 
         {/* ========================================================= */}
         {/* RESIZABLE LAYOUT: SIDEBAR + MAIN GALLERY WORKSPACE        */}
@@ -553,9 +549,16 @@ export function LibraryWorkspace({
 
           {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery) */}
           <ResizablePanel id="gallery-main-panel" minSize={380}>
-            <main data-file-drop-target="true" className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background">
-                {/* Top Desktop App Navigation Bar */}
-                {/* Main Desktop App Header: Single unified background, no internal borders */}
+            <main
+              data-file-drop-target="true"
+              className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background"
+              {...dragHandlers}
+            >
+              {/* Encapsulated Drag & Drop State Overlay only for main gallery */}
+              <DropzoneOverlay state={dropState} />
+
+              {/* Top Desktop App Navigation Bar */}
+              {/* Main Desktop App Header: Single unified background, no internal borders */}
                 <header className="w-full bg-background border-b-0 shrink-0 select-none">
                   {/* Div 1: Height matches macOS traffic lights row */}
                   <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-drag">
@@ -588,20 +591,20 @@ export function LibraryWorkspace({
                       )}
                     </div>
 
-                    {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search") */}
-                    <div className="w-[150px] shrink-0 wails-no-drag">
-                      <div className="relative">
-                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search", strictly no window dragging) */}
+                    <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container select-text">
+                      <div className="relative wails-no-drag">
+                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         <Input
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
                           placeholder="Search"
-                          className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background"
+                          className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background wails-no-drag select-text"
                         />
                         {searchQuery && (
                           <button
                             onClick={() => setSearchQuery("")}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground wails-no-drag"
                           >
                             <X className="size-3" />
                           </button>
