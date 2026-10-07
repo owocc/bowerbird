@@ -14,12 +14,24 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+export function AddItemToFolder(itemID: string, folderID: string): $CancellablePromise<void> {
+    return $Call.ByID(2158034121, itemID, folderID);
+}
+
 export function CloseLibrary(): $CancellablePromise<void> {
     return $Call.ByID(3049267163);
 }
 
+export function CreateFolder(name: string, parentID: string): $CancellablePromise<$models.Folder | null> {
+    return $Call.ByID(1778465740, name, parentID);
+}
+
 export function CreateLibrary(parentDir: string, libName: string): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(3111065859, parentDir, libName);
+}
+
+export function DeleteFolder(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2706508003, id);
 }
 
 export function DeleteItem(id: string): $CancellablePromise<void> {
@@ -32,6 +44,10 @@ export function GetActiveLibrary(): $CancellablePromise<$models.LibraryInfo | nu
 
 export function GetAssetServerPort(): $CancellablePromise<number> {
     return $Call.ByID(1298596620);
+}
+
+export function GetFolders(): $CancellablePromise<$models.Folder[] | null> {
+    return $Call.ByID(1769180301);
 }
 
 export function GetItem(id: string): $CancellablePromise<$models.Item | null> {
@@ -62,6 +78,14 @@ export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.Li
     return $Call.ByID(2189258727, libraryPath);
 }
 
+export function RemoveItemFromFolder(itemID: string, folderID: string): $CancellablePromise<void> {
+    return $Call.ByID(4055258539, itemID, folderID);
+}
+
+export function RenameFolder(id: string, name: string): $CancellablePromise<void> {
+    return $Call.ByID(2472567758, id, name);
+}
+
 export function RevealInFinder(id: string): $CancellablePromise<void> {
     return $Call.ByID(1659303366, id);
 }
@@ -72,6 +96,10 @@ export function SelectDirectory(): $CancellablePromise<string> {
 
 export function SelectLibraryDialog(): $CancellablePromise<string> {
     return $Call.ByID(2272606043);
+}
+
+export function SetItemFolders(itemID: string, folderIDs: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3134410356, itemID, folderIDs);
 }
 
 export function SetManager(mgr: $models.LibraryManager | null): $CancellablePromise<void> {

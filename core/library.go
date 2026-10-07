@@ -270,30 +270,52 @@ func (m *LibraryManager) GetActiveLibrary() *LibraryInfo {
 }
 
 func (m *LibraryManager) initSchema(db *sql.DB) error {
-	schema := `
-	CREATE TABLE IF NOT EXISTS items (
-		id TEXT PRIMARY KEY,
-		hex TEXT DEFAULT '',
-		name TEXT NOT NULL,
-		extension TEXT NOT NULL,
-		filename TEXT NOT NULL,
-		size INTEGER NOT NULL,
-		mime_type TEXT NOT NULL,
-		width INTEGER DEFAULT 0,
-		height INTEGER DEFAULT 0,
-		has_thumbnail INTEGER DEFAULT 0,
-		tags TEXT DEFAULT '',
-		created_at INTEGER NOT NULL,
-		imported_at INTEGER NOT NULL
-	);
-	CREATE INDEX IF NOT EXISTS idx_items_imported_at ON items(imported_at DESC);
-	CREATE INDEX IF NOT EXISTS idx_items_extension ON items(extension);
-	CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
-	CREATE INDEX IF NOT EXISTS idx_items_hex ON items(hex);
-	`
-	if _, err := db.Exec(schema); err != nil {
-		return err
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS items (
+			id TEXT PRIMARY KEY,
+			hex TEXT DEFAULT '',
+			name TEXT NOT NULL,
+			extension TEXT NOT NULL,
+			filename TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			mime_type TEXT NOT NULL,
+			width INTEGER DEFAULT 0,
+			height INTEGER DEFAULT 0,
+			has_thumbnail INTEGER DEFAULT 0,
+			tags TEXT DEFAULT '',
+			created_at INTEGER NOT NULL,
+			imported_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_imported_at ON items(imported_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_extension ON items(extension)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_name ON items(name)`,
+		`CREATE INDEX IF NOT EXISTS idx_items_hex ON items(hex)`,
+
+		`CREATE TABLE IF NOT EXISTS folders (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			parent_id TEXT DEFAULT '',
+			created_at INTEGER NOT NULL,
+			sort_order INTEGER DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders(parent_id)`,
+
+		`CREATE TABLE IF NOT EXISTS item_folders (
+			item_id TEXT NOT NULL,
+			folder_id TEXT NOT NULL,
+			added_at INTEGER NOT NULL,
+			PRIMARY KEY (item_id, folder_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_item_folders_folder ON item_folders(folder_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_item_folders_item ON item_folders(item_id)`,
 	}
+
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN hex TEXT DEFAULT ''")
 	return nil
 }
@@ -332,6 +354,17 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 	}
 	defer rows.Close()
 
+	folderMap := make(map[string][]string)
+	fRows, fErr := db.Query("SELECT item_id, folder_id FROM item_folders")
+	if fErr == nil {
+		for fRows.Next() {
+			var itID, fID string
+			if scanErr := fRows.Scan(&itID, &fID); scanErr == nil {
+				folderMap[itID] = append(folderMap[itID], fID)
+			}
+		}
+		fRows.Close()
+	}
 	var items []Item
 	for rows.Next() {
 		var item Item
@@ -360,6 +393,11 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 			item.Tags = strings.Split(tagsStr, ",")
 		} else {
 			item.Tags = []string{}
+		}
+		if fList, ok := folderMap[item.ID]; ok {
+			item.Folders = fList
+		} else {
+			item.Folders = []string{}
 		}
 		m.populateItemPaths(&item, active.Path, port)
 		items = append(items, item)
@@ -410,6 +448,17 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 		item.Tags = strings.Split(tagsStr, ",")
 	} else {
 		item.Tags = []string{}
+	}
+	item.Folders = []string{}
+	fRows, fErr := db.Query("SELECT folder_id FROM item_folders WHERE item_id = ?", item.ID)
+	if fErr == nil {
+		for fRows.Next() {
+			var fID string
+			if err := fRows.Scan(&fID); err == nil {
+				item.Folders = append(item.Folders, fID)
+			}
+		}
+		fRows.Close()
 	}
 	m.populateItemPaths(&item, active.Path, port)
 	return &item, nil
@@ -832,6 +881,7 @@ func (m *LibraryManager) DeleteItem(id string) error {
 	itemDir := filepath.Join(active.Path, "items", id)
 	_ = os.RemoveAll(itemDir)
 
+	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
 	_, err := db.Exec("DELETE FROM items WHERE id = ? OR hex = ?", id, id)
 	return err
 }
@@ -966,4 +1016,246 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	_, _ = io.ReadFull(strings.NewReader(fmt.Sprintf("%d", time.Now().UnixNano())), b)
 	return hex.EncodeToString(b)
+}
+
+// GetFolders returns all folders structured as a tree with item counts.
+func (m *LibraryManager) GetFolders() ([]Folder, error) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return []Folder{}, nil
+	}
+
+	// 1. Get counts of items in each folder
+	counts := make(map[string]int)
+	cRows, err := db.Query("SELECT folder_id, COUNT(DISTINCT item_id) FROM item_folders GROUP BY folder_id")
+	if err == nil {
+		for cRows.Next() {
+			var fID string
+			var count int
+			if scanErr := cRows.Scan(&fID, &count); scanErr == nil {
+				counts[fID] = count
+			}
+		}
+		cRows.Close()
+	}
+
+	// 2. Query all folders
+	rows, err := db.Query("SELECT id, name, COALESCE(parent_id, ''), created_at, sort_order FROM folders ORDER BY sort_order ASC, created_at ASC")
+	if err != nil {
+		return []Folder{}, err
+	}
+	defer rows.Close()
+
+	var allFolders []Folder
+	lookup := make(map[string]*Folder)
+
+	for rows.Next() {
+		var f Folder
+		if err := rows.Scan(&f.ID, &f.Name, &f.ParentID, &f.CreatedAt, &f.SortOrder); err != nil {
+			continue
+		}
+		f.ItemCount = counts[f.ID]
+		f.Children = []Folder{}
+		allFolders = append(allFolders, f)
+	}
+
+	for i := range allFolders {
+		lookup[allFolders[i].ID] = &allFolders[i]
+	}
+
+	var rootFolders []Folder
+	for _, f := range allFolders {
+		if f.ParentID == "" || lookup[f.ParentID] == nil {
+			rootFolders = append(rootFolders, f)
+		}
+	}
+
+	var assemble func(parentID string) []Folder
+	assemble = func(parentID string) []Folder {
+		var result []Folder
+		for _, f := range allFolders {
+			if f.ParentID == parentID {
+				f.Children = assemble(f.ID)
+				result = append(result, f)
+			}
+		}
+		if result == nil {
+			result = []Folder{}
+		}
+		return result
+	}
+
+	var tree []Folder
+	for _, root := range rootFolders {
+		root.Children = assemble(root.ID)
+		tree = append(tree, root)
+	}
+
+	if tree == nil {
+		tree = []Folder{}
+	}
+	return tree, nil
+}
+
+// CreateFolder creates a new virtual folder.
+func (m *LibraryManager) CreateFolder(name string, parentID string) (*Folder, error) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return nil, errors.New("no active library")
+	}
+
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		cleanName = "新建文件夹"
+	}
+
+	folderID := fmt.Sprintf("folder_%d_%04d", time.Now().UnixNano(), time.Now().Nanosecond()%10000)
+	now := time.Now().Unix()
+
+	_, err := db.Exec("INSERT INTO folders (id, name, parent_id, created_at, sort_order) VALUES (?, ?, ?, ?, ?)",
+		folderID, cleanName, strings.TrimSpace(parentID), now, 0,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create folder: %w", err)
+	}
+
+	return &Folder{
+		ID:        folderID,
+		Name:      cleanName,
+		ParentID:  strings.TrimSpace(parentID),
+		CreatedAt: now,
+		SortOrder: 0,
+		Children:  []Folder{},
+		ItemCount: 0,
+	}, nil
+}
+
+// RenameFolder updates a folder's display name.
+func (m *LibraryManager) RenameFolder(id string, name string) error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	cleanName := strings.TrimSpace(name)
+	if cleanName == "" {
+		return errors.New("folder name cannot be empty")
+	}
+
+	_, err := db.Exec("UPDATE folders SET name = ? WHERE id = ?", cleanName, id)
+	return err
+}
+
+// DeleteFolder deletes a folder and its children (without deleting items).
+func (m *LibraryManager) DeleteFolder(id string) error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	folderIDs := []string{id}
+	queue := []string{id}
+	for len(queue) > 0 {
+		curr := queue[0]
+		queue = queue[1:]
+		rows, err := db.Query("SELECT id FROM folders WHERE parent_id = ?", curr)
+		if err == nil {
+			for rows.Next() {
+				var childID string
+				if rows.Scan(&childID) == nil {
+					folderIDs = append(folderIDs, childID)
+					queue = append(queue, childID)
+				}
+			}
+			rows.Close()
+		}
+	}
+
+	for _, fID := range folderIDs {
+		_, _ = db.Exec("DELETE FROM item_folders WHERE folder_id = ?", fID)
+		_, _ = db.Exec("DELETE FROM folders WHERE id = ?", fID)
+	}
+
+	return nil
+}
+
+// AddItemToFolder links an item to a folder.
+func (m *LibraryManager) AddItemToFolder(itemID string, folderID string) error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	_, err := db.Exec("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)",
+		itemID, folderID, time.Now().Unix(),
+	)
+	return err
+}
+
+// RemoveItemFromFolder unlinks an item from a folder.
+func (m *LibraryManager) RemoveItemFromFolder(itemID string, folderID string) error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	_, err := db.Exec("DELETE FROM item_folders WHERE item_id = ? AND folder_id = ?", itemID, folderID)
+	return err
+}
+
+// SetItemFolders sets the complete list of folders for an item.
+func (m *LibraryManager) SetItemFolders(itemID string, folderIDs []string) error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("DELETE FROM item_folders WHERE item_id = ?", itemID); err != nil {
+		return err
+	}
+
+	now := time.Now().Unix()
+	stmt, err := tx.Prepare("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, fID := range folderIDs {
+		trimmed := strings.TrimSpace(fID)
+		if trimmed != "" {
+			if _, err := stmt.Exec(itemID, trimmed, now); err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
 }

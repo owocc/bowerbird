@@ -3,6 +3,8 @@ package main
 import (
 	"embed"
 	"log"
+	"path/filepath"
+	"strings"
 	"time"
 	"bowerbird/core"
 
@@ -67,12 +69,30 @@ func main() {
 			return
 		}
 
+		activeLib := coreMgr.GetActiveLibrary()
+		// Filter out internal library files (e.g. from app drags)
+		var externalFiles []string
+		for _, f := range files {
+			if activeLib != nil && activeLib.Path != "" {
+				cleanFile := filepath.Clean(f)
+				cleanLibPath := filepath.Clean(activeLib.Path)
+				if strings.HasPrefix(cleanFile, cleanLibPath) {
+					continue // Internal library asset, do not re-import
+				}
+			}
+			externalFiles = append(externalFiles, f)
+		}
+
+		if len(externalFiles) == 0 {
+			return
+		}
+
 		app.Event.Emit("import-started", map[string]any{
-			"total": len(files),
+			"total": len(externalFiles),
 		})
 
 		go func() {
-			imported, err := coreMgr.ImportFilesWithProgress(files, func(current, total int, filename string) {
+			imported, err := coreMgr.ImportFilesWithProgress(externalFiles, func(current, total int, filename string) {
 				app.Event.Emit("import-progress", map[string]any{
 					"current":  current,
 					"total":    total,
@@ -85,8 +105,13 @@ func main() {
 				app.Event.Emit("import-error", err.Error())
 			} else {
 				log.Printf("[NativeDrop] successfully imported %d files", len(imported))
+				var ids []string
+				for _, it := range imported {
+					ids = append(ids, it.ID)
+				}
 				app.Event.Emit("import-completed", map[string]any{
 					"count": len(imported),
+					"ids":   ids,
 				})
 				app.Event.Emit("library-items-updated", len(imported))
 			}
