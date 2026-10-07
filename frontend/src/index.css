@@ -152,9 +152,21 @@
   -webkit-app-region: drag;
 }
 
-.wails-no-drag {
+.wails-no-drag,
+.wails-no-drag * {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+}
+
+/* Strictly ensure slider controls, +/- buttons and their vicinity cannot trigger window dragging */
+.slider-control-container,
+.slider-control-container *,
+[data-slot="slider"],
+[data-slot="slider"] * {
+  --wails-draggable: no-drag !important;
+  -webkit-app-region: no-drag !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 /* Dynamically disable all window dragging when files are dragged into the window (Electron / Wails best practice) */
