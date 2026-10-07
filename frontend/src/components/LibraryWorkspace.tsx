@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import {
@@ -561,7 +560,7 @@ export function LibraryWorkspace({
                 <header className="w-full bg-background border-b-0 shrink-0 select-none">
                   {/* Div 1: Height matches macOS traffic lights row */}
                   <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-drag">
-                    {/* Left: Shared safe prefix (macOS traffic lights + expand button if collapsed) + View title & count */}
+                    {/* Left: Shared safe prefix + Title + Preview height zoom slider */}
                     <MainHeaderSafePrefix
                       sidebarOpen={sidebarOpen}
                       onToggleSidebar={() => setSidebarOpen(true)}
@@ -569,14 +568,19 @@ export function LibraryWorkspace({
                       <span className="font-semibold text-xs tracking-tight truncate text-foreground">
                         {activeFolderId === "__trash__" ? "Trash" : (currentFolder ? currentFolder.name : "All")}
                       </span>
-                      <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
-                        {filteredItems.length}
-                      </Badge>
-                      {selectedItemIds.size > 0 && (
-                        <Badge variant="default" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
-                          {selectedItemIds.size} selected
-                        </Badge>
-                      )}
+                      {/* Thumbnail row height zoom slider right after name */}
+                      <div className="flex items-center gap-1.5 ml-2.5 wails-no-drag">
+                        <div className="w-20">
+                          <Slider
+                            min={60}
+                            max={200}
+                            step={5}
+                            value={rowHeight}
+                            onValueChange={(val) => setRowHeight(Array.isArray(val) ? val[0] : val)}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground font-mono">{rowHeight}px</span>
+                      </div>
                     </MainHeaderSafePrefix>
                     {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search", strictly no window dragging) */}
                     <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container select-text">
@@ -605,12 +609,12 @@ export function LibraryWorkspace({
                     {/* Category pills */}
                     <div className="flex items-center gap-1">
               {[
-                { id: "all", label: "全部" },
-                { id: "image", label: "图片" },
-                { id: "video", label: "视频" },
-                { id: "document", label: "文档" },
-                { id: "archive", label: "压缩包" },
-                { id: "other", label: "其他" },
+                { id: "all", label: "All" },
+                { id: "image", label: "Images" },
+                { id: "video", label: "Videos" },
+                { id: "document", label: "Docs" },
+                { id: "archive", label: "Archives" },
+                { id: "other", label: "Other" },
               ].map((cat) => (
                 <button
                   key={cat.id}
@@ -626,7 +630,7 @@ export function LibraryWorkspace({
               ))}
             </div>
 
-            {/* Right controls: sort toggle and justified row height slider */}
+            {/* Right controls: sort toggle */}
             <div className="flex items-center gap-2.5">
               {dropState.message && (
                 <span className="text-[11px] text-primary font-medium animate-pulse font-mono truncate max-w-xs">
@@ -639,23 +643,8 @@ export function LibraryWorkspace({
                 className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-md hover:bg-muted/50"
               >
                 <ArrowUpDown className="size-3" />
-                <span>{sortOrder === "desc" ? "最新导入" : "最早导入"}</span>
+                <span>{sortOrder === "desc" ? "Newest" : "Oldest"}</span>
               </button>
-
-              {/* Justified row height slider */}
-              <div className="flex items-center gap-1.5 pl-2.5 border-l border-border/60">
-                <span className="text-[10px] text-muted-foreground font-mono">高度</span>
-                <div className="w-20">
-                  <Slider
-                    min={60}
-                    max={200}
-                    step={5}
-                    value={rowHeight}
-                    onValueChange={(val) => setRowHeight(Array.isArray(val) ? val[0] : val)}
-                  />
-                </div>
-                <span className="text-[10px] text-muted-foreground font-mono">{rowHeight}px</span>
-              </div>
             </div>
                   </div>
                 </header>
