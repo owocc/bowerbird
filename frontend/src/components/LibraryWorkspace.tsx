@@ -36,8 +36,8 @@ import {
   ImportFromBase64,
   CloseLibrary,
   StartDrag,
-} from "../../bindings/bowerbird/libraryservice";
-import type { Item, LibraryInfo } from "../../bindings/bowerbird/models";
+} from "../../bindings/bowerbird/core/service";
+import type { Item, LibraryInfo } from "../../bindings/bowerbird/core/models";
 import { formatBytes, formatDate, getFileCategory, escapePathForShell } from "@/lib/formatters";
 
 interface LibraryWorkspaceProps {

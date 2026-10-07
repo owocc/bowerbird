@@ -8,8 +8,8 @@ import {
   OpenLibrary,
   SelectDirectory,
   SelectLibraryDialog,
-} from "../../bindings/bowerbird/libraryservice";
-import type { LibraryInfo } from "../../bindings/bowerbird/models";
+} from "../../bindings/bowerbird/core/service";
+import type { LibraryInfo } from "../../bindings/bowerbird/core/models";
 
 interface LibrarySetupProps {
   onLibraryOpened: (lib: LibraryInfo) => void;

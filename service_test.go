@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"bowerbird/core"
 )
 
 func TestLibraryServiceEndToEnd(t *testing.T) {
@@ -20,7 +22,8 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	svc := NewLibraryService()
+	mgr := core.NewLibraryManager()
+	svc := core.NewService(mgr)
 
 	// 1. Create Library
 	libInfo, err := svc.CreateLibrary(tempDir, "TestAssets")
@@ -34,6 +37,18 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	expectedLibPath := filepath.Join(tempDir, "TestAssets.library")
 	if libInfo.Path != expectedLibPath {
 		t.Errorf("Expected path %s, got %s", expectedLibPath, libInfo.Path)
+	}
+
+	// Verify UserDataStore remembered the active library
+	if mgr.GetUserDataStore() != nil {
+		savedPath := mgr.GetUserDataStore().GetActiveLibraryPath()
+		if savedPath != expectedLibPath {
+			t.Errorf("Expected UserDataStore to record active path %s, got %s", expectedLibPath, savedPath)
+		}
+		recents := svc.GetRecentLibraries()
+		if len(recents) == 0 || recents[0] != expectedLibPath {
+			t.Errorf("Expected recent libraries to contain %s, got %v", expectedLibPath, recents)
+		}
 	}
 
 	// Verify files on disk
