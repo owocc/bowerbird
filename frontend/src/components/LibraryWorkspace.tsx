@@ -201,21 +201,27 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
   // Drag-out to Finder / Explorer using standard native file absolute path
   const handleDragStart = (e: React.DragEvent, item: Item) => {
-    const filePath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
-    const fileUrl = item.fileUrl || `file://${encodeURI(filePath)}`;
+    const rawPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
+    // Ensure file:// URL has all spaces and special characters percent-encoded (RFC 8089)
+    let fileUrl = item.fileUrl;
+    if (!fileUrl && rawPath) {
+      fileUrl = encodeURI(`file://${rawPath.startsWith("/") ? "" : "/"}${rawPath}`);
+    } else if (fileUrl && fileUrl.includes(" ")) {
+      fileUrl = encodeURI(fileUrl);
+    }
     const mime = item.mimeType || "application/octet-stream";
 
-    // 1. Standard OS File URI for macOS Finder, Windows Explorer, desktop apps
+    // 1. Standard OS File URI: spaces encoded as %20 so Finder/Explorer never splits or breaks on spaces
     e.dataTransfer.setData("text/uri-list", fileUrl);
 
-    // 2. Absolute physical file path for terminals, editors, drop handlers
-    e.dataTransfer.setData("text/plain", filePath);
+    // 2. Absolute physical file path
+    e.dataTransfer.setData("text/plain", rawPath);
 
-    // 3. Standard DownloadURL format with native file:// scheme
+    // 3. DownloadURL: format with properly encoded file URL
     e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
 
     // 4. Application-specific absolute path
-    e.dataTransfer.setData("application/x-bowerbird-path", filePath);
+    e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
 
     e.dataTransfer.effectAllowed = "copy";
   };
@@ -487,6 +493,14 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                       <span className="text-muted-foreground">文件大小</span>
                       <span className="font-mono">{formatBytes(selectedItem.size)}</span>
                     </div>
+                    {selectedItem.hex && (
+                      <div className="flex justify-between items-center py-0.5 border-b border-border/40">
+                        <span className="text-muted-foreground">内容指纹 (HEX)</span>
+                        <span className="font-mono text-[10px] truncate max-w-[200px]" title={selectedItem.hex}>
+                          {selectedItem.hex}
+                        </span>
+                      </div>
+                    )}
                     {selectedItem.width > 0 && (
                       <div className="flex justify-between py-0.5 border-b border-border/40">
                         <span className="text-muted-foreground">图片尺寸</span>
@@ -644,7 +658,11 @@ function AssetCard({ item, onClick, onDragStart, onDelete, onReveal }: AssetCard
         </p>
         <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
           <span>{formatBytes(item.size)}</span>
-          {item.width > 0 ? (
+          {item.hex ? (
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground/80 font-mono" title={`SHA256: ${item.hex}`}>
+              {item.hex.slice(0, 8)}
+            </span>
+          ) : item.width > 0 ? (
             <span>{item.width}×{item.height}</span>
           ) : (
             <span className="uppercase">{item.extension}</span>
