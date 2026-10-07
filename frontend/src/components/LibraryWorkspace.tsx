@@ -29,18 +29,17 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Events } from "@wailsio/runtime";
 import {
   GetItems,
   DeleteItem,
   RevealInFinder,
-  ImportFromBase64,
-  ImportFromURL,
   CloseLibrary,
   StartDrag,
 } from "../../bindings/bowerbird/core/service";
 import type { Item, LibraryInfo } from "../../bindings/bowerbird/core/models";
 import { formatBytes, formatDate, getFileCategory, escapePathForShell } from "@/lib/formatters";
+import { useFileDrop } from "@/hooks/useFileDrop";
+import { DropzoneOverlay } from "@/components/DropzoneOverlay";
 
 interface LibraryWorkspaceProps {
   library: LibraryInfo;
@@ -53,13 +52,9 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-  const [importStatus, setImportStatus] = useState<string | null>(null);
-  const dragCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Load items from libSQL database
   const refreshItems = useCallback(async () => {
     try {
@@ -74,49 +69,12 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
   useEffect(() => {
     refreshItems();
-    // Listen for native OS file drops processed by Go backend
-    const unsubscribe = Events.On("library-items-updated", () => {
-      refreshItems();
-    });
-    return () => {
-      unsubscribe();
-    };
   }, [refreshItems]);
 
-  // Helper to import a single File object using Promise.withResolvers
-  const processAndImportFile = async (file: globalThis.File): Promise<boolean> => {
-    const { promise, resolve } = Promise.withResolvers<boolean>();
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64 = reader.result as string;
-        await ImportFromBase64(file.name, base64);
-        resolve(true);
-      } catch (err) {
-        console.error("导入文件失败:", file.name, err);
-        resolve(false);
-      }
-    };
-    reader.onerror = () => resolve(false);
-    reader.readAsDataURL(file);
-    return promise;
-  };
-
-  // Batch import files
-  const handleBatchImport = async (fileList: FileList | globalThis.File[]) => {
-    const list = Array.from(fileList);
-    if (list.length === 0) return;
-
-    setImportStatus(`正在复制并导入 ${list.length} 个文件...`);
-    let count = 0;
-    for (const file of list) {
-      const success = await processAndImportFile(file);
-      if (success) count++;
-    }
-    setImportStatus(`成功导入 ${count} 个文件并完成副本隔离`);
-    setTimeout(() => setImportStatus(null), 3000);
-    await refreshItems();
-  };
+  // Encapsulated native file drop & network import hook
+  const { state: dropState, importFileList, dragHandlers } = useFileDrop({
+    onRefresh: refreshItems,
+  });
 
   // Handle global paste (Cmd+V / Ctrl+V)
   useEffect(() => {
@@ -137,81 +95,13 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
       if (filesToImport.length > 0) {
         e.preventDefault();
-        await handleBatchImport(filesToImport);
+        await importFileList(filesToImport);
       }
     };
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [handleBatchImport]);
-
-  // Global Drag and Drop event handlers
-  const handleDragEnter = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounter.current += 1;
-    if (e.dataTransfer.types.includes("Files")) {
-      setIsDraggingOver(true);
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounter.current -= 1;
-    if (dragCounter.current === 0) {
-      setIsDraggingOver(false);
-    }
-  };
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    dragCounter.current = 0;
-    setIsDraggingOver(false);
-
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      await handleBatchImport(e.dataTransfer.files);
-      return;
-    }
-
-    // 2. Extract network resource or image URL (from text/html, text/uri-list, or plain text)
-    let urlToImport = "";
-    const htmlData = e.dataTransfer.getData("text/html");
-    if (htmlData) {
-      const match = htmlData.match(/<img[^>]+src=["']([^"']+)["']/i);
-      if (match && match[1]) {
-        urlToImport = match[1];
-      }
-    }
-
-    if (!urlToImport) {
-      const uriList = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("URL") || e.dataTransfer.getData("text/plain");
-      if (uriList && (uriList.startsWith("http://") || uriList.startsWith("https://") || uriList.startsWith("data:"))) {
-        urlToImport = uriList.split("\r\n")[0].trim();
-      }
-    }
-
-    // 3. Delegate to native Go backend (bypasses browser CORS / IP limits)
-    if (urlToImport) {
-      setImportStatus("正在通过后端原生下载网络资源...");
-      try {
-        const item = await ImportFromURL(urlToImport);
-        if (item) {
-          setImportStatus(`成功导入网络资源: ${item.name}`);
-          await refreshItems();
-        }
-      } catch (err) {
-        console.error("抓取网络资源失败:", err);
-        setImportStatus(`导入网络资源失败: ${String(err)}`);
-      } finally {
-        setTimeout(() => setImportStatus(null), 3000);
-      }
-    }
-  };
-
+  }, [importFileList]);
   // Drag-out using native file session and standard OS file formats
   const handleDragStart = (e: React.DragEvent, item: Item) => {
     // 1. Trigger native OS file drag (points directly to physical file on disk)
@@ -278,10 +168,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     <div
       data-file-drop-target="true"
       className="flex flex-col h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      {...dragHandlers}
     >
       {/* Hidden file input for manual browse selection */}
       <input
@@ -291,24 +178,14 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
         className="hidden"
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
-            handleBatchImport(e.target.files);
+            importFileList(e.target.files);
             e.target.value = "";
           }
         }}
       />
 
-      {/* Drag-over dropzone overlay */}
-      {isDraggingOver && (
-        <div className="absolute inset-0 z-50 bg-background/85 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-primary transition-all pointer-events-none wails-no-drag">
-          <div className="size-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4 animate-bounce">
-            <Upload className="size-8" />
-          </div>
-          <h3 className="text-xl font-bold tracking-tight">释放文件以复制到 Library</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            将自动创建专属目录与 metadata.json，并在 libSQL 中建立索引
-          </p>
-        </div>
-      )}
+      {/* Encapsulated Drag & Drop State Overlay (active hover + importing progress + feedback) */}
+      <DropzoneOverlay state={dropState} />
 
       {/* Top Application Bar */}
       <header
@@ -406,9 +283,9 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
         </div>
 
         <div className="flex items-center gap-3">
-          {importStatus && (
-            <span className="text-[11px] text-primary font-medium animate-pulse">
-              {importStatus}
+          {dropState.message && (
+            <span className="text-[11px] text-primary font-medium animate-pulse font-mono truncate max-w-xs" title={dropState.message}>
+              {dropState.message}
             </span>
           )}
           <button

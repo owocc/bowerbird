@@ -63,15 +63,34 @@ func main() {
 	// Listen for native OS file drops (macOS Finder / Windows Explorer)
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		files := event.Context().DroppedFiles()
-		if len(files) > 0 {
-			imported, err := coreMgr.ImportFiles(files)
+		if len(files) == 0 {
+			return
+		}
+
+		app.Event.Emit("import-started", map[string]any{
+			"total": len(files),
+		})
+
+		go func() {
+			imported, err := coreMgr.ImportFilesWithProgress(files, func(current, total int, filename string) {
+				app.Event.Emit("import-progress", map[string]any{
+					"current":  current,
+					"total":    total,
+					"filename": filename,
+				})
+			})
+
 			if err != nil {
 				log.Printf("[NativeDrop] error importing files: %v", err)
+				app.Event.Emit("import-error", err.Error())
 			} else {
 				log.Printf("[NativeDrop] successfully imported %d files", len(imported))
+				app.Event.Emit("import-completed", map[string]any{
+					"count": len(imported),
+				})
+				app.Event.Emit("library-items-updated", len(imported))
 			}
-			app.Event.Emit("library-items-updated", len(imported))
-		}
+		}()
 	})
 	// Background ticker event
 	go func() {

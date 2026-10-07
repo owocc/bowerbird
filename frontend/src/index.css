@@ -163,3 +163,13 @@
   -webkit-user-drag: element !important;
   user-select: none;
 }
+
+/* Wails v3 Native File Drop Target visual feedback */
+[data-file-drop-target] {
+  transition: outline 0.15s ease, outline-offset 0.15s ease;
+}
+
+[data-file-drop-target].file-drop-target-active {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+}
