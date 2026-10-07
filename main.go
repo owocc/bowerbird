@@ -34,11 +34,14 @@ func main() {
 	// 'Assets' configures the asset server with the 'FS' variable pointing to the frontend files.
 	// 'Bind' is a list of Go struct instances. The frontend has access to the methods of these instances.
 	// 'Mac' options tailor the application when running an macOS.
+	libService := NewLibraryService()
+
 	app := application.New(application.Options{
 		Name:        "bowerbird",
-		Description: "A demo of using raw HTML & CSS",
+		Description: "Bowerbird Asset Manager",
 		Services: []application.Service{
 			application.NewService(&GreetService{}),
+			application.NewService(libService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -48,16 +51,17 @@ func main() {
 		},
 	})
 
+	libService.SetApp(app)
+
 	// Create a new window with the necessary options.
 	// 'Title' is the title of the window.
 	// 'Mac' options tailor the window when running on macOS.
 	// 'BackgroundColour' is the background colour of the window.
 	// 'URL' is the URL that will be loaded into the webview.
 	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: "Window 1",
-		// Window sized to the golden ratio (1000 / 618 ≈ 1.618).
-		Width:  1000,
-		Height: 618,
+		Title:  "Bowerbird",
+		Width:  1280,
+		Height: 800,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,

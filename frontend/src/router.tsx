@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   createRootRoute,
   createRoute,
@@ -6,6 +7,10 @@ import {
   Outlet,
   createHashHistory,
 } from "@tanstack/react-router";
+import { GetActiveLibrary } from "../bindings/bowerbird/libraryservice";
+import type { LibraryInfo } from "../bindings/bowerbird/models";
+import { LibrarySetup } from "@/components/LibrarySetup";
+import { LibraryWorkspace } from "@/components/LibraryWorkspace";
 
 function RootLayout() {
   return (
@@ -16,13 +21,42 @@ function RootLayout() {
 }
 
 function HomePage() {
-  return (
-    <main className="flex-1 flex items-center justify-center p-8 select-none">
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">bowerbird</h1>
-        <p className="text-sm text-muted-foreground">Ready to build.</p>
+  const [activeLibrary, setActiveLibrary] = useState<LibraryInfo | null>(null);
+  const [initializing, setInitializing] = useState(true);
+
+  useEffect(() => {
+    async function checkLibrary() {
+      try {
+        const lib = await GetActiveLibrary();
+        if (lib) {
+          setActiveLibrary(lib);
+        }
+      } catch (err) {
+        console.error("检查活动资源库失败:", err);
+      } finally {
+        setInitializing(false);
+      }
+    }
+    checkLibrary();
+  }, []);
+
+  if (initializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-xs text-muted-foreground font-mono">
+        正在初始化 Bowerbird...
       </div>
-    </main>
+    );
+  }
+
+  if (!activeLibrary) {
+    return <LibrarySetup onLibraryOpened={(lib) => setActiveLibrary(lib)} />;
+  }
+
+  return (
+    <LibraryWorkspace
+      library={activeLibrary}
+      onLibraryClosed={() => setActiveLibrary(null)}
+    />
   );
 }
 
