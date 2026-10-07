@@ -6,6 +6,11 @@
  */
 export interface Item {
     "id": string;
+
+    /**
+     * uppercase content hash (SHA-256)
+     */
+    "hex": string;
     "name": string;
     "extension": string;
     "filename": string;

@@ -83,6 +83,12 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 		t.Errorf("Expected 600x400, got %dx%d", item.Width, item.Height)
 	}
 	itemDir := filepath.Join(expectedLibPath, "items", item.ID)
+	if item.Hex == "" || item.Hex != strings.ToUpper(item.Hex) || len(item.Hex) != 64 {
+		t.Errorf("Expected 64-char uppercase hex, got %s", item.Hex)
+	}
+	if item.ID != item.Hex {
+		t.Errorf("Expected item.ID to equal item.Hex, got ID=%s Hex=%s", item.ID, item.Hex)
+	}
 	if item.FilePath != filepath.Join(itemDir, "sample.png") {
 		t.Errorf("Expected FilePath %s, got %s", filepath.Join(itemDir, "sample.png"), item.FilePath)
 	}
@@ -99,6 +105,15 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(itemDir, "thumbnail.jpg")); err != nil {
 		t.Errorf("thumbnail.jpg missing: %v", err)
+	}
+
+	// 3b. Verify deduplication: importing same file content again should return existing item and not duplicate
+	importedAgain, err := svc.ImportFiles([]string{imgFile})
+	if err != nil {
+		t.Fatalf("ImportFiles again failed: %v", err)
+	}
+	if len(importedAgain) != 1 || importedAgain[0].ID != item.ID {
+		t.Errorf("Deduplication failed: expected existing item %s, got %s", item.ID, importedAgain[0].ID)
 	}
 
 	// Delete source file to prove isolation
@@ -123,14 +138,33 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	if docItem.HasThumbnail {
 		t.Errorf("Expected HasThumbnail=false for txt")
 	}
-
+	// 4b. Test handling of directories and filenames with spaces
+	spaceDir := filepath.Join(tempDir, "Folder With Spaces")
+	if err := os.MkdirAll(spaceDir, 0755); err != nil {
+		t.Fatalf("Failed to create spaceDir: %v", err)
+	}
+	spaceDoc := filepath.Join(spaceDir, "My Special Notes.txt")
+	if err := os.WriteFile(spaceDoc, []byte("Content with spaces in path"), 0644); err != nil {
+		t.Fatalf("Failed to write spaceDoc: %v", err)
+	}
+	importedSpace, err := svc.ImportFiles([]string{spaceDoc})
+	if err != nil {
+		t.Fatalf("Failed to import spaceDoc: %v", err)
+	}
+	spaceItem := importedSpace[0]
+	if !strings.Contains(spaceItem.FileURL, "%20") {
+		t.Errorf("Expected FileURL to encode spaces as %%20, got: %s", spaceItem.FileURL)
+	}
+	if strings.Contains(spaceItem.FileURL, " ") {
+		t.Errorf("FileURL must not contain raw unencoded spaces, got: %s", spaceItem.FileURL)
+	}
 	// 5. Query items via libSQL
 	allItems, err := svc.GetItems("", "desc")
 	if err != nil {
 		t.Fatalf("GetItems failed: %v", err)
 	}
-	if len(allItems) != 2 {
-		t.Fatalf("Expected 2 items in libSQL, got %d", len(allItems))
+	if len(allItems) != 3 {
+		t.Fatalf("Expected 3 items in libSQL, got %d", len(allItems))
 	}
 
 	// Test search query
@@ -189,8 +223,8 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetItems after delete failed: %v", err)
 	}
-	if len(remaining) != 1 {
-		t.Errorf("Expected 1 remaining item after delete, got %d", len(remaining))
+	if len(remaining) != 2 {
+		t.Errorf("Expected 2 remaining items after delete, got %d", len(remaining))
 	}
 
 	_ = svc.CloseLibrary()

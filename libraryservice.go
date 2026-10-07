@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
@@ -45,6 +46,7 @@ type LibraryInfo struct {
 // Item represents a single managed asset in the library
 type Item struct {
 	ID            string   `json:"id"`
+	Hex           string   `json:"hex"`           // uppercase content hash (SHA-256)
 	Name          string   `json:"name"`
 	Extension     string   `json:"extension"`
 	Filename      string   `json:"filename"`
@@ -66,6 +68,7 @@ type Item struct {
 // ItemMetadata is serialized inside <item_id>/metadata.json
 type ItemMetadata struct {
 	ID           string   `json:"id"`
+	Hex          string   `json:"hex"`
 	Name         string   `json:"name"`
 	Extension    string   `json:"extension"`
 	Filename     string   `json:"filename"`
@@ -371,6 +374,7 @@ func (s *LibraryService) initSchema(db *sql.DB) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS items (
 		id TEXT PRIMARY KEY,
+		hex TEXT DEFAULT '',
 		name TEXT NOT NULL,
 		extension TEXT NOT NULL,
 		filename TEXT NOT NULL,
@@ -386,9 +390,13 @@ func (s *LibraryService) initSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_items_imported_at ON items(imported_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_items_extension ON items(extension);
 	CREATE INDEX IF NOT EXISTS idx_items_name ON items(name);
+	CREATE INDEX IF NOT EXISTS idx_items_hex ON items(hex);
 	`
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN hex TEXT DEFAULT ''")
+	return nil
 }
 
 // GetActiveLibrary returns the currently active library or nil if none open
@@ -422,10 +430,22 @@ func (s *LibraryService) CloseLibrary() error {
 	return nil
 }
 
+func pathToURL(filePath string) string {
+	slashPath := filepath.ToSlash(filePath)
+	if !strings.HasPrefix(slashPath, "/") {
+		slashPath = "/" + slashPath
+	}
+	u := url.URL{
+		Scheme: "file",
+		Path:   slashPath,
+	}
+	return u.String()
+}
+
 func (s *LibraryService) populateItemPaths(item *Item, activePath string, port int) {
 	item.ItemPath = filepath.Join(activePath, "items", item.ID)
 	item.FilePath = filepath.Join(item.ItemPath, item.Filename)
-	item.FileURL = (&url.URL{Scheme: "file", Path: filepath.ToSlash(item.FilePath)}).String()
+	item.FileURL = pathToURL(item.FilePath)
 	item.OriginalURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, item.ID)
 	item.ThumbnailURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, item.ID)
 	item.DownloadURL = fmt.Sprintf("http://127.0.0.1:%d/asset/download/%s", port, item.ID)
@@ -443,14 +463,14 @@ func (s *LibraryService) GetItems(query string, sortOrder string) ([]Item, error
 		return []Item{}, nil
 	}
 
-	sqlQuery := "SELECT id, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at FROM items"
+	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at FROM items"
 	var args []any
 
 	trimmed := strings.TrimSpace(query)
 	if trimmed != "" {
-		sqlQuery += " WHERE (name LIKE ? OR tags LIKE ? OR extension LIKE ?)"
+		sqlQuery += " WHERE (name LIKE ? OR tags LIKE ? OR extension LIKE ? OR hex LIKE ?)"
 		like := "%" + trimmed + "%"
-		args = append(args, like, like, like)
+		args = append(args, like, like, like, like)
 	}
 
 	if strings.ToLower(sortOrder) == "asc" {
@@ -472,6 +492,7 @@ func (s *LibraryService) GetItems(query string, sortOrder string) ([]Item, error
 		var hasThumbInt int
 		if err := rows.Scan(
 			&item.ID,
+			&item.Hex,
 			&item.Name,
 			&item.Extension,
 			&item.Filename,
@@ -515,12 +536,13 @@ func (s *LibraryService) GetItem(id string) (*Item, error) {
 		return nil, errors.New("no active library")
 	}
 
-	row := db.QueryRow("SELECT id, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at FROM items WHERE id = ?", id)
+	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at FROM items WHERE id = ? OR hex = ?", id, id)
 	var item Item
 	var tagsStr string
 	var hasThumbInt int
 	if err := row.Scan(
 		&item.ID,
+		&item.Hex,
 		&item.Name,
 		&item.Extension,
 		&item.Filename,
@@ -594,6 +616,25 @@ func (s *LibraryService) ImportFiles(sourcePaths []string) ([]Item, error) {
 
 	return imported, nil
 }
+func computeFileSHA256(filePath string) (string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return "", err
+	}
+	return strings.ToUpper(hex.EncodeToString(hasher.Sum(nil))), nil
+}
+
+func computeBytesSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return strings.ToUpper(hex.EncodeToString(sum[:]))
+}
+
 
 func (s *LibraryService) importSingleFile(srcPath string) (*Item, error) {
 	s.mu.RLock()
@@ -611,7 +652,18 @@ func (s *LibraryService) importSingleFile(srcPath string) (*Item, error) {
 		return nil, err
 	}
 
-	itemID := generateID()
+	contentHex, err := computeFileSHA256(srcPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute file hash: %w", err)
+	}
+
+	// Content-addressed deduplication
+	existing, err := s.GetItem(contentHex)
+	if err == nil && existing != nil {
+		return existing, nil
+	}
+
+	itemID := contentHex
 	itemDir := filepath.Join(active.Path, "items", itemID)
 	if err := os.MkdirAll(itemDir, 0755); err != nil {
 		return nil, err
@@ -651,6 +703,7 @@ func (s *LibraryService) importSingleFile(srcPath string) (*Item, error) {
 
 	item := Item{
 		ID:           itemID,
+		Hex:          contentHex,
 		Name:         nameWithoutExt,
 		Extension:    ext,
 		Filename:     originalFilename,
@@ -668,8 +721,8 @@ func (s *LibraryService) importSingleFile(srcPath string) (*Item, error) {
 	// Save metadata.json inside item directory
 	metaBytes, _ := json.MarshalIndent(ItemMetadata{
 		ID:           item.ID,
+		Hex:          item.Hex,
 		Name:         item.Name,
-		Extension:    item.Extension,
 		Filename:     item.Filename,
 		Size:         item.Size,
 		MimeType:     item.MimeType,
@@ -688,9 +741,9 @@ func (s *LibraryService) importSingleFile(srcPath string) (*Item, error) {
 		hasThumbInt = 1
 	}
 	_, err = db.Exec(
-		`INSERT INTO items (id, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.ID, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
+		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
 		item.Width, item.Height, hasThumbInt, "", item.CreatedAt, item.ImportedAt,
 	)
 	if err != nil {
@@ -725,7 +778,15 @@ func (s *LibraryService) ImportFromBase64(filename string, base64Data string) (*
 		return nil, fmt.Errorf("invalid base64 payload: %w", err)
 	}
 
-	itemID := generateID()
+	contentHex := computeBytesSHA256(data)
+
+	// Content-addressed deduplication
+	existing, err := s.GetItem(contentHex)
+	if err == nil && existing != nil {
+		return existing, nil
+	}
+
+	itemID := contentHex
 	itemDir := filepath.Join(active.Path, "items", itemID)
 	if err := os.MkdirAll(itemDir, 0755); err != nil {
 		return nil, err
@@ -751,6 +812,7 @@ func (s *LibraryService) ImportFromBase64(filename string, base64Data string) (*
 
 	item := Item{
 		ID:           itemID,
+		Hex:          contentHex,
 		Name:         nameWithoutExt,
 		Extension:    ext,
 		Filename:     cleanFilename,
@@ -767,8 +829,8 @@ func (s *LibraryService) ImportFromBase64(filename string, base64Data string) (*
 
 	metaBytes, _ := json.MarshalIndent(ItemMetadata{
 		ID:           item.ID,
+		Hex:          item.Hex,
 		Name:         item.Name,
-		Extension:    item.Extension,
 		Filename:     item.Filename,
 		Size:         item.Size,
 		MimeType:     item.MimeType,
@@ -786,9 +848,9 @@ func (s *LibraryService) ImportFromBase64(filename string, base64Data string) (*
 		hasThumbInt = 1
 	}
 	_, err = db.Exec(
-		`INSERT INTO items (id, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		item.ID, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
+		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
 		item.Width, item.Height, hasThumbInt, "", item.CreatedAt, item.ImportedAt,
 	)
 	if err != nil {
