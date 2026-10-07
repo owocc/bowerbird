@@ -127,17 +127,39 @@
     overflow-x: hidden;
     user-select: none;
     -webkit-user-select: none;
-    --wails-draggable: drag;
+    --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
   }
   input, textarea, [contenteditable="true"] {
     user-select: text;
     -webkit-user-select: text;
     --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
   }
   button, a, select {
     --wails-draggable: no-drag;
+    -webkit-app-region: no-drag;
   }
   html {
     @apply font-sans;
   }
+}
+
+/* Window drag handle classes: only applied to specific titlebar areas */
+.wails-drag {
+  --wails-draggable: drag;
+  -webkit-app-region: drag;
+}
+
+.wails-no-drag {
+  --wails-draggable: no-drag !important;
+  -webkit-app-region: no-drag !important;
+}
+
+/* Draggable asset cards: strictly opt-out of window drag and enable HTML5 element drag */
+.draggable-asset-card {
+  --wails-draggable: no-drag !important;
+  -webkit-app-region: no-drag !important;
+  -webkit-user-drag: element !important;
+  user-select: none;
 }
