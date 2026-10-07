@@ -678,6 +678,72 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	return &item, nil
 }
 
+// ImportFromURL downloads a remote network resource (image, document, media) using Go's HTTP client,
+// completely bypassing browser CORS, mixed-content, and webview IP/sandboxing restrictions.
+func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return nil, errors.New("empty URL")
+	}
+
+	// 1. If it's a data URL, decode directly via base64
+	if strings.HasPrefix(trimmed, "data:") {
+		return m.ImportFromBase64("web_resource.png", trimmed)
+	}
+
+	parsedURL, err := url.Parse(trimmed)
+	if err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		return nil, fmt.Errorf("unsupported or invalid URL: %s", rawURL)
+	}
+
+	// 2. Fetch using native Go HTTP client
+	req, err := http.NewRequest("GET", trimmed, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "*/*")
+
+	client := &http.Client{Timeout: 45 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch network resource: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("network resource returned HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, errors.New("empty network resource")
+	}
+
+	// 3. Determine filename and extension
+	filename := filepath.Base(parsedURL.Path)
+	if filename == "" || filename == "/" || filename == "." || !strings.Contains(filename, ".") {
+		contentType := resp.Header.Get("Content-Type")
+		ext := "png"
+		if strings.Contains(contentType, "/") {
+			sub := strings.Split(strings.Split(contentType, ";")[0], "/")[1]
+			if sub == "jpeg" {
+				ext = "jpg"
+			} else if sub != "" {
+				ext = sub
+			}
+		}
+		filename = fmt.Sprintf("web_resource_%d.%s", time.Now().Unix(), ext)
+	}
+
+	// 4. Encode as base64 and use content-addressed ImportFromBase64
+	b64 := base64.StdEncoding.EncodeToString(data)
+	return m.ImportFromBase64(filename, b64)
+}
+
 func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string, ext string) (int, int, bool) {
 	if !IsImageExtension(ext) {
 		return 0, 0, false

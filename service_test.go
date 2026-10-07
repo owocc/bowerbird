@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -248,6 +249,29 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	}
 	if len(remaining) != 2 {
 		t.Errorf("Expected 2 remaining items after delete, got %d", len(remaining))
+	}
+	// 8. Test ImportFromURL (remote network resources and data URLs)
+	dataURL := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	importedDataURL, err := svc.ImportFromURL(dataURL)
+	if err != nil {
+		t.Fatalf("ImportFromURL data: failed: %v", err)
+	}
+	if importedDataURL == nil || importedDataURL.Hex == "" {
+		t.Fatalf("Expected valid item from data URL")
+	}
+
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("fake png binary data for remote test"))
+	}))
+	defer testServer.Close()
+
+	importedRemote, err := svc.ImportFromURL(testServer.URL + "/remote-avatar.png")
+	if err != nil {
+		t.Fatalf("ImportFromURL remote failed: %v", err)
+	}
+	if importedRemote == nil || importedRemote.Filename != "remote-avatar.png" {
+		t.Fatalf("Expected remote-avatar.png, got %v", importedRemote)
 	}
 
 	_ = svc.CloseLibrary()

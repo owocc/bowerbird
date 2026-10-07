@@ -29,11 +29,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Events } from "@wailsio/runtime";
 import {
   GetItems,
   DeleteItem,
   RevealInFinder,
   ImportFromBase64,
+  ImportFromURL,
   CloseLibrary,
   StartDrag,
 } from "../../bindings/bowerbird/core/service";
@@ -72,6 +74,13 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
   useEffect(() => {
     refreshItems();
+    // Listen for native OS file drops processed by Go backend
+    const unsubscribe = Events.On("library-items-updated", () => {
+      refreshItems();
+    });
+    return () => {
+      unsubscribe();
+    };
   }, [refreshItems]);
 
   // Helper to import a single File object using Promise.withResolvers
@@ -168,34 +177,37 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
       return;
     }
 
-    // Browser image drop via URL
-    const imageUrl = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("URL");
-    if (imageUrl && (imageUrl.startsWith("http://") || imageUrl.startsWith("https://") || imageUrl.startsWith("data:"))) {
-      setImportStatus("正在从网络抓取并导入图片...");
+    // 2. Extract network resource or image URL (from text/html, text/uri-list, or plain text)
+    let urlToImport = "";
+    const htmlData = e.dataTransfer.getData("text/html");
+    if (htmlData) {
+      const match = htmlData.match(/<img[^>]+src=["']([^"']+)["']/i);
+      if (match && match[1]) {
+        urlToImport = match[1];
+      }
+    }
+
+    if (!urlToImport) {
+      const uriList = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("URL") || e.dataTransfer.getData("text/plain");
+      if (uriList && (uriList.startsWith("http://") || uriList.startsWith("https://") || uriList.startsWith("data:"))) {
+        urlToImport = uriList.split("\r\n")[0].trim();
+      }
+    }
+
+    // 3. Delegate to native Go backend (bypasses browser CORS / IP limits)
+    if (urlToImport) {
+      setImportStatus("正在通过后端原生下载网络资源...");
       try {
-        const res = await fetch(imageUrl);
-        const blob = await res.blob();
-        const ext = blob.type.split("/")[1] || "png";
-        const filename = `web_image_${Date.now()}.${ext}`;
-        const reader = new FileReader();
-        const { promise, resolve } = Promise.withResolvers<boolean>();
-        reader.onload = async () => {
-          try {
-            await ImportFromBase64(filename, reader.result as string);
-            resolve(true);
-          } catch {
-            resolve(false);
-          }
-        };
-        reader.onerror = () => resolve(false);
-        reader.readAsDataURL(blob);
-        await promise;
-        await refreshItems();
-        setTimeout(() => setImportStatus(null), 3500);
+        const item = await ImportFromURL(urlToImport);
+        if (item) {
+          setImportStatus(`成功导入网络资源: ${item.name}`);
+          await refreshItems();
+        }
       } catch (err) {
-        console.error("抓取网络图片失败:", err);
-        setImportStatus(`网络图片抓取失败: ${String(err)}`);
-        setTimeout(() => setImportStatus(null), 3500);
+        console.error("抓取网络资源失败:", err);
+        setImportStatus(`导入网络资源失败: ${String(err)}`);
+      } finally {
+        setTimeout(() => setImportStatus(null), 3000);
       }
     }
   };
@@ -264,6 +276,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
   return (
     <div
+      data-file-drop-target="true"
       className="flex flex-col h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}

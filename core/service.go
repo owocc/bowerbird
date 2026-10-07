@@ -80,6 +80,13 @@ func (s *Service) ImportFromBase64(filename string, base64Data string) (*Item, e
 	return s.mgr.ImportFromBase64(filename, base64Data)
 }
 
+func (s *Service) ImportFromURL(rawURL string) (*Item, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.ImportFromURL(rawURL)
+}
+
 func (s *Service) DeleteItem(id string) error {
 	if s.mgr == nil {
 		return errors.New("core manager not initialized")
