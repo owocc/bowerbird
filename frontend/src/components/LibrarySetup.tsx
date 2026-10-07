@@ -84,7 +84,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
     : "";
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
       <div className="w-full max-w-xl space-y-6">
         {/* Brand header */}
         <div className="text-center space-y-2">

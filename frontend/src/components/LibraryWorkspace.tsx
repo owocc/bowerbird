@@ -242,7 +242,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
   return (
     <div
-      className="flex flex-col h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden"
+      className="flex flex-col h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -264,7 +264,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
       {/* Drag-over dropzone overlay */}
       {isDraggingOver && (
-        <div className="absolute inset-0 z-50 bg-background/85 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-primary transition-all pointer-events-none">
+        <div className="absolute inset-0 z-50 bg-background/85 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-primary transition-all pointer-events-none wails-no-drag">
           <div className="size-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4 animate-bounce">
             <Upload className="size-8" />
           </div>
@@ -277,11 +277,10 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
 
       {/* Top Application Bar */}
       <header
-        className="h-14 border-b border-border bg-sidebar/40 px-5 flex items-center justify-between gap-4 shrink-0"
-        style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+        className="h-14 border-b border-border bg-sidebar/40 px-5 flex items-center justify-between gap-4 shrink-0 wails-drag"
       >
         {/* Left: Library Identity */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 wails-no-drag">
           <div className="size-8 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
             <Layers className="size-4" />
           </div>
@@ -299,7 +298,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
         </div>
 
         {/* Center: Search Bar */}
-        <div className="flex-1 max-w-md mx-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className="flex-1 max-w-md mx-2 wails-no-drag">
           <div className="relative">
             <Search className="size-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -320,7 +319,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-2" style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
+        <div className="flex items-center gap-2 wails-no-drag">
           <Button
             size="sm"
             onClick={() => fileInputRef.current?.click()}
@@ -346,7 +345,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
       </header>
 
       {/* Sub-bar: Filter Tags and Status */}
-      <div className="h-10 border-b border-border/60 bg-muted/10 px-5 flex items-center justify-between text-xs shrink-0">
+      <div className="h-10 border-b border-border/60 bg-muted/10 px-5 flex items-center justify-between text-xs shrink-0 wails-no-drag">
         <div className="flex items-center gap-1.5">
           <Filter className="size-3.5 text-muted-foreground mr-1" />
           {[
@@ -388,7 +387,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
       </div>
 
       {/* Main Grid View */}
-      <main className="flex-1 overflow-y-auto p-5">
+      <main className="flex-1 overflow-y-auto p-5 wails-no-drag">
         {loading ? (
           <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
             正在载入资产索引...
@@ -429,7 +428,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
       </main>
 
       {/* Footer bar with system stats */}
-      <footer className="h-8 border-t border-border/60 bg-muted/20 px-5 flex items-center justify-between text-[11px] text-muted-foreground shrink-0 font-mono">
+      <footer className="h-8 border-t border-border/60 bg-muted/20 px-5 flex items-center justify-between text-[11px] text-muted-foreground shrink-0 font-mono wails-no-drag">
         <div className="flex items-center gap-2">
           <Database className="size-3 text-primary" />
           <span>libSQL 索引库正常</span>
@@ -572,7 +571,7 @@ function AssetCard({ item, onClick, onDragStart, onDelete, onReveal }: AssetCard
       draggable={true}
       onDragStart={onDragStart}
       onClick={onClick}
-      className="group relative flex flex-col overflow-hidden border-border bg-card/60 hover:bg-card hover:border-primary/50 transition-all cursor-pointer shadow-2xs hover:shadow-md select-none"
+      className="group relative flex flex-col overflow-hidden border-border bg-card/60 hover:bg-card hover:border-primary/50 transition-all cursor-pointer shadow-2xs hover:shadow-md select-none draggable-asset-card wails-no-drag"
     >
       {/* Thumbnail or Fallback Icon */}
       <div className="aspect-square w-full bg-muted/40 overflow-hidden flex items-center justify-center relative">
@@ -581,14 +580,16 @@ function AssetCard({ item, onClick, onDragStart, onDelete, onReveal }: AssetCard
             src={item.thumbnailUrl}
             alt={item.name}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            draggable={false}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
           />
         ) : isImage ? (
           <img
             src={item.originalUrl}
             alt={item.name}
             loading="lazy"
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            draggable={false}
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 pointer-events-none"
           />
         ) : (
           <div className="flex flex-col items-center gap-1.5 text-muted-foreground p-3">
