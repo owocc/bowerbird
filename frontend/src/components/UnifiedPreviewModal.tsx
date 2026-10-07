@@ -21,7 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ZoomControls } from "@/components/ZoomControls";
 import type { Item } from "../../bindings/bowerbird/core/models";
-import { getFileCategory } from "@/lib/formatters";
+import { getFileCategory, formatBytes } from "@/lib/formatters";
 
 export interface UnifiedPreviewModalProps {
   open: boolean;
@@ -49,7 +49,7 @@ export function UnifiedPreviewModal({
   const transformRef = useRef<ReactZoomPanPinchRef>(null);
   // Default preview scale is strictly 100% (1.0)
   const [scale, setScale] = useState<number>(1);
-
+  const [iconLoadError, setIconLoadError] = useState(false);
   // Filter to image items for slideshow pagination
   const imageItems = items.filter(
     (i) =>
@@ -85,8 +85,8 @@ export function UnifiedPreviewModal({
     if (!open) return;
     setScale(1);
     transformRef.current?.resetTransform();
+    setIconLoadError(false);
   }, [activeId, open]);
-
   // Keyboard navigation
   useEffect(() => {
     if (!open) return;
@@ -151,9 +151,17 @@ export function UnifiedPreviewModal({
   const category = getFileCategory(activeItem.extension);
   const isImage = category === "image";
   const imageSrc = activeItem.originalUrl || activeItem.thumbnailUrl;
+  const serverOrigin = activeItem.originalUrl
+    ? activeItem.originalUrl.replace(/\/asset\/item\/.*$/, "")
+    : activeItem.thumbnailUrl
+    ? activeItem.thumbnailUrl.replace(/\/asset\/item\/.*$/, "")
+    : "";
+  const systemIconUrl =
+    serverOrigin && activeItem.extension
+      ? `${serverOrigin}/asset/icon/${encodeURIComponent(activeItem.extension)}?path=${encodeURIComponent(activeItem.filePath || "")}`
+      : "";
 
   const isInline = mode === "inline";
-
   return (
     <div
       role="dialog"
@@ -307,12 +315,28 @@ export function UnifiedPreviewModal({
                   className="object-contain drop-shadow-xl select-none"
                 />
               ) : (
-                <div className="p-8 rounded-2xl border border-border bg-card flex flex-col items-center gap-3 text-muted-foreground shadow-md select-none">
-                  <PreviewCategoryIcon category={category} className="size-16 stroke-[1.5]" />
-                  <span className="font-mono text-sm uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-muted">
-                    {activeItem.extension}
-                  </span>
-                  <p className="text-xs text-foreground font-medium">{activeItem.filename}</p>
+                <div className="p-10 rounded-3xl border border-border/80 bg-card/90 flex flex-col items-center gap-4 text-muted-foreground shadow-xl select-none max-w-sm">
+                  {systemIconUrl && !iconLoadError ? (
+                    <img
+                      src={systemIconUrl}
+                      alt={activeItem.extension || "file"}
+                      draggable={false}
+                      onError={() => setIconLoadError(true)}
+                      className="size-32 object-contain pointer-events-none drop-shadow-lg"
+                    />
+                  ) : (
+                    <div className="relative size-24 rounded-2xl flex items-center justify-center bg-muted/60 border border-border/80 shadow-xs">
+                      <PreviewCategoryIcon category={category} className="size-12 stroke-[1.5] text-foreground/80" />
+                    </div>
+                  )}
+                  <div className="text-center space-y-1">
+                    <p className="text-sm text-foreground font-semibold truncate max-w-xs" title={activeItem.filename || activeItem.name}>
+                      {activeItem.filename || activeItem.name}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground font-mono">
+                      {formatBytes(activeItem.size)}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
