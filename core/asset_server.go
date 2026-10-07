@@ -36,7 +36,7 @@ func (s *AssetServer) start() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/asset/item/", s.handleAssetRequest)
 	mux.HandleFunc("/asset/download/", s.handleDownloadRequest)
-
+	mux.HandleFunc("/asset/icon/", s.handleSystemIconRequest)
 	go func() {
 		if serveErr := http.Serve(listener, mux); serveErr != nil && !errors.Is(serveErr, net.ErrClosed) {
 			log.Printf("[AssetServer] serve error: %v", serveErr)
@@ -115,4 +115,24 @@ func (s *AssetServer) handleDownloadRequest(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, item.Filename))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeFile(w, r, originalPath)
+}
+
+func (s *AssetServer) handleSystemIconRequest(w http.ResponseWriter, r *http.Request) {
+	ext := strings.TrimPrefix(r.URL.Path, "/asset/icon/")
+	ext = strings.TrimPrefix(ext, ".")
+	if ext == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	filePath := r.URL.Query().Get("path")
+	pngBytes := GetSystemFileIconPNG(ext, filePath)
+	if len(pngBytes) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(pngBytes)
 }

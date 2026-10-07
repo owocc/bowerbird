@@ -43,9 +43,20 @@ export function UniversalThumbnail({
   showFormatBadge = false,
 }: UniversalThumbnailProps) {
   const [imageError, setImageError] = useState(false);
+  const [iconLoadError, setIconLoadError] = useState(false);
   const category = getFileCategory(item.extension);
   const isImage = category === "image";
 
+  const serverOrigin = item.originalUrl
+    ? item.originalUrl.replace(/\/asset\/item\/.*$/, "")
+    : item.thumbnailUrl
+    ? item.thumbnailUrl.replace(/\/asset\/item\/.*$/, "")
+    : "";
+
+  const systemIconUrl =
+    serverOrigin && item.extension
+      ? `${serverOrigin}/asset/icon/${encodeURIComponent(item.extension)}?path=${encodeURIComponent(item.filePath || "")}`
+      : "";
   const thumbnailSrc =
     item.hasThumbnail && item.thumbnailUrl
       ? item.thumbnailUrl
@@ -105,6 +116,17 @@ export function UniversalThumbnail({
           style={{ objectFit }}
           className="w-full h-full pointer-events-none drop-shadow-2xs"
         />
+      ) : systemIconUrl && !iconLoadError ? (
+        <div className="flex flex-col items-center justify-center p-2.5 w-full h-full pointer-events-none select-none">
+          <img
+            src={systemIconUrl}
+            alt={item.extension || "file"}
+            loading="lazy"
+            draggable={false}
+            onError={() => setIconLoadError(true)}
+            className="size-14 object-contain pointer-events-none drop-shadow-sm transition-transform group-hover:scale-105"
+          />
+        </div>
       ) : (
         <div className="flex flex-col items-center justify-center gap-1.5 p-2 pointer-events-none select-none">
           <div className="relative size-12 rounded-xl flex items-center justify-center bg-card border border-border/80 shadow-xs">
