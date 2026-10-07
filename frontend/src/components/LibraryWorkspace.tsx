@@ -4,13 +4,20 @@ import {
   ArrowUpDown,
   Upload,
   X,
-  Database,
+  PanelLeftOpen,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+  ResizablePanelGroup,
+  ResizablePanel,
+  ResizableHandle,
+} from "@/components/ui/resizable";
+import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
 import { JustifiedGallery } from "@/components/JustifiedGallery";
 import { ItemDetailPanel } from "@/components/ItemDetailPanel";
@@ -31,16 +38,21 @@ import {
   RemoveItemFromFolder,
 } from "../../bindings/bowerbird/core/service";
 import type { Item, Folder, LibraryInfo } from "../../bindings/bowerbird/core/models";
-import { formatBytes, getFileCategory, escapePathForShell } from "@/lib/formatters";
+import { getFileCategory, escapePathForShell } from "@/lib/formatters";
 import { useFileDrop } from "@/hooks/useFileDrop";
 
 export interface LibraryWorkspaceProps {
   library: LibraryInfo;
   onLibraryClosed: () => void;
+  onLibraryChanged?: (newLib: LibraryInfo) => void;
 }
 
-export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceProps) {
-  // Items and folder state
+export function LibraryWorkspace({
+  library,
+  onLibraryClosed,
+  onLibraryChanged,
+}: LibraryWorkspaceProps) {
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
@@ -112,6 +124,17 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
   const handleFullRefresh = useCallback(async () => {
     await Promise.all([refreshItems(), refreshFolders()]);
   }, [refreshItems, refreshFolders]);
+  // Reset selection & reload on library path change
+  useEffect(() => {
+    setActiveFolderId(null);
+    setSelectedItemIds(new Set());
+    setActiveItemId(null);
+    setInlinePreviewOpen(false);
+    setFullWindowPreviewOpen(false);
+    refreshItems();
+    refreshFolders();
+  }, [library.path]);
+
 
   const activeFolderIdRef = useRef<string | null>(activeFolderId);
   useEffect(() => {
@@ -180,6 +203,9 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
       if (activeFolderId !== null) {
+        if (activeFolderId === "__trash__") {
+          return false;
+        }
         const itemFolders = item.folders || [];
         if (!itemFolders.includes(activeFolderId)) {
           return false;
@@ -457,9 +483,8 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
   }, [activeItem, fullWindowPreviewOpen, inlinePreviewOpen, contextMenu, selectedItemIds, filteredItems]);
 
   return (
-    <SidebarProvider defaultOpen={true}>
+    <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
       <div
-        data-file-drop-target="true"
         className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
         {...dragHandlers}
       >
@@ -481,90 +506,113 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
         <DropzoneOverlay state={dropState} />
 
         {/* ========================================================= */}
-        {/* COLUMN 1: LEFT SIDEBAR DIRECTORY TREE (shadcn/ui Sidebar) */}
+        {/* RESIZABLE LAYOUT: SIDEBAR + MAIN GALLERY WORKSPACE        */}
         {/* ========================================================= */}
-        <SidebarDirectoryTree
-          library={library}
-          folders={folders}
-          activeFolderId={activeFolderId}
-          totalItemCount={items.length}
-          onSelectFolder={(id) => {
-            setActiveFolderId(id);
-            setSelectedItemIds(new Set());
-            setActiveItemId(null);
-            setInlinePreviewOpen(false);
-            setFullWindowPreviewOpen(false);
-          }}
-          onCreateFolder={handleCreateFolder}
-          onRenameFolder={handleRenameFolder}
-          onDeleteFolder={handleDeleteFolder}
-          onDropItemOnFolder={handleDropItemOnFolder}
-          onDropExternalFilesOnFolder={handleDropExternalFilesOnFolder}
-          onCloseLibrary={async () => {
-            await CloseLibrary();
-            onLibraryClosed();
-          }}
-        />
-
-        {/* ========================================================= */}
-        {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery)          */}
-        {/* ========================================================= */}
-        <main className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background">
-          {/* Top Desktop App Navigation Bar */}
-          <header className="h-12 border-b border-border/80 bg-background/95 backdrop-blur-md px-4 flex items-center justify-between gap-3 shrink-0 select-none wails-drag">
-            {/* Left: View title & count */}
-            <div className="flex items-center gap-2.5 min-w-0 wails-no-drag">
-              <span className="font-semibold text-xs tracking-tight truncate text-foreground">
-                {currentFolder ? currentFolder.name : "全部资产"}
-              </span>
-              <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
-                {filteredItems.length} 项
-              </Badge>
-              {selectedItemIds.size > 0 && (
-                <Badge variant="default" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
-                  已选 {selectedItemIds.size}
-                </Badge>
-              )}
-            </div>
-
-            {/* Center: Search input */}
-            <div className="flex-1 max-w-sm mx-2 wails-no-drag">
-              <div className="relative">
-                <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="搜索名称、格式、指纹..."
-                  className="pl-8 pr-7 h-7.5 text-xs bg-muted/40 border-border/70 rounded-lg focus-visible:bg-background"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="size-3" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Right: Import button */}
-            <div className="flex items-center gap-2 wails-no-drag">
-              <Button
-                size="xs"
-                onClick={() => fileInputRef.current?.click()}
-                className="h-7.5 gap-1.5 text-xs shadow-xs"
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="h-full w-full select-none overflow-hidden"
+        >
+          {sidebarOpen && (
+            <>
+              <ResizablePanel
+                id="sidebar-panel"
+                defaultSize={240}
+                minSize={200}
+                maxSize={480}
+                className="min-w-[200px] max-w-[480px]"
               >
-                <Upload className="size-3.5" />
-                <span>导入文件</span>
-              </Button>
-            </div>
-          </header>
+                <SidebarDirectoryTree
+                  library={library}
+                  folders={folders}
+                  activeFolderId={activeFolderId}
+                  totalItemCount={items.length}
+                  onSelectFolder={(id) => {
+                    setActiveFolderId(id);
+                    setSelectedItemIds(new Set());
+                    setActiveItemId(null);
+                    setInlinePreviewOpen(false);
+                    setFullWindowPreviewOpen(false);
+                  }}
+                  onCreateFolder={handleCreateFolder}
+                  onRenameFolder={handleRenameFolder}
+                  onDeleteFolder={handleDeleteFolder}
+                  onDropItemOnFolder={handleDropItemOnFolder}
+                  onDropExternalFilesOnFolder={handleDropExternalFilesOnFolder}
+                  onCloseLibrary={async () => {
+                    await CloseLibrary();
+                    onLibraryClosed();
+                  }}
+                  onLibraryChanged={onLibraryChanged}
+                  onToggleCollapse={() => setSidebarOpen(false)}
+                />
+              </ResizablePanel>
+              <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
+            </>
+          )}
 
-          {/* Sub-toolbar: Category Pills & Size Slider */}
-          <div className="h-9 border-b border-border/60 bg-muted/15 px-4 flex items-center justify-between text-xs shrink-0 select-none wails-no-drag">
-            {/* Category pills */}
-            <div className="flex items-center gap-1">
+          {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery) */}
+          <ResizablePanel id="gallery-main-panel" minSize={380}>
+            <main className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background">
+                {/* Top Desktop App Navigation Bar */}
+                {/* Main Desktop App Header: Single unified background, no internal borders */}
+                <header className="w-full bg-background border-b-0 shrink-0 select-none">
+                  {/* Div 1: Height matches macOS traffic lights row */}
+                  <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-drag">
+                    {/* Left: Expand button (if sidebar collapsed) + View title & count */}
+                    <div className="flex items-center gap-2 min-w-0 wails-no-drag">
+                      {!sidebarOpen && (
+                        <div className="flex items-center gap-1.5 shrink-0 mr-1.5">
+                          <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setSidebarOpen(true)}
+                            title="Expand Sidebar (⌘B)"
+                            className="size-7 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg shrink-0"
+                          >
+                            <PanelLeftOpen className="size-4" />
+                          </Button>
+                        </div>
+                      )}
+                      <span className="font-semibold text-xs tracking-tight truncate text-foreground">
+                        {activeFolderId === "__trash__" ? "Trash" : (currentFolder ? currentFolder.name : "All")}
+                      </span>
+                      <Badge variant="secondary" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
+                        {filteredItems.length}
+                      </Badge>
+                      {selectedItemIds.size > 0 && (
+                        <Badge variant="default" className="text-[10px] font-mono px-1.5 py-0 h-4.5">
+                          {selectedItemIds.size} selected
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search") */}
+                    <div className="w-[150px] shrink-0 wails-no-drag">
+                      <div className="relative">
+                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Search"
+                          className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background"
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Div 2: Sub-toolbar for category pills & size slider (shares unified bg-background, no separate border-b or bg) */}
+                  <div className="h-9 px-3 flex items-center justify-between text-xs wails-no-drag">
+                    {/* Category pills */}
+                    <div className="flex items-center gap-1">
               {[
                 { id: "all", label: "全部" },
                 { id: "image", label: "图片" },
@@ -618,7 +666,8 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                 <span className="text-[10px] text-muted-foreground font-mono">{rowHeight}px</span>
               </div>
             </div>
-          </div>
+                  </div>
+                </header>
 
           {/* Center Main Scrollable Area with Justified Gallery & Marquee Selection */}
           <div className="flex-1 overflow-y-auto p-4 wails-no-drag">
@@ -628,22 +677,36 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
-                <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
-                  <Upload className="size-6" />
-                </div>
-                <h4 className="text-sm font-semibold tracking-tight">暂无资产</h4>
-                <p className="text-xs text-muted-foreground mt-1 max-w-xs leading-relaxed">
-                  拖拽任意本地文件至此，或按快捷键 <kbd className="px-1 py-0.5 rounded bg-muted border font-mono text-[10px]">Cmd+V</kbd> 粘贴剪贴板图片。
-                </p>
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="mt-3 text-xs h-7 gap-1.5"
-                >
-                  <Upload className="size-3" />
-                  <span>选择文件导入</span>
-                </Button>
+                {activeFolderId === "__trash__" ? (
+                  <>
+                    <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                      <Trash2 className="size-6 text-muted-foreground" />
+                    </div>
+                    <h4 className="text-sm font-semibold tracking-tight">废纸篓为空</h4>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xs leading-relaxed">
+                      删除的资产将暂存在此，可随时恢复或彻底清理。
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                      <Upload className="size-6" />
+                    </div>
+                    <h4 className="text-sm font-semibold tracking-tight">暂无资产</h4>
+                    <p className="text-xs text-muted-foreground mt-1 max-w-xs leading-relaxed">
+                      拖拽任意本地文件至此，或按快捷键 <kbd className="px-1 py-0.5 rounded bg-muted border font-mono text-[10px]">Cmd+V</kbd> 粘贴剪贴板图片。
+                    </p>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-3 text-xs h-7 gap-1.5"
+                    >
+                      <Upload className="size-3" />
+                      <span>选择文件导入</span>
+                    </Button>
+                  </>
+                )}
               </div>
             ) : (
               <JustifiedGallery
@@ -684,30 +747,6 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
             )}
           </div>
 
-          {/* Desktop App Status Footer */}
-          <footer className="h-7 border-t border-border/60 bg-muted/20 px-4 flex items-center justify-between text-[10px] text-muted-foreground shrink-0 font-mono select-none wails-no-drag">
-            <div className="flex items-center gap-2">
-              <Database className="size-3 text-primary" />
-              <span>libSQL 就绪</span>
-              <span>·</span>
-              <span>已展示 {filteredItems.length} 项</span>
-              {selectedItemIds.size > 0 && (
-                <>
-                  <span>·</span>
-                  <span className="text-primary font-semibold">已选 {selectedItemIds.size} 项</span>
-                </>
-              )}
-              {totalSizeBytes > 0 && (
-                <>
-                  <span>·</span>
-                  <span>{formatBytes(totalSizeBytes)}</span>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span>双击中间预览 · 空格全屏弹窗 · 右键管理资产</span>
-            </div>
-          </footer>
 
           {/* 
             ====================================================================
@@ -725,47 +764,56 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
             />
           )}
         </main>
+          </ResizablePanel>
 
-        {/* ========================================================= */}
-        {/* COLUMN 3: RIGHT DETAIL INSPECTOR PANEL                    */}
-        {/* Multi-selection inspector when > 1 items selected,        */}
-        {/* Single detail panel when 1 item selected,                 */}
-        {/* Overview panel when 0 items selected.                     */}
-        {/* ========================================================= */}
-        {selectedItems.length > 1 ? (
-          <MultiItemInspector
-            selectedItems={selectedItems}
-            allFolders={folders}
-            activeFolderId={activeFolderId}
-            onClearSelection={() => {
-              setSelectedItemIds(new Set());
-              setActiveItemId(null);
-            }}
-            onBatchReveal={handleBatchReveal}
-            onBatchDelete={handleBatchDelete}
-            onBatchAddToFolder={handleBatchAddToFolder}
-            onBatchRemoveFromFolder={
-              activeFolderId ? () => handleBatchRemoveFromFolder(activeFolderId) : undefined
-            }
-          />
-        ) : (
-          <ItemDetailPanel
-            item={activeItem}
-            currentFolder={currentFolder}
-            allFolders={folders}
-            totalItemCount={filteredItems.length}
-            totalSizeBytes={totalSizeBytes}
-            onClose={() => {
-              setSelectedItemIds(new Set());
-              setActiveItemId(null);
-            }}
-            onPreview={() => setFullWindowPreviewOpen(true)}
-            onReveal={() => activeItem && handleReveal(undefined, activeItem.id)}
-            onDelete={() => activeItem && handleDeleteItem(undefined, activeItem.id)}
-            onFolderUpdated={handleFullRefresh}
-          />
-        )}
-
+          {/* COLUMN 3: RIGHT DETAIL INSPECTOR (Resizable panel, collapsed together with sidebar) */}
+          {sidebarOpen && (
+            <>
+              <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
+              <ResizablePanel
+                id="detail-inspector-panel"
+                defaultSize={280}
+                minSize={220}
+                maxSize={520}
+                className="min-w-[220px] max-w-[520px]"
+              >
+                {selectedItems.length > 1 ? (
+            <MultiItemInspector
+              selectedItems={selectedItems}
+              allFolders={folders}
+              activeFolderId={activeFolderId}
+              onClearSelection={() => {
+                setSelectedItemIds(new Set());
+                setActiveItemId(null);
+              }}
+              onBatchReveal={handleBatchReveal}
+              onBatchDelete={handleBatchDelete}
+              onBatchAddToFolder={handleBatchAddToFolder}
+              onBatchRemoveFromFolder={
+                activeFolderId ? () => handleBatchRemoveFromFolder(activeFolderId) : undefined
+              }
+            />
+          ) : (
+            <ItemDetailPanel
+              item={activeItem}
+              currentFolder={currentFolder}
+              allFolders={folders}
+              totalItemCount={filteredItems.length}
+              totalSizeBytes={totalSizeBytes}
+              onClose={() => {
+                setSelectedItemIds(new Set());
+                setActiveItemId(null);
+              }}
+              onPreview={() => setFullWindowPreviewOpen(true)}
+              onReveal={() => activeItem && handleReveal(undefined, activeItem.id)}
+              onDelete={() => activeItem && handleDeleteItem(undefined, activeItem.id)}
+              onFolderUpdated={handleFullRefresh}
+            />
+          )}
+        </ResizablePanel>
+      </>
+    )}
+        </ResizablePanelGroup>
         {/* 
           ========================================================================
           FULL-WINDOW POPUP PREVIEW:

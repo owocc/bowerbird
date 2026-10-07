@@ -79,6 +79,10 @@ func (m *LibraryManager) SetApp(app *application.App) {
 	m.app = app
 }
 
+func (m *LibraryManager) GetApp() *application.App {
+	return m.app
+}
+
 func (m *LibraryManager) SetWindow(w application.Window) {
 	m.window = w
 }

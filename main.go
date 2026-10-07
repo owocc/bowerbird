@@ -46,14 +46,13 @@ func main() {
 	})
 
 	coreMgr.SetApp(app)
-
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:          "Bowerbird",
 		Width:          1280,
 		Height:         800,
 		EnableFileDrop: true,
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
+			InvisibleTitleBarHeight: 54,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
