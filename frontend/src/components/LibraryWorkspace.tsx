@@ -4,7 +4,6 @@ import {
   ArrowUpDown,
   Upload,
   X,
-  PanelLeftOpen,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +16,7 @@ import {
   ResizablePanel,
   ResizableHandle,
 } from "@/components/ui/resizable";
-import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
+import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
 import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
 import { JustifiedGallery } from "@/components/JustifiedGallery";
 import { ItemDetailPanel } from "@/components/ItemDetailPanel";
@@ -562,22 +561,11 @@ export function LibraryWorkspace({
                 <header className="w-full bg-background border-b-0 shrink-0 select-none">
                   {/* Div 1: Height matches macOS traffic lights row */}
                   <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-drag">
-                    {/* Left: Expand button (if sidebar collapsed) + View title & count */}
-                    <div className="flex items-center gap-2 min-w-0 wails-no-drag">
-                      {!sidebarOpen && (
-                        <div className="flex items-center gap-1.5 shrink-0 mr-1.5">
-                          <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => setSidebarOpen(true)}
-                            title="Expand Sidebar (⌘B)"
-                            className="size-7 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg shrink-0"
-                          >
-                            <PanelLeftOpen className="size-4" />
-                          </Button>
-                        </div>
-                      )}
+                    {/* Left: Shared safe prefix (macOS traffic lights + expand button if collapsed) + View title & count */}
+                    <MainHeaderSafePrefix
+                      sidebarOpen={sidebarOpen}
+                      onToggleSidebar={() => setSidebarOpen(true)}
+                    >
                       <span className="font-semibold text-xs tracking-tight truncate text-foreground">
                         {activeFolderId === "__trash__" ? "Trash" : (currentFolder ? currentFolder.name : "All")}
                       </span>
@@ -589,8 +577,7 @@ export function LibraryWorkspace({
                           {selectedItemIds.size} selected
                         </Badge>
                       )}
-                    </div>
-
+                    </MainHeaderSafePrefix>
                     {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search", strictly no window dragging) */}
                     <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container select-text">
                       <div className="relative wails-no-drag">
@@ -765,6 +752,8 @@ export function LibraryWorkspace({
               items={filteredItems}
               onClose={() => setInlinePreviewOpen(false)}
               onIndexChange={(newItem) => setActiveItemId(newItem.id)}
+              sidebarOpen={sidebarOpen}
+              onToggleSidebar={() => setSidebarOpen(true)}
             />
           )}
         </main>
@@ -831,6 +820,8 @@ export function LibraryWorkspace({
           items={filteredItems}
           onClose={() => setFullWindowPreviewOpen(false)}
           onIndexChange={(newItem) => setActiveItemId(newItem.id)}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(true)}
         />
 
         {/* 
