@@ -24,6 +24,16 @@ export interface Item {
     "itemPath": string;
 
     /**
+     * absolute local path to physical file
+     */
+    "filePath": string;
+
+    /**
+     * file:// URI pointing to physical file
+     */
+    "fileUrl": string;
+
+    /**
      * HTTP stream URL
      */
     "originalUrl": string;

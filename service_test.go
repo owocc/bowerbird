@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -81,9 +82,15 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	if item.Width != 600 || item.Height != 400 {
 		t.Errorf("Expected 600x400, got %dx%d", item.Width, item.Height)
 	}
+	itemDir := filepath.Join(expectedLibPath, "items", item.ID)
+	if item.FilePath != filepath.Join(itemDir, "sample.png") {
+		t.Errorf("Expected FilePath %s, got %s", filepath.Join(itemDir, "sample.png"), item.FilePath)
+	}
+	if !strings.HasPrefix(item.FileURL, "file://") {
+		t.Errorf("Expected FileURL to have file:// scheme, got %s", item.FileURL)
+	}
 
 	// Verify physical isolation
-	itemDir := filepath.Join(expectedLibPath, "items", item.ID)
 	if _, err := os.Stat(filepath.Join(itemDir, "sample.png")); err != nil {
 		t.Errorf("Isolated original file missing: %v", err)
 	}
