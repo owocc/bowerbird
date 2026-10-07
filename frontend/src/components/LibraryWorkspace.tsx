@@ -561,7 +561,7 @@ export function LibraryWorkspace({
               {/* Main Desktop App Header: Single unified background, no internal borders */}
                 <header className="w-full bg-background border-b-0 shrink-0 select-none">
                   {/* Div 1: Height matches macOS traffic lights row */}
-                  <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-drag">
+                  <div className="h-(--titlebar-height) px-3 flex items-center justify-between">
                     {/* Left: Shared safe prefix + Title + Preview height zoom slider */}
                     <MainHeaderSafePrefix
                       sidebarOpen={sidebarOpen}
@@ -571,16 +571,30 @@ export function LibraryWorkspace({
                         {activeFolderId === "__trash__" ? "Trash" : (currentFolder ? currentFolder.name : "All")}
                       </span>
                       {/* Thumbnail row height zoom slider: [-] [slider] [+] */}
-                      <div className="flex items-center gap-0.5 ml-2 wails-no-drag select-none">
+                      <div
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-0.5 ml-2 p-1 -m-1 wails-no-drag slider-control-container select-none"
+                      >
                         <button
                           type="button"
-                          onClick={() => setRowHeight((h) => Math.max(60, h - 10))}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRowHeight((h) => Math.max(60, h - 10));
+                          }}
                           className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
                           title="Decrease height"
                         >
-                          <Minus className="size-3" />
+                          <Minus className="size-3 wails-no-drag pointer-events-none" />
                         </button>
-                        <div className="w-16 wails-no-drag">
+                        <div
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className="w-16 wails-no-drag py-1"
+                        >
                           <Slider
                             min={60}
                             max={200}
@@ -592,15 +606,22 @@ export function LibraryWorkspace({
                         </div>
                         <button
                           type="button"
-                          onClick={() => setRowHeight((h) => Math.min(200, h + 10))}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setRowHeight((h) => Math.min(200, h + 10));
+                          }}
                           className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
                           title="Increase height"
                         >
-                          <Plus className="size-3" />
+                          <Plus className="size-3 wails-no-drag pointer-events-none" />
                         </button>
                       </div>
                     </MainHeaderSafePrefix>
-                    {/* Right: Search input (right-aligned, fixed 150px, placeholder "Search", strictly no window dragging) */}
+
+                    {/* Center: Draggable window titlebar filler (only this empty region moves the window) */}
+                    <div className="flex-1 h-full min-w-4 wails-drag" />
                     <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container select-text">
                       <div className="relative wails-no-drag">
                         <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
