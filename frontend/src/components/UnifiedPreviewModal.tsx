@@ -353,12 +353,12 @@ export function UnifiedPreviewModal({
             <MiniMap
               width={120}
               height={120}
-              className="absolute bottom-6 right-6 z-30 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-card/95 backdrop-blur-md select-none transition-all animate-in fade-in zoom-in-95 duration-150"
+              className="absolute bottom-4 right-4 z-30 rounded-xs overflow-hidden shadow-2xl border border-border/80 bg-card/95 backdrop-blur-md select-none transition-all animate-in fade-in zoom-in-95 duration-150"
               borderColor="var(--primary)"
               previewStyle={{
                 backgroundColor: "oklch(var(--primary) / 0.18)",
                 border: "2px solid var(--primary)",
-                borderRadius: "4px",
+                borderRadius: "2px",
               }}
             >
               <img
