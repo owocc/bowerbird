@@ -60,6 +60,7 @@ type Item struct {
 	ImportedAt    int64    `json:"importedAt"`
 	ItemPath      string   `json:"itemPath"`      // local disk path of item directory
 	FilePath      string   `json:"filePath"`      // absolute local path to physical file
+	ShellPath     string   `json:"shellPath"`     // shell-escaped path with backslash spaces
 	FileURL       string   `json:"fileUrl"`       // file:// URI pointing to physical file
 	OriginalURL   string   `json:"originalUrl"`   // HTTP stream URL
 	ThumbnailURL  string   `json:"thumbnailUrl"`  // HTTP thumbnail URL
@@ -90,6 +91,7 @@ type AppConfig struct {
 // LibraryService handles library management, imports, index db and asset streaming
 type LibraryService struct {
 	app           *application.App
+	window        application.Window
 	mu            sync.RWMutex
 	activeLib     *LibraryInfo
 	db            *sql.DB
@@ -112,6 +114,10 @@ func (s *LibraryService) SetApp(app *application.App) {
 			_, _ = s.OpenLibrary(cfg.LastLibraryPath)
 		}
 	}
+}
+
+func (s *LibraryService) setWindow(w application.Window) {
+	s.window = w
 }
 
 // startAssetServer spins up an internal HTTP server for thumbnails, originals and Drag-to-Finder downloads
@@ -430,6 +436,20 @@ func (s *LibraryService) CloseLibrary() error {
 	return nil
 }
 
+func escapeShellPath(p string) string {
+	var sb strings.Builder
+	for _, r := range p {
+		switch r {
+		case ' ', '\t', '\u00a0', '\u202f', '(', ')', '[', ']', '{', '}', '\'', '"', '\\', '$', '`', '!', '#', '&', '*', '?', ';', '<', '>', '~':
+			sb.WriteRune('\\')
+			sb.WriteRune(r)
+		default:
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
 func pathToURL(filePath string) string {
 	slashPath := filepath.ToSlash(filePath)
 	if !strings.HasPrefix(slashPath, "/") {
@@ -445,6 +465,7 @@ func pathToURL(filePath string) string {
 func (s *LibraryService) populateItemPaths(item *Item, activePath string, port int) {
 	item.ItemPath = filepath.Join(activePath, "items", item.ID)
 	item.FilePath = filepath.Join(item.ItemPath, item.Filename)
+	item.ShellPath = escapeShellPath(item.FilePath)
 	item.FileURL = pathToURL(item.FilePath)
 	item.OriginalURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, item.ID)
 	item.ThumbnailURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, item.ID)

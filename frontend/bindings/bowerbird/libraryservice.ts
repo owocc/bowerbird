@@ -113,3 +113,7 @@ export function SelectLibraryDialog(): $CancellablePromise<string> {
 export function SetApp(app: application$0.App | null): $CancellablePromise<void> {
     return $Call.ByID(2038771421, app);
 }
+
+export function StartDrag(id: string): $CancellablePromise<void> {
+    return $Call.ByID(2247961720, id);
+}
