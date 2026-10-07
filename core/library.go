@@ -415,8 +415,16 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 	return &item, nil
 }
 
+// ProgressCallback reports current item index (1-based), total count, and filename being processed.
+type ProgressCallback func(current int, total int, filename string)
+
 // ImportFiles imports a list of files or folders with physical copy isolation and content deduplication.
 func (m *LibraryManager) ImportFiles(sourcePaths []string) ([]Item, error) {
+	return m.ImportFilesWithProgress(sourcePaths, nil)
+}
+
+// ImportFilesWithProgress imports files with real-time progress callbacks for UI feedback.
+func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgress ProgressCallback) ([]Item, error) {
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -426,7 +434,8 @@ func (m *LibraryManager) ImportFiles(sourcePaths []string) ([]Item, error) {
 		return nil, errors.New("no active library")
 	}
 
-	var imported []Item
+	// 1. Flatten directories to count total files for accurate progress
+	var allFiles []string
 	for _, srcPath := range sourcePaths {
 		info, err := os.Stat(srcPath)
 		if err != nil {
@@ -441,17 +450,23 @@ func (m *LibraryManager) ImportFiles(sourcePaths []string) ([]Item, error) {
 				if strings.HasPrefix(d.Name(), ".") {
 					return nil
 				}
-				item, itemErr := m.importSingleFile(path)
-				if itemErr == nil && item != nil {
-					imported = append(imported, *item)
-				}
+				allFiles = append(allFiles, path)
 				return nil
 			})
 		} else {
-			item, itemErr := m.importSingleFile(srcPath)
-			if itemErr == nil && item != nil {
-				imported = append(imported, *item)
-			}
+			allFiles = append(allFiles, srcPath)
+		}
+	}
+
+	total := len(allFiles)
+	var imported []Item
+	for i, path := range allFiles {
+		if onProgress != nil {
+			onProgress(i+1, total, filepath.Base(path))
+		}
+		item, err := m.importSingleFile(path)
+		if err == nil && item != nil {
+			imported = append(imported, *item)
 		}
 	}
 
