@@ -1,11 +1,9 @@
 import { useState } from "react";
 import {
-  X,
   FolderOpen,
   Trash2,
   Folder as FolderIcon,
   Plus,
-  Files,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -37,8 +35,8 @@ export function MultiItemInspector({
 }: MultiItemInspectorProps) {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
-  // Take the last 4 selected items to preview
-  const lastSelectedItems = selectedItems.slice(-4);
+  // Take up to the last 7 selected items to stack like newspapers
+  const stackedItems = selectedItems.slice(-7);
   const totalSizeBytes = selectedItems.reduce((acc, curr) => acc + (curr.size || 0), 0);
 
   // Group by extension
@@ -63,66 +61,52 @@ export function MultiItemInspector({
 
   return (
     <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
-      {/* Top Header */}
-      <div className="h-12 border-b border-border/60 px-4 flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Files className="size-3.5 text-primary" />
-          <span className="text-xs font-semibold tracking-tight">
-            已选中 {selectedItems.length} 项资产
-          </span>
-        </div>
-        <button
-          onClick={onClearSelection}
-          title="取消选择"
-          className="size-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-        >
-          <X className="size-3.5" />
-        </button>
-      </div>
-
-      {/* Inspector Body */}
+      {/* Inspector Body - Directly show info without header */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-        {/* 
-          ========================================================================
-          MULTI-ITEM PREVIEW STACK:
-          Displays previews of the last few selected files using UniversalThumbnail.
-          Every thumbnail natively supports drag-out to Finder / Desktop / Terminal!
-          ========================================================================
-        */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              最近选中预览 (支持直接拖出)
-            </span>
-            <span className="text-[10px] font-mono text-muted-foreground">
-              {lastSelectedItems.length} / {selectedItems.length}
-            </span>
-          </div>
+        {/* Newspaper-style overlapping stack preview */}
+        <div className="relative w-full h-44 flex items-center justify-center my-1 select-none">
+          {stackedItems.map((item, idx) => {
+            const offsetFromTop = (stackedItems.length - 1) - idx;
+            const presets = [
+              { rotate: 0, x: 0, y: 0 },
+              { rotate: -4, x: -6, y: 3 },
+              { rotate: 5, x: 5, y: 5 },
+              { rotate: -7, x: -10, y: 8 },
+              { rotate: 7, x: 9, y: 11 },
+              { rotate: -10, x: -13, y: 14 },
+              { rotate: 9, x: 12, y: 16 },
+            ];
+            const preset = presets[Math.min(offsetFromTop, presets.length - 1)];
 
-          {/* Desktop stacked overlapping cascade preview */}
-          <div className="p-3 rounded-2xl border border-border/70 bg-muted/20 relative">
-            <div className="grid grid-cols-2 gap-2.5">
-              {lastSelectedItems.map((item, idx) => (
-                <div key={item.id} className="flex flex-col gap-1 min-w-0">
-                  <div className="aspect-square w-full rounded-xl overflow-hidden shadow-xs border border-border/60 bg-background/80 hover:border-primary/50 transition-colors">
-                    <UniversalThumbnail
-                      item={item}
-                      draggable={true}
-                      objectFit="cover"
-                      showFormatBadge={true}
-                      className="w-full h-full cursor-grab active:cursor-grabbing"
-                    />
-                  </div>
-                  <span
-                    className="text-[11px] truncate text-foreground/90 font-medium px-0.5"
-                    title={item.name}
-                  >
-                    {item.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+            return (
+              <div
+                key={item.id}
+                style={{
+                  zIndex: idx + 1,
+                  transform: `translate(${preset.x}px, ${preset.y}px) rotate(${preset.rotate}deg)`,
+                }}
+                className="absolute w-32 h-32 rounded-xl overflow-hidden border border-border/80 bg-card shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
+              >
+                <UniversalThumbnail
+                  item={item}
+                  draggable={true}
+                  objectFit="cover"
+                  showFormatBadge={false}
+                  className="w-full h-full border-none bg-transparent"
+                />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Selection summary */}
+        <div className="text-center space-y-0.5 pt-1">
+          <p className="text-xs font-semibold text-foreground">
+            {selectedItems.length} items selected
+          </p>
+          <p className="text-[10px] text-muted-foreground font-mono">
+            {formatBytes(totalSizeBytes)}
+          </p>
         </div>
 
         {/* Batch Action Buttons */}
@@ -132,10 +116,10 @@ export function MultiItemInspector({
             size="xs"
             onClick={onBatchReveal}
             className="h-7 text-[11px] gap-1.5"
-            title="在访达中显示全部选中文件"
+            title="Reveal in Finder"
           >
             <FolderOpen className="size-3" />
-            <span>在访达中定位</span>
+            <span>Reveal in Finder</span>
           </Button>
 
           <Button
@@ -143,10 +127,10 @@ export function MultiItemInspector({
             size="xs"
             onClick={onBatchDelete}
             className="h-7 text-[11px] gap-1.5"
-            title="删除所有选中的资产"
+            title="Delete selected assets"
           >
             <Trash2 className="size-3" />
-            <span>删除所选 ({selectedItems.length})</span>
+            <span>Delete ({selectedItems.length})</span>
           </Button>
         </div>
 
@@ -156,7 +140,7 @@ export function MultiItemInspector({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              批量目录归类
+              Folders
             </span>
             {flatFolderList.length > 0 && (
               <button
@@ -164,7 +148,7 @@ export function MultiItemInspector({
                 className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
               >
                 <Plus className="size-2.5" />
-                <span>批量添加到目录</span>
+                <span>Add to folder...</span>
               </button>
             )}
           </div>
@@ -173,7 +157,7 @@ export function MultiItemInspector({
           {showFolderPicker && flatFolderList.length > 0 && (
             <div className="p-2 rounded-lg border border-border bg-card shadow-md space-y-1">
               <div className="text-[10px] text-muted-foreground px-1 pb-1 font-medium">
-                将选中的 {selectedItems.length} 项添加至：
+                Add {selectedItems.length} items to:
               </div>
               <div className="max-h-36 overflow-y-auto space-y-0.5">
                 {flatFolderList.map((f) => (
@@ -198,9 +182,9 @@ export function MultiItemInspector({
               variant="outline"
               size="xs"
               onClick={() => onBatchRemoveFromFolder(activeFolderId)}
-              className="w-full h-7 text-[11px] text-muted-foreground hover:text-destructive"
+              className="w-full h-7 text-[11px] text-destructive hover:bg-destructive/10 border-destructive/30"
             >
-              <span>从当前目录移出所选文件</span>
+              <span>Remove from Current Folder</span>
             </Button>
           )}
         </div>
@@ -210,23 +194,23 @@ export function MultiItemInspector({
         {/* Combined Metadata Summary */}
         <div className="space-y-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            所选统计汇总
+            Summary
           </span>
           <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2 text-[11px]">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">选中数量</span>
-              <span className="font-mono font-medium">{selectedItems.length} 项</span>
+              <span className="text-muted-foreground">Count</span>
+              <span className="font-mono font-medium">{selectedItems.length}</span>
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">合计占用体积</span>
+              <span className="text-muted-foreground">Total Size</span>
               <span className="font-mono font-semibold text-foreground">
                 {formatBytes(totalSizeBytes)}
               </span>
             </div>
 
             <div className="pt-1.5 border-t border-border/40">
-              <div className="text-[10px] text-muted-foreground mb-1">包含格式分布：</div>
+              <div className="text-[10px] text-muted-foreground mb-1">Formats:</div>
               <div className="flex flex-wrap gap-1">
                 {Object.entries(extensionCounts).map(([ext, count]) => (
                   <Badge key={ext} variant="secondary" className="text-[9px] font-mono h-4.5 px-1.5">
