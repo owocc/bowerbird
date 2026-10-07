@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import type { Item, Folder } from "../../bindings/bowerbird/core/models";
-import { formatBytes } from "@/lib/formatters";
+import { formatBytes, getFileCategory } from "@/lib/formatters";
 import { UniversalThumbnail } from "./UniversalThumbnail";
 
 export interface MultiItemInspectorProps {
@@ -63,8 +63,8 @@ export function MultiItemInspector({
     <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
       {/* Inspector Body - Directly show info without header */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-        {/* Newspaper-style overlapping stack preview */}
-        <div className="relative w-full h-44 flex items-center justify-center my-1 select-none">
+        {/* Newspaper-style overlapping stack preview (fixed height, adapted width maintaining aspect ratio) */}
+        <div className="relative w-full h-48 flex items-center justify-center my-1 select-none">
           {stackedItems.map((item, idx) => {
             const offsetFromTop = (stackedItems.length - 1) - idx;
             const presets = [
@@ -78,17 +78,34 @@ export function MultiItemInspector({
             ];
             const preset = presets[Math.min(offsetFromTop, presets.length - 1)];
 
+            const STACK_HEIGHT = 135;
+            const ratio = (() => {
+              if (item.width && item.height && item.width > 0 && item.height > 0) {
+                return Math.max(0.55, Math.min(2.1, item.width / item.height));
+              }
+              const category = getFileCategory(item.extension);
+              if (category === "document") return 0.75;
+              if (category === "video") return 1.77;
+              if (category === "audio") return 1.0;
+              return 1.25;
+            })();
+            const calculatedWidth = Math.round(STACK_HEIGHT * ratio);
+
             return (
               <div
                 key={item.id}
                 style={{
                   zIndex: idx + 1,
+                  height: `${STACK_HEIGHT}px`,
+                  width: `${calculatedWidth}px`,
                   transform: `translate(${preset.x}px, ${preset.y}px) rotate(${preset.rotate}deg)`,
                 }}
-                className="absolute w-32 h-32 rounded-xl overflow-hidden border border-border/80 bg-card shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
+                className="absolute rounded-xl overflow-hidden border border-border/80 bg-card shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
               >
                 <UniversalThumbnail
                   item={item}
+                  height={STACK_HEIGHT}
+                  width={calculatedWidth}
                   draggable={true}
                   objectFit="cover"
                   showFormatBadge={false}
