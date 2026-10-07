@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=My Product
+Comment=A bowerbird application
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/bowerbird %u
+Terminal=false
+Type=Application
+Icon=bowerbird
+Categories=Utility;
+StartupWMClass=bowerbird
+
+ 
