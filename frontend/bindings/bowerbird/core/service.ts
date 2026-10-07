@@ -54,6 +54,10 @@ export function ImportFromBase64(filename: string, base64Data: string): $Cancell
     return $Call.ByID(2134855510, filename, base64Data);
 }
 
+export function ImportFromURL(rawURL: string): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(780943642, rawURL);
+}
+
 export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(2189258727, libraryPath);
 }
