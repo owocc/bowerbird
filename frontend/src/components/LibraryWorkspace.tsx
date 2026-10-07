@@ -199,14 +199,24 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     }
   };
 
-  // Drag-out to Finder / Explorer using standard DownloadURL specification
+  // Drag-out to Finder / Explorer using standard native file absolute path
   const handleDragStart = (e: React.DragEvent, item: Item) => {
+    const filePath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
+    const fileUrl = item.fileUrl || `file://${encodeURI(filePath)}`;
     const mime = item.mimeType || "application/octet-stream";
-    const downloadUrl = item.downloadUrl;
-    // Standard DownloadURL specification understood by macOS Finder / Chromium
-    e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${downloadUrl}`);
-    e.dataTransfer.setData("text/uri-list", downloadUrl);
-    e.dataTransfer.setData("text/plain", item.filename);
+
+    // 1. Standard OS File URI for macOS Finder, Windows Explorer, desktop apps
+    e.dataTransfer.setData("text/uri-list", fileUrl);
+
+    // 2. Absolute physical file path for terminals, editors, drop handlers
+    e.dataTransfer.setData("text/plain", filePath);
+
+    // 3. Standard DownloadURL format with native file:// scheme
+    e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
+
+    // 4. Application-specific absolute path
+    e.dataTransfer.setData("application/x-bowerbird-path", filePath);
+
     e.dataTransfer.effectAllowed = "copy";
   };
 
@@ -499,9 +509,9 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                 </div>
 
                 <div className="space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">独立物理路径 (已隔离)</span>
-                  <div className="p-2.5 rounded-lg bg-muted/40 border border-border/60 font-mono text-[11px] text-foreground break-all">
-                    {selectedItem.itemPath}
+                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">本地物理文件绝对路径 (已隔离)</span>
+                  <div className="p-2.5 rounded-lg bg-muted/40 border border-border/60 font-mono text-[11px] text-foreground break-all select-text">
+                    {selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`}
                   </div>
                 </div>
 
@@ -520,14 +530,15 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                     size="sm"
                     variant="outline"
                     onClick={async () => {
-                      await navigator.clipboard.writeText(selectedItem.downloadUrl);
+                      const path = selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`;
+                      await navigator.clipboard.writeText(path);
                       setCopiedLink(true);
                       setTimeout(() => setCopiedLink(false), 2000);
                     }}
                     className="h-8 gap-1.5 text-xs"
                   >
                     {copiedLink ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
-                    <span>{copiedLink ? "已复制" : "复制下载 URL"}</span>
+                    <span>{copiedLink ? "已复制路径" : "复制绝对路径"}</span>
                   </Button>
 
                   <Button

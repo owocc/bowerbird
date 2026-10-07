@@ -16,6 +16,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,11 +57,12 @@ type Item struct {
 	CreatedAt     int64    `json:"createdAt"`
 	ImportedAt    int64    `json:"importedAt"`
 	ItemPath      string   `json:"itemPath"`      // local disk path of item directory
+	FilePath      string   `json:"filePath"`      // absolute local path to physical file
+	FileURL       string   `json:"fileUrl"`       // file:// URI pointing to physical file
 	OriginalURL   string   `json:"originalUrl"`   // HTTP stream URL
 	ThumbnailURL  string   `json:"thumbnailUrl"`  // HTTP thumbnail URL
 	DownloadURL   string   `json:"downloadUrl"`   // HTTP download URL for OS drag-out
 }
-
 // ItemMetadata is serialized inside <item_id>/metadata.json
 type ItemMetadata struct {
 	ID           string   `json:"id"`
@@ -420,6 +422,15 @@ func (s *LibraryService) CloseLibrary() error {
 	return nil
 }
 
+func (s *LibraryService) populateItemPaths(item *Item, activePath string, port int) {
+	item.ItemPath = filepath.Join(activePath, "items", item.ID)
+	item.FilePath = filepath.Join(item.ItemPath, item.Filename)
+	item.FileURL = (&url.URL{Scheme: "file", Path: filepath.ToSlash(item.FilePath)}).String()
+	item.OriginalURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, item.ID)
+	item.ThumbnailURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, item.ID)
+	item.DownloadURL = fmt.Sprintf("http://127.0.0.1:%d/asset/download/%s", port, item.ID)
+}
+
 // GetItems queries items from libSQL index database
 func (s *LibraryService) GetItems(query string, sortOrder string) ([]Item, error) {
 	s.mu.RLock()
@@ -482,10 +493,7 @@ func (s *LibraryService) GetItems(query string, sortOrder string) ([]Item, error
 		} else {
 			item.Tags = []string{}
 		}
-		item.ItemPath = filepath.Join(active.Path, "items", item.ID)
-		item.OriginalURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, item.ID)
-		item.ThumbnailURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, item.ID)
-		item.DownloadURL = fmt.Sprintf("http://127.0.0.1:%d/asset/download/%s", port, item.ID)
+		s.populateItemPaths(&item, active.Path, port)
 
 		items = append(items, item)
 	}
@@ -534,10 +542,7 @@ func (s *LibraryService) GetItem(id string) (*Item, error) {
 	} else {
 		item.Tags = []string{}
 	}
-	item.ItemPath = filepath.Join(active.Path, "items", item.ID)
-	item.OriginalURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, item.ID)
-	item.ThumbnailURL = fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, item.ID)
-	item.DownloadURL = fmt.Sprintf("http://127.0.0.1:%d/asset/download/%s", port, item.ID)
+	s.populateItemPaths(&item, active.Path, port)
 	return &item, nil
 }
 
@@ -657,11 +662,8 @@ func (s *LibraryService) importSingleFile(srcPath string) (*Item, error) {
 		Tags:         []string{},
 		CreatedAt:    createdAt,
 		ImportedAt:   now,
-		ItemPath:     itemDir,
-		OriginalURL:  fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, itemID),
-		ThumbnailURL: fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, itemID),
-		DownloadURL:  fmt.Sprintf("http://127.0.0.1:%d/asset/download/%s", port, itemID),
 	}
+	s.populateItemPaths(&item, active.Path, port)
 
 	// Save metadata.json inside item directory
 	metaBytes, _ := json.MarshalIndent(ItemMetadata{
@@ -760,11 +762,8 @@ func (s *LibraryService) ImportFromBase64(filename string, base64Data string) (*
 		Tags:         []string{},
 		CreatedAt:    now,
 		ImportedAt:   now,
-		ItemPath:     itemDir,
-		OriginalURL:  fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/original", port, itemID),
-		ThumbnailURL: fmt.Sprintf("http://127.0.0.1:%d/asset/item/%s/thumbnail", port, itemID),
-		DownloadURL:  fmt.Sprintf("http://127.0.0.1:%d/asset/download/%s", port, itemID),
 	}
+	s.populateItemPaths(&item, active.Path, port)
 
 	metaBytes, _ := json.MarshalIndent(ItemMetadata{
 		ID:           item.ID,
