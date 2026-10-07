@@ -38,3 +38,8 @@ export function getFileCategory(ext: string): "image" | "video" | "audio" | "doc
   }
   return "other";
 }
+
+export function escapePathForShell(path: string): string {
+  if (!path) return "";
+  return path.replace(/([ \t\u00a0\u202f()\[\]{}'"\\$`!#&*?;<>~])/g, "\\$1");
+}

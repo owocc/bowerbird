@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -157,6 +158,13 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	}
 	if strings.Contains(spaceItem.FileURL, " ") {
 		t.Errorf("FileURL must not contain raw unencoded spaces, got: %s", spaceItem.FileURL)
+	}
+	if !strings.Contains(spaceItem.ShellPath, `\ `) {
+		t.Errorf("Expected ShellPath to contain backslash-escaped spaces, got: %s", spaceItem.ShellPath)
+	}
+	cmd := exec.Command("sh", "-c", "test -f "+spaceItem.ShellPath)
+	if err := cmd.Run(); err != nil {
+		t.Errorf("Shell failed to find file using ShellPath %s: %v", spaceItem.ShellPath, err)
 	}
 	// 5. Query items via libSQL
 	allItems, err := svc.GetItems("", "desc")

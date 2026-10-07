@@ -34,6 +34,11 @@ export interface Item {
     "filePath": string;
 
     /**
+     * shell-escaped path with backslash spaces
+     */
+    "shellPath": string;
+
+    /**
      * file:// URI pointing to physical file
      */
     "fileUrl": string;

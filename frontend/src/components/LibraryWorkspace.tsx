@@ -35,9 +35,10 @@ import {
   RevealInFinder,
   ImportFromBase64,
   CloseLibrary,
+  StartDrag,
 } from "../../bindings/bowerbird/libraryservice";
 import type { Item, LibraryInfo } from "../../bindings/bowerbird/models";
-import { formatBytes, formatDate, getFileCategory } from "@/lib/formatters";
+import { formatBytes, formatDate, getFileCategory, escapePathForShell } from "@/lib/formatters";
 
 interface LibraryWorkspaceProps {
   library: LibraryInfo;
@@ -199,10 +200,15 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     }
   };
 
-  // Drag-out to Finder / Explorer using standard native file absolute path
+  // Drag-out using native file session and standard OS file formats
   const handleDragStart = (e: React.DragEvent, item: Item) => {
+    // 1. Trigger native OS file drag (points directly to physical file on disk)
+    StartDrag(item.id).catch(() => {
+      // Native drag initiated or fallback to HTML5 dataTransfer
+    });
+
     const rawPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : "");
-    // Ensure file:// URL has all spaces and special characters percent-encoded (RFC 8089)
+    const shellPath = item.shellPath || escapePathForShell(rawPath);
     let fileUrl = item.fileUrl;
     if (!fileUrl && rawPath) {
       fileUrl = encodeURI(`file://${rawPath.startsWith("/") ? "" : "/"}${rawPath}`);
@@ -211,16 +217,16 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
     }
     const mime = item.mimeType || "application/octet-stream";
 
-    // 1. Standard OS File URI: spaces encoded as %20 so Finder/Explorer never splits or breaks on spaces
+    // 2. Standard OS File URI for Finder and graphical drop targets
     e.dataTransfer.setData("text/uri-list", fileUrl);
 
-    // 2. Absolute physical file path
-    e.dataTransfer.setData("text/plain", rawPath);
+    // 3. Shell-escaped path for Terminal / iTerm (all spaces formatted with \ )
+    e.dataTransfer.setData("text/plain", shellPath);
 
-    // 3. DownloadURL: format with properly encoded file URL
+    // 4. Standard DownloadURL format with native file:// scheme
     e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
 
-    // 4. Application-specific absolute path
+    // 5. Raw unescaped path
     e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
 
     e.dataTransfer.effectAllowed = "copy";
@@ -523,9 +529,12 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                 </div>
 
                 <div className="space-y-1">
-                  <span className="text-[10px] text-muted-foreground uppercase font-semibold">本地物理文件绝对路径 (已隔离)</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground uppercase font-semibold">本地物理文件路径</span>
+                    <span className="text-[10px] text-muted-foreground">支持终端直接执行 (\转义)</span>
+                  </div>
                   <div className="p-2.5 rounded-lg bg-muted/40 border border-border/60 font-mono text-[11px] text-foreground break-all select-text">
-                    {selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`}
+                    {selectedItem.shellPath || escapePathForShell(selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`)}
                   </div>
                 </div>
 
@@ -544,7 +553,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                     size="sm"
                     variant="outline"
                     onClick={async () => {
-                      const path = selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`;
+                      const path = selectedItem.shellPath || escapePathForShell(selectedItem.filePath || `${selectedItem.itemPath}/${selectedItem.filename}`);
                       await navigator.clipboard.writeText(path);
                       setCopiedLink(true);
                       setTimeout(() => setCopiedLink(false), 2000);
@@ -552,7 +561,7 @@ export function LibraryWorkspace({ library, onLibraryClosed }: LibraryWorkspaceP
                     className="h-8 gap-1.5 text-xs"
                   >
                     {copiedLink ? <Check className="size-3.5 text-green-500" /> : <Copy className="size-3.5" />}
-                    <span>{copiedLink ? "已复制路径" : "复制绝对路径"}</span>
+                    <span>{copiedLink ? "已复制终端路径" : "复制终端路径 (\\空格)"}</span>
                   </Button>
 
                   <Button
