@@ -18,14 +18,14 @@ export function DropzoneOverlay({ state }: DropzoneOverlayProps) {
           <div className="size-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4 animate-bounce shadow-md">
             <Upload className="size-8" />
           </div>
-          <h3 className="text-xl font-bold tracking-tight">释放文件以导入资源库</h3>
+          <h3 className="text-xl font-bold tracking-tight">Drop files to import into library</h3>
           <p className="text-xs text-muted-foreground mt-1.5 max-w-sm text-center leading-relaxed">
-            支持任意本地文件、整目录递归导入及浏览器网络图片
+            Drop local files, folders, or web images to import
           </p>
           <div className="flex gap-2 mt-4 text-[11px] text-muted-foreground font-mono">
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">物理副本隔离</span>
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">SHA-256 去重</span>
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">自动生成缩略图</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">Isolated Copy</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">Deduplicated</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">Thumbnails</span>
           </div>
         </div>
       )}
@@ -37,7 +37,7 @@ export function DropzoneOverlay({ state }: DropzoneOverlayProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Loader2 className="size-4 text-primary animate-spin" />
-                <span className="font-semibold text-xs tracking-tight">正在导入资产...</span>
+                <span className="font-semibold text-xs tracking-tight">Importing assets...</span>
               </div>
               <span className="font-mono text-xs text-muted-foreground">
                 {current} / {total || 1} ({percent}%)
@@ -53,7 +53,7 @@ export function DropzoneOverlay({ state }: DropzoneOverlayProps) {
             </div>
 
             <p className="text-[11px] text-muted-foreground truncate font-mono" title={filename}>
-              {message || filename || "正在处理..."}
+              {message || filename || "Processing..."}
             </p>
           </div>
         </div>

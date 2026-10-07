@@ -37,42 +37,44 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
 
   // Listen to Wails native events emitted by Go backend
   useEffect(() => {
-    const unsubStarted = Events.On("import-started", (event: { data: { total: number } }) => {
+    const unsubStarted = Events.On("import-started", (event: any) => {
       clearTimer();
-      const total = event?.data?.total || 1;
+      const data = event?.data ?? event ?? {};
+      const total = typeof data === "object" && data && "total" in data ? Number(data.total) : 1;
       setState({
         status: "importing",
         total,
         current: 0,
-        filename: "正在准备导入...",
-        message: `正在分析 ${total} 个文件...`,
+        filename: "Preparing import...",
+        message: `Analyzing ${total} files...`,
       });
     });
 
-    const unsubProgress = Events.On(
-      "import-progress",
-      (event: { data: { current: number; total: number; filename: string } }) => {
-        const { current, total, filename } = event.data;
-        setState((prev) => ({
-          ...prev,
-          status: "importing",
-          total,
-          current,
-          filename,
-          message: `正在复制并生成索引 (${current}/${total}): ${filename}`,
-        }));
-      }
-    );
+    const unsubProgress = Events.On("import-progress", (event: any) => {
+      const data = event?.data ?? event ?? {};
+      const current = typeof data === "object" && data && "current" in data ? Number(data.current) : 0;
+      const total = typeof data === "object" && data && "total" in data ? Number(data.total) : 1;
+      const filename = typeof data === "object" && data && "filename" in data ? String(data.filename) : "";
+      setState((prev) => ({
+        ...prev,
+        status: "importing",
+        total,
+        current,
+        filename,
+        message: `Importing (${current}/${total}): ${filename}`,
+      }));
+    });
 
-    const unsubCompleted = Events.On("import-completed", (event: { data: { count: number; ids?: string[] } }) => {
-      const count = event?.data?.count || 0;
-      const ids = event?.data?.ids;
+    const unsubCompleted = Events.On("import-completed", (event: any) => {
+      const data = event?.data ?? event ?? {};
+      const count = typeof data === "object" && data && "count" in data ? Number(data.count) : 0;
+      const ids = typeof data === "object" && data && "ids" in data && Array.isArray(data.ids) ? data.ids : undefined;
       setState({
         status: "success",
         total: count,
         current: count,
         filename: "",
-        message: `成功导入 ${count} 项资产 (已完成 SHA-256 去重与物理隔离)`,
+        message: `Imported ${count} assets successfully`,
       });
       onRefresh(ids);
       clearTimer();
@@ -81,13 +83,14 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       }, 3000);
     });
 
-    const unsubError = Events.On("import-error", (event: { data: string }) => {
+    const unsubError = Events.On("import-error", (event: any) => {
+      const msg = typeof event?.data === "string" ? event.data : typeof event === "string" ? event : "Unknown error";
       setState({
         status: "error",
         total: 0,
         current: 0,
         filename: "",
-        message: `导入失败: ${event?.data || "未知错误"}`,
+        message: `Import failed: ${msg}`,
       });
       clearTimer();
       resetTimer.current = window.setTimeout(() => {
@@ -230,7 +233,9 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     e.preventDefault();
     if (isInternalDrag(e)) return;
     dragCounter.current += 1;
-    if (e.dataTransfer.types.includes("Files") || e.dataTransfer.types.includes("text/uri-list")) {
+    const types = Array.from(e.dataTransfer?.types || []);
+    const hasFiles = types.some((t) => t.toLowerCase() === "files" || t === "text/uri-list" || t === "public.file-url" || t === "nsfilenamespboardtype") || (e.dataTransfer?.files && e.dataTransfer.files.length > 0);
+    if (hasFiles) {
       setState((prev) => (prev.status === "importing" ? prev : { ...prev, status: "dragging-over" }));
     }
   }, []);

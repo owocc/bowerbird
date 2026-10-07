@@ -485,6 +485,7 @@ export function LibraryWorkspace({
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
       <div
+        data-file-drop-target="true"
         className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag"
         {...dragHandlers}
       >
@@ -552,7 +553,7 @@ export function LibraryWorkspace({
 
           {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery) */}
           <ResizablePanel id="gallery-main-panel" minSize={380}>
-            <main className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background">
+            <main data-file-drop-target="true" className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background">
                 {/* Top Desktop App Navigation Bar */}
                 {/* Main Desktop App Header: Single unified background, no internal borders */}
                 <header className="w-full bg-background border-b-0 shrink-0 select-none">
