@@ -64,6 +64,7 @@ func main() {
 	// Listen for native OS file drops (macOS Finder / Windows Explorer)
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		files := event.Context().DroppedFiles()
+		log.Printf("[NativeDrop] WindowFilesDropped received %d files: %v", len(files), files)
 		if len(files) == 0 {
 			return
 		}
