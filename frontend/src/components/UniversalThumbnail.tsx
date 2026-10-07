@@ -103,8 +103,6 @@ export function UniversalThumbnail({
       }}
       className={`relative rounded-xl overflow-hidden bg-muted/20 border border-border/80 flex items-center justify-center select-none draggable-asset-card wails-no-drag ${className}`}
     >
-      {/* Background pattern */}
-      <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:12px_12px] dark:opacity-[0.06] dark:bg-[radial-gradient(#fff_1px,transparent_1px)] pointer-events-none" />
 
       {hasVisual ? (
         <img
