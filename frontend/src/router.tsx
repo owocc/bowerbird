@@ -7,8 +7,8 @@ import {
   Outlet,
   createHashHistory,
 } from "@tanstack/react-router";
-import { GetActiveLibrary } from "../bindings/bowerbird/libraryservice";
-import type { LibraryInfo } from "../bindings/bowerbird/models";
+import { GetActiveLibrary } from "../bindings/bowerbird/core/service";
+import type { LibraryInfo } from "../bindings/bowerbird/core/models";
 import { LibrarySetup } from "@/components/LibrarySetup";
 import { LibraryWorkspace } from "@/components/LibraryWorkspace";
 

@@ -1,6 +1,6 @@
 //go:build darwin && !ios
 
-package main
+package core
 
 /*
 #cgo CFLAGS: -x objective-c
@@ -64,19 +64,13 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-func (s *LibraryService) StartDrag(id string) error {
-	item, err := s.GetItem(id)
+func (m *LibraryManager) StartDrag(id string) error {
+	item, err := m.GetItem(id)
 	if err != nil || item == nil {
 		return errors.New("item not found")
 	}
 
-	var window application.Window
-	if s.window != nil {
-		window = s.window
-	} else if s.app != nil {
-		window = s.app.Window.Current()
-	}
-
+	window := m.getWindow()
 	if window == nil {
 		return errors.New("no window available")
 	}
