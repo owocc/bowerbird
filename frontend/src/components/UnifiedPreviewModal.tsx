@@ -10,7 +10,6 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Compass,
   FileImage,
   FileVideo,
   FileAudio,
@@ -274,8 +273,6 @@ export function UnifiedPreviewModal({
         ========================================================================
       */}
       <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center">
-        {/* Subtle checkerboard pattern for transparent PNG / SVG / WebP */}
-        <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px] dark:opacity-[0.08] dark:bg-[radial-gradient(#fff_1px,transparent_1px)] pointer-events-none" />
 
         <TransformWrapper
           ref={transformRef}
@@ -347,19 +344,17 @@ export function UnifiedPreviewModal({
             MINIMAP: "缩放大于125%出现", allows visual pan navigation
             ====================================================================
           */}
+          {/* 
+            ====================================================================
+            MINIMAP: Clean square visual pan navigation (scale > 125%)
+            ====================================================================
+          */}
           {scale > 1.25 && (
-            <div className="absolute bottom-6 right-6 z-20 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-background/90 backdrop-blur-md p-1.5 transition-all animate-in fade-in zoom-in-95 duration-150">
-              <div className="flex items-center justify-between px-1 pb-1 text-[9px] font-mono text-muted-foreground font-semibold">
-                <span className="flex items-center gap-1">
-                  <Compass className="size-2.5 text-primary" />
-                  <span>鹰眼导航</span>
-                </span>
-                <span>{Math.round(scale * 100)}%</span>
-              </div>
-              <div className="rounded-lg overflow-hidden border border-border/60 bg-muted/40 relative">
+            <div className="absolute bottom-6 right-6 z-20 size-28 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-background/90 backdrop-blur-md p-1 transition-all animate-in fade-in zoom-in-95 duration-150">
+              <div className="w-full h-full rounded-lg overflow-hidden border border-border/60 bg-muted/40 relative flex items-center justify-center">
                 <MiniMap
-                  width={150}
-                  height={100}
+                  width={102}
+                  height={102}
                   borderColor="var(--primary)"
                   previewStyle={{
                     backgroundColor: "oklch(var(--primary) / 0.15)",
