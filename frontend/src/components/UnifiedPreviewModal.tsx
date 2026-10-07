@@ -346,30 +346,27 @@ export function UnifiedPreviewModal({
           */}
           {/* 
             ====================================================================
-            MINIMAP: Clean square visual pan navigation (scale > 125%)
+            MINIMAP: Operable visual pan navigation (scale > 125%)
             ====================================================================
           */}
           {scale > 1.25 && (
-            <div className="absolute bottom-6 right-6 z-20 size-28 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-background/90 backdrop-blur-md p-1 transition-all animate-in fade-in zoom-in-95 duration-150">
-              <div className="w-full h-full rounded-lg overflow-hidden border border-border/60 bg-muted/40 relative flex items-center justify-center">
-                <MiniMap
-                  width={102}
-                  height={102}
-                  borderColor="var(--primary)"
-                  previewStyle={{
-                    backgroundColor: "oklch(var(--primary) / 0.15)",
-                    border: "2px solid var(--primary)",
-                    borderRadius: "4px",
-                  }}
-                >
-                  <img
-                    src={imageSrc}
-                    alt={activeItem.name}
-                    className="w-full h-full object-contain pointer-events-none select-none"
-                  />
-                </MiniMap>
-              </div>
-            </div>
+            <MiniMap
+              width={120}
+              height={120}
+              className="absolute bottom-6 right-6 z-30 rounded-xl overflow-hidden shadow-2xl border border-border/80 bg-card/95 backdrop-blur-md select-none transition-all animate-in fade-in zoom-in-95 duration-150"
+              borderColor="var(--primary)"
+              previewStyle={{
+                backgroundColor: "oklch(var(--primary) / 0.18)",
+                border: "2px solid var(--primary)",
+                borderRadius: "4px",
+              }}
+            >
+              <img
+                src={imageSrc}
+                alt={activeItem.name}
+                className="w-full h-full object-contain pointer-events-none select-none"
+              />
+            </MiniMap>
           )}
         </TransformWrapper>
       </div>
