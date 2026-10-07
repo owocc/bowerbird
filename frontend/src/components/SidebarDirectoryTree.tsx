@@ -401,7 +401,21 @@ function FolderTreeItemNode({
     e.stopPropagation();
     setIsDragOver(false);
 
-    // 1. Intra-app asset drag: add reference to folder
+    // 1. Intra-app asset drag: add reference to folder (supports multi-selection)
+    const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
+    if (itemIdsJson && onDropItemOnFolder) {
+      try {
+        const ids = JSON.parse(itemIdsJson);
+        if (Array.isArray(ids) && ids.length > 0) {
+          for (const id of ids) {
+            await onDropItemOnFolder(id, folder.id);
+          }
+          return;
+        }
+      } catch {
+        // fallback to single item ID
+      }
+    }
     const itemId = e.dataTransfer.getData("application/x-bowerbird-item-id");
     if (itemId && onDropItemOnFolder) {
       await onDropItemOnFolder(itemId, folder.id);
