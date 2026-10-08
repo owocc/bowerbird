@@ -124,6 +124,12 @@ export function SidebarDirectoryTree({
     position: { x: number; y: number };
     folder: Folder | null;
   } | null>(null);
+  // Dialog state for deleting a folder
+  const [deleteFolderDialog, setDeleteFolderDialog] = useState<{
+    isOpen: boolean;
+    folderId: string;
+    folderName: string;
+  } | null>(null);
 
   const [isSidebarRootDragOver, setIsSidebarRootDragOver] = useState(false);
   const sidebarDragCounter = useRef(0);
@@ -774,11 +780,57 @@ export function SidebarDirectoryTree({
         onCreateRootFolder={handleOpenCreateRoot}
         onRenameFolder={(f) => handleOpenRename(f)}
         onDeleteFolder={async (id, name) => {
-          if (window.confirm(`Are you sure you want to delete folder "${name}"?`)) {
-            await onDeleteFolder(id);
-          }
+          setDeleteFolderDialog({
+            isOpen: true,
+            folderId: id,
+            folderName: name,
+          });
         }}
       />
+
+      {/* Dialog for deleting folder */}
+      {deleteFolderDialog && (
+        <Dialog
+          open={deleteFolderDialog.isOpen}
+          onOpenChange={(open) => !open && setDeleteFolderDialog(null)}
+        >
+          <DialogContent className="max-w-xs text-xs">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold">删除文件夹</DialogTitle>
+            </DialogHeader>
+            <div className="py-2 text-xs text-muted-foreground leading-relaxed">
+              确定要删除文件夹「{deleteFolderDialog.folderName}」吗？
+              <p className="mt-1 text-[11px] text-muted-foreground/80">
+                此操作仅删除目录结构，其中的文件素材仍将保留在全部资产中。
+              </p>
+            </div>
+            <DialogFooter className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteFolderDialog(null)}
+                className="cursor-pointer text-xs"
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={async () => {
+                  const id = deleteFolderDialog.folderId;
+                  setDeleteFolderDialog(null);
+                  await onDeleteFolder(id);
+                }}
+                className="cursor-pointer text-xs"
+              >
+                删除
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }
