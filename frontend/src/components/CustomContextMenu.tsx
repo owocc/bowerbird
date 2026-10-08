@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Eye,
+  Delete,
   FolderOpen,
   Copy,
   Trash2,
@@ -26,6 +27,7 @@ import {
   CommandEmpty,
   CommandGroup,
   CommandItem,
+  CommandShortcut,
   CommandSeparator,
 } from "@/components/ui/command";
 import type { Folder as FolderModel, Tag as TagModel, Item } from "../../bindings/bowerbird/core/models";
@@ -253,7 +255,9 @@ export function CustomContextMenu({
                   >
                     <Eye className="size-3.5 text-muted-foreground shrink-0" />
                     <span className="flex-1">{t("contextMenu.fullPreview")}</span>
-                    <span className="text-[10px] text-muted-foreground font-mono">{t("contextMenu.shortcutSpace")}</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">
+                      {t("contextMenu.shortcutSpace")}
+                    </CommandShortcut>
                   </CommandItem>
                 )}
 
@@ -267,7 +271,7 @@ export function CustomContextMenu({
                   >
                     <Edit2 className="size-3.5 text-muted-foreground shrink-0" />
                     <span className="flex-1">{t("common.rename")}</span>
-                    <span className="text-[10px] text-muted-foreground font-mono">Enter</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">Enter</CommandShortcut>
                   </CommandItem>
                 )}
 
@@ -386,7 +390,11 @@ export function CustomContextMenu({
                       >
                         <TagIcon className="size-3.5 text-muted-foreground shrink-0" />
                         <span className="truncate flex-1">{tag.name}</span>
-                        {hasTag && <Check className="size-3 text-primary shrink-0" />}
+                        {hasTag && (
+                          <CommandShortcut className="flex items-center text-primary">
+                            <Check className="size-3" />
+                          </CommandShortcut>
+                        )}
                       </CommandItem>
                     );
                   })}
@@ -409,7 +417,12 @@ export function CustomContextMenu({
                   >
                     <Trash2 className="size-3.5 shrink-0" />
                     <span>{t("contextMenu.moveToTrash")}</span>
-                    <span className="text-[10px] opacity-70 ml-auto font-mono">⌫</span>
+                    <CommandShortcut
+                      aria-hidden="true"
+                      className="text-destructive group-data-selected/command-item:text-destructive"
+                    >
+                      <Delete className="size-3.5" />
+                    </CommandShortcut>
                   </CommandItem>
                 </CommandGroup>
               )}
@@ -427,7 +440,7 @@ export function CustomContextMenu({
                 >
                   <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
                   <span className="flex-1">{t("contextMenu.selectAll")}</span>
-                  <span className="text-[10px] text-muted-foreground font-mono">⌘A</span>
+                  <CommandShortcut className="text-[10px] font-mono tracking-normal">⌘A</CommandShortcut>
                 </CommandItem>
               )}
 
@@ -441,7 +454,7 @@ export function CustomContextMenu({
                 >
                   <Square className="size-3.5 text-muted-foreground shrink-0" />
                   <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                  <span className="text-[10px] text-muted-foreground font-mono">Esc</span>
+                  <CommandShortcut className="text-[10px] font-mono tracking-normal">Esc</CommandShortcut>
                 </CommandItem>
               )}
 
