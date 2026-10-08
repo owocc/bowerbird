@@ -1062,14 +1062,14 @@ export function LibraryWorkspace({
                   <div className="flex-1 h-full min-w-4 wails-drag" />
 
                   {/* Search Input */}
-                  <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container select-text">
+                  <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container">
                     <div className="relative wails-no-drag">
                       <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                       <Input
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder="Search"
-                        className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background wails-no-drag select-text"
+                        className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background wails-no-drag"
                       />
                       {searchQuery && (
                         <button
