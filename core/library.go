@@ -33,6 +33,14 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
+// FavoriteTagName is the built-in "Favorites" tag.
+//
+// Its value is a historical sentinel shared with the frontend
+// (see frontend/src/lib/favoriteTag.ts) and kept unchanged for backward
+// compatibility with existing libraries. It is *data*, never UI copy: the
+// frontend renders a localised label instead of this value.
+const FavoriteTagName = "收藏"
+
 // LibraryManager coordinates library lifecycle, storage, libSQL indexing, and user data.
 type LibraryManager struct {
 	mu          sync.RWMutex
@@ -1144,7 +1152,7 @@ func (m *LibraryManager) CreateFolder(name string, parentID string) (*Folder, er
 
 	cleanName := strings.TrimSpace(name)
 	if cleanName == "" {
-		cleanName = "新建文件夹"
+		cleanName = "New Folder"
 	}
 
 	folderID := fmt.Sprintf("folder_%d_%04d", time.Now().UnixNano(), time.Now().Nanosecond()%10000)
@@ -1672,7 +1680,8 @@ func (m *LibraryManager) ImportFoldersRecursively(dirPaths []string, parentFolde
 	return created, nil
 }
 
-// GetTags returns all tags with item count, with built-in "收藏" pinned first.
+// GetTags returns all tags with item count, with the built-in Favorites tag
+// (FavoriteTagName) pinned first.
 func (m *LibraryManager) GetTags() ([]Tag, error) {
 	m.mu.RLock()
 	db := m.db
@@ -1699,8 +1708,8 @@ func (m *LibraryManager) GetTags() ([]Tag, error) {
 		tRows.Close()
 	}
 
-	if _, ok := tagSet["收藏"]; !ok {
-		tagSet["收藏"] = time.Now().Unix()
+	if _, ok := tagSet[FavoriteTagName]; !ok {
+		tagSet[FavoriteTagName] = time.Now().Unix()
 	}
 
 	// 2. Count non-trashed items for each tag
@@ -1734,10 +1743,10 @@ func (m *LibraryManager) GetTags() ([]Tag, error) {
 	}
 
 	sort.Slice(tags, func(i, j int) bool {
-		if tags[i].Name == "收藏" {
+		if tags[i].Name == FavoriteTagName {
 			return true
 		}
-		if tags[j].Name == "收藏" {
+		if tags[j].Name == FavoriteTagName {
 			return false
 		}
 		return tags[i].Name < tags[j].Name
@@ -1758,7 +1767,7 @@ func (m *LibraryManager) CreateTag(name string) (*Tag, error) {
 
 	clean := strings.TrimSpace(name)
 	if clean == "" {
-		return nil, errors.New("标签名称不能为空")
+		return nil, errors.New("tag name cannot be empty")
 	}
 
 	now := time.Now().Unix()
@@ -1786,8 +1795,8 @@ func (m *LibraryManager) DeleteTag(name string) error {
 	}
 
 	clean := strings.TrimSpace(name)
-	if clean == "" || clean == "收藏" {
-		return errors.New("无法删除内置标签")
+	if clean == "" || clean == FavoriteTagName {
+		return errors.New("cannot delete the built-in Favorites tag")
 	}
 
 	_, _ = db.Exec("DELETE FROM tags WHERE name = ?", clean)
@@ -1847,7 +1856,7 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 
 	cleanTag := strings.TrimSpace(tag)
 	if cleanTag == "" {
-		return errors.New("标签不能为空")
+		return errors.New("tag cannot be empty")
 	}
 
 	var tagsStr string
@@ -1983,7 +1992,7 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 	return nil
 }
 
-// ToggleFavorite toggles the special "收藏" tag for an item.
+// ToggleFavorite toggles the built-in Favorites tag for an item.
 func (m *LibraryManager) ToggleFavorite(itemID string) (bool, error) {
 	item, err := m.GetItem(itemID)
 	if err != nil || item == nil {
@@ -1992,17 +2001,17 @@ func (m *LibraryManager) ToggleFavorite(itemID string) (bool, error) {
 
 	isFav := false
 	for _, t := range item.Tags {
-		if t == "收藏" {
+		if t == FavoriteTagName {
 			isFav = true
 			break
 		}
 	}
 
 	if isFav {
-		err = m.RemoveTagFromItem(itemID, "收藏")
+		err = m.RemoveTagFromItem(itemID, FavoriteTagName)
 		return false, err
 	}
-	err = m.AddTagToItem(itemID, "收藏")
+	err = m.AddTagToItem(itemID, FavoriteTagName)
 	return true, err
 }
 
@@ -2024,7 +2033,7 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 	}
 	cleanName = strings.TrimSpace(cleanName)
 	if cleanName == "" {
-		return nil, errors.New("文件名不能为空")
+		return nil, errors.New("file name cannot be empty")
 	}
 
 	item, err := m.GetItem(id)

@@ -2,6 +2,7 @@ import React from "react";
 import { PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
+import { useIsMacOS } from "@/lib/macos";
 
 export interface MainHeaderSafePrefixProps {
   sidebarOpen?: boolean;
@@ -23,6 +24,8 @@ export function MainHeaderSafePrefix({
   onToggleSidebar,
   children,
 }: MainHeaderSafePrefixProps) {
+  const isMac = useIsMacOS();
+
   return (
     <div className="flex items-center gap-2 min-w-0 wails-no-drag">
       {!sidebarOpen && (
@@ -33,7 +36,7 @@ export function MainHeaderSafePrefix({
               variant="ghost"
               size="icon-xs"
               onClick={onToggleSidebar}
-              title="Expand Sidebar (⌘B)"
+              title={`Expand Sidebar (${isMac ? "⌘B" : "Ctrl+B"})`}
               className="size-7 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg shrink-0"
             >
               <PanelLeftOpen className="size-4" />
