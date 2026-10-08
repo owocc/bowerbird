@@ -293,7 +293,13 @@ export function SidebarDirectoryTree({
             </motion.div>
           )}
         </AnimatePresence>
-        {/* Workspace Brand / Library Header */}
+        <div className="pointer-events-none absolute inset-0 z-40 hidden flex-col items-center justify-center border-4 border-dashed border-primary bg-primary/15 p-4 text-center select-none shadow-xl backdrop-blur-[2px] group-[.file-drop-target-active]/sidebar:!flex">
+          <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
+            <FolderPlus className="size-7 text-primary" />
+          </div>
+          <div className="font-bold text-sm text-primary">松开以导入为根目录文件夹</div>
+          <div className="text-[11px] text-primary/80 mt-1">将在侧边栏建立对应层级文件夹结构</div>
+        </div>
         <SidebarHeader className="p-0 border-b-0 select-none shrink-0">
           {/* Top Row: macOS Traffic Lights Spacer + Collapse Button on the far right */}
           <div className="h-(--titlebar-height) pl-2 pr-2.5 flex items-center justify-between wails-drag">
@@ -417,59 +423,84 @@ export function SidebarDirectoryTree({
             <SidebarGroupContent>
               <SidebarMenu className="space-y-0.5">
                 {/* 1. All Assets */}
-                <SidebarMenuItem>
-                  <div className="flex items-center w-full gap-0.5">
+                <SidebarMenuItem className="relative group/all">
+                  <div
+                    data-file-drop-target="all"
+                    data-drag-over={isAllDragOver ? "true" : undefined}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      setIsAllDragOver(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setIsAllDragOver(true);
+                    }}
+                    onDragLeave={() => setIsAllDragOver(false)}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsAllDragOver(false);
+                      const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
+                      if (itemIdsJson && onMoveItemToFolder) {
+                        try {
+                          const ids = JSON.parse(itemIdsJson);
+                          for (const id of ids) {
+                            await onMoveItemToFolder(id, activeFolderId || "", "");
+                          }
+                        } catch {}
+                      }
+                    }}
+                    className="flex items-center w-full gap-0.5 relative rounded-lg overflow-hidden"
+                  >
                     <div className="w-3.5 shrink-0" />
                     <button
                       type="button"
                       onClick={() => onSelectFolder(null)}
-                      onDragEnter={(e) => {
-                        e.preventDefault();
-                        setIsAllDragOver(true);
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setIsAllDragOver(true);
-                      }}
-                      onDragLeave={() => setIsAllDragOver(false)}
-                      onDrop={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsAllDragOver(false);
-                        const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
-                        if (itemIdsJson && onMoveItemToFolder) {
-                          try {
-                            const ids = JSON.parse(itemIdsJson);
-                            for (const id of ids) {
-                              await onMoveItemToFolder(id, activeFolderId || "", "");
-                            }
-                          } catch {}
-                        }
-                      }}
                       className={cn(
                         "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                        isAllDragOver && "border-2 border-dashed border-primary bg-primary/20 text-primary font-semibold ring-1 ring-primary/40",
-                        !isAllDragOver && activeFolderId === null && !tagsSidebarOpen
+                        activeFolderId === null && !tagsSidebarOpen
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Library className="size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-xs">All</span>
-                      {isAllDragOver ? (
-                        <span className="text-[9px] bg-primary text-primary-foreground font-semibold px-1 rounded animate-pulse">
-                          移入All
-                        </span>
-                      ) : (
-                        <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
-                          {totalItemCount}
-                        </SidebarMenuBadge>
-                      )}
+                      <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                        {totalItemCount}
+                      </SidebarMenuBadge>
                     </button>
+
+                    <AnimatePresence>
+                      {isAllDragOver && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.98 }}
+                          transition={{ duration: 0.12 }}
+                          className="absolute inset-0 z-30 pointer-events-none rounded-lg border-2 border-dashed border-primary bg-primary/25 backdrop-blur-[1px] flex items-center justify-between px-2 shadow-sm"
+                        >
+                          <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
+                            <Library className="size-4 shrink-0 text-primary animate-pulse" />
+                            <span className="truncate">移入全部资产</span>
+                          </div>
+                          <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
+                            松开移入
+                          </span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] group-[.file-drop-target-active]/all:!flex">
+                      <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
+                        <Library className="size-4 shrink-0 text-primary animate-pulse" />
+                        <span className="truncate">移入全部资产</span>
+                      </div>
+                      <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
+                        松开移入
+                      </span>
+                    </div>
                   </div>
                 </SidebarMenuItem>
-
                 {/* 2. Tags */}
                 <SidebarMenuItem>
                   <div className="flex items-center w-full gap-0.5">
@@ -494,60 +525,85 @@ export function SidebarDirectoryTree({
                 </SidebarMenuItem>
 
                 {/* 3. Trash */}
-                <SidebarMenuItem>
-                  <div className="flex items-center w-full gap-0.5">
+                <SidebarMenuItem className="relative group/trash">
+                  <div
+                    data-file-drop-target="trash"
+                    data-drag-over={isTrashDragOver ? "true" : undefined}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      setIsTrashDragOver(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setIsTrashDragOver(true);
+                    }}
+                    onDragLeave={() => setIsTrashDragOver(false)}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsTrashDragOver(false);
+                      const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
+                      if (itemIdsJson && onDropItemOnTrash) {
+                        try {
+                          const ids = JSON.parse(itemIdsJson);
+                          await onDropItemOnTrash(ids);
+                        } catch {}
+                      }
+                    }}
+                    className="flex items-center w-full gap-0.5 relative rounded-lg overflow-hidden"
+                  >
                     <div className="w-3.5 shrink-0" />
                     <button
                       type="button"
                       onClick={() => onSelectFolder("__trash__")}
-                      onDragEnter={(e) => {
-                        e.preventDefault();
-                        setIsTrashDragOver(true);
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        setIsTrashDragOver(true);
-                      }}
-                      onDragLeave={() => setIsTrashDragOver(false)}
-                      onDrop={async (e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setIsTrashDragOver(false);
-                        const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
-                        if (itemIdsJson && onDropItemOnTrash) {
-                          try {
-                            const ids = JSON.parse(itemIdsJson);
-                            await onDropItemOnTrash(ids);
-                          } catch {}
-                        }
-                      }}
                       className={cn(
                         "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                        isTrashDragOver && "border-2 border-dashed border-destructive bg-destructive/20 text-destructive font-semibold ring-1 ring-destructive/40",
-                        !isTrashDragOver && activeFolderId === "__trash__"
+                        activeFolderId === "__trash__"
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Trash2 className="size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-xs">Trash</span>
-                      {isTrashDragOver ? (
-                        <span className="text-[9px] bg-destructive text-destructive-foreground font-semibold px-1 rounded animate-pulse">
-                          移入回收站
-                        </span>
-                      ) : (
-                        <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
-                          {trashCount}
-                        </SidebarMenuBadge>
-                      )}
+                      <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                        {trashCount}
+                      </SidebarMenuBadge>
                     </button>
+
+                    <AnimatePresence>
+                      {isTrashDragOver && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.98 }}
+                          transition={{ duration: 0.12 }}
+                          className="absolute inset-0 z-30 pointer-events-none rounded-lg border-2 border-dashed border-destructive bg-destructive/25 backdrop-blur-[1px] flex items-center justify-between px-2 shadow-sm"
+                        >
+                          <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
+                            <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
+                            <span className="truncate">丢入回收站</span>
+                          </div>
+                          <span className="text-[10px] bg-destructive text-destructive-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
+                            松开删除
+                          </span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                    <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-destructive bg-destructive/25 px-2 shadow-sm backdrop-blur-[1px] group-[.file-drop-target-active]/trash:!flex">
+                      <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
+                        <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
+                        <span className="truncate">丢入回收站</span>
+                      </div>
+                      <span className="text-[10px] bg-destructive text-destructive-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
+                        松开删除
+                      </span>
+                    </div>
                   </div>
                 </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-
           {/* Root Sidebar Drag-Over Banner */}
           {isSidebarRootDragOver && (
             <div className="mx-2 my-1.5 p-2 rounded-xl border-2 border-dashed border-primary bg-primary/10 text-primary text-xs flex items-center gap-2 animate-in fade-in duration-100 shadow-xs">
@@ -857,6 +913,16 @@ function FolderTreeItemNode({
             </motion.div>
           )}
         </AnimatePresence>
+
+        <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] group-[.file-drop-target-active]/folder:!flex">
+          <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
+            <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
+            <span className="truncate">放入「{folder.name}」</span>
+          </div>
+          <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
+            松开放入
+          </span>
+        </div>
 
         {/* Chevron arrow: OUTSIDE highlight, does NOT participate in highlighting */}
         <button

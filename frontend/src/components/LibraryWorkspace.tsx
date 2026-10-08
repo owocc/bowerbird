@@ -923,7 +923,7 @@ export function LibraryWorkspace({
           <ResizablePanel id="gallery-main-panel" minSize={380}>
             <main
               data-file-drop-target={isInternalDragging ? undefined : "main"}
-              className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background"
+              className="group/main relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background"
               {...(isInternalDragging
                 ? {
                     onDragOver: (e: React.DragEvent) => {
@@ -965,6 +965,26 @@ export function LibraryWorkspace({
                   </motion.div>
                 )}
               </AnimatePresence>
+              {!isInternalDragging && (
+                <div className="pointer-events-none absolute inset-0 z-50 hidden flex-col items-center justify-center border-4 border-dashed border-primary bg-background/85 p-6 text-center select-none shadow-2xl backdrop-blur-md group-[.file-drop-target-active]/main:!flex">
+                  <div className="size-16 rounded-2xl bg-primary/15 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
+                    <Upload className="size-8 text-primary" />
+                  </div>
+                  <h3 className="text-xl font-bold tracking-tight text-foreground">
+                    {currentFolder ? `松开以导入至「${currentFolder.name}」` : "松开以导入至「全部资产」"}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-1 max-w-sm leading-relaxed">
+                    {currentFolder
+                      ? `所选文件及子文件夹将扁平存入目录「${currentFolder.name}」`
+                      : "所选文件及子文件夹将直接扁平存入全部资产"}
+                  </p>
+                  <div className="flex gap-2 mt-3 text-[11px] text-muted-foreground font-mono">
+                    <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">自动排重</span>
+                    <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">自动建立索引</span>
+                    <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">生成缩略图</span>
+                  </div>
+                </div>
+              )}
 
               {/* Encapsulated Drag & Drop Progress Modal only for external drops */}
               {!isInternalDragging && dropState.status === "importing" && (
