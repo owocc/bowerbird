@@ -272,6 +272,8 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
   );
 
   const isInternalDrag = (e: React.DragEvent): boolean => {
+    if ((window as any).__isInternalDragging === true) return true;
+    if (document.body.hasAttribute("data-internal-dragging")) return true;
     if (!e.dataTransfer) return false;
     const types = Array.from(e.dataTransfer.types || []);
     return (
