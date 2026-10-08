@@ -120,6 +120,18 @@ func main() {
 				}
 				log.Printf("[NativeDrop] successfully moved %d internal items to folder %s", len(internalItemIDs), targetFolderID)
 				app.Event.Emit("library-items-updated", len(internalItemIDs))
+			} else if targetType == "trash" {
+				for _, itID := range internalItemIDs {
+					_ = coreMgr.MoveToTrash(itID)
+				}
+				log.Printf("[NativeDrop] successfully moved %d internal items to trash", len(internalItemIDs))
+				app.Event.Emit("library-items-updated", len(internalItemIDs))
+			} else if targetType == "all" {
+				for _, itID := range internalItemIDs {
+					_ = coreMgr.MoveItemToFolder(itID, "", "")
+				}
+				log.Printf("[NativeDrop] successfully unlinked %d internal items to all", len(internalItemIDs))
+				app.Event.Emit("library-items-updated", len(internalItemIDs))
 			} else {
 				log.Printf("[NativeDrop] internal items dropped on non-folder target (%s), ignored", targetType)
 			}
