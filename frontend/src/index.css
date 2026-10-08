@@ -123,11 +123,18 @@
   * {
     @apply border-border outline-ring/50;
     }
+  /* 全局禁止文本选中。WebKit 不会把 body 上的 user-select 可靠地继承到后代，
+     所以必须显式落到每个元素上；需要放行的元素可用 Tailwind 的 select-text
+     (或下面的 input/textarea/contenteditable 规则) 单独开启。 */
+  *,
+  *::before,
+  *::after {
+    user-select: none;
+    -webkit-user-select: none;
+  }
   body {
     @apply bg-background text-foreground;
     overflow-x: hidden;
-    user-select: none;
-    -webkit-user-select: none;
     --wails-draggable: no-drag;
     -webkit-app-region: no-drag;
   }
@@ -136,6 +143,16 @@
     -webkit-user-select: text;
     --wails-draggable: no-drag;
     -webkit-app-region: no-drag;
+  }
+  /* 输入框的 placeholder 在 WebKit 下是可被拖选/全选高亮的，
+     这里单独关掉；输入的真实内容仍然可以选中。 */
+  ::placeholder {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  ::-webkit-input-placeholder {
+    user-select: none;
+    -webkit-user-select: none;
   }
   button, a, select {
     --wails-draggable: no-drag;
@@ -184,8 +201,14 @@ input[type="search"],
 input[placeholder="Search"] {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
-  user-select: text !important;
-  -webkit-user-select: text !important;
+}
+
+/* 空输入框（正在显示 placeholder）时禁止选中：拖拽/全选都不会高亮提示文本。
+   放在 @layer 之外，确保能压过组件里的 select-text 工具类。 */
+input:placeholder-shown,
+textarea:placeholder-shown {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* Draggable asset cards: strictly opt-out of window drag and enable HTML5 element drag */
