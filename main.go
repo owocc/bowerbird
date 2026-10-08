@@ -157,7 +157,7 @@ func main() {
 
 			if len(folderPaths) == 0 {
 				log.Printf("[NativeDrop] sidebar drop rejected: no folders in dropped files")
-				app.Event.Emit("import-error", "侧边栏仅接受文件夹拖拽导入")
+				app.Event.Emit("import-error", "The sidebar only accepts dropped folders")
 				return
 			}
 

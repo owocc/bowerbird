@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Eye,
   FolderOpen,
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/command";
 import type { Folder as FolderModel, Tag as TagModel, Item } from "../../bindings/bowerbird/core/models";
 import { cn } from "cn";
+import { FAVORITE_TAG } from "@/lib/favoriteTag";
 
 export interface ContextMenuPosition {
   x: number;
@@ -90,6 +92,7 @@ export function CustomContextMenu({
   onImportFiles,
   onCreateFolder,
 }: ContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [measuredHeight, setMeasuredHeight] = useState<number>(320);
@@ -147,7 +150,7 @@ export function CustomContextMenu({
   const adjustedY = Math.max(8, Math.min(position.y, window.innerHeight - currentHeight - 12));
   const isTrashView = activeFolderId === "__trash__";
   const itemTags = targetItem?.tags || [];
-  const isFavorite = itemTags.includes("收藏");
+  const isFavorite = itemTags.includes(FAVORITE_TAG);
 
   return (
     <div
@@ -164,7 +167,7 @@ export function CustomContextMenu({
         <CommandInput
           value={search}
           onValueChange={setSearch}
-          placeholder="搜索操作、目录、标签..."
+          placeholder={t("contextMenu.searchPlaceholder")}
           wrapperClassName="p-0"
           groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-2.5 shadow-none ring-0!"
           addonClassName="pl-0 pr-1.5 [&_svg]:size-3.5"
@@ -175,7 +178,7 @@ export function CustomContextMenu({
           <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">
             {search.trim() ? (
               <div className="space-y-1">
-                <div>无匹配项目</div>
+                <div>{t("contextMenu.noResults")}</div>
                 {onAddTag && isItemContext && (
                   <button
                     type="button"
@@ -186,18 +189,18 @@ export function CustomContextMenu({
                     className="text-primary hover:underline text-[11px] font-medium flex items-center justify-center gap-1 mx-auto cursor-pointer"
                   >
                     <Plus className="size-3" />
-                    <span>创建标签 "{search.trim()}"</span>
+                    <span>{t("contextMenu.createTag", { name: search.trim() })}</span>
                   </button>
                 )}
               </div>
             ) : (
-              "无匹配项目"
+              t("contextMenu.noResults")
             )}
           </CommandEmpty>
 
           {/* ================= TRASH CONTEXT ================= */}
           {isTrashView ? (
-            <CommandGroup heading="回收站操作">
+            <CommandGroup heading={t("contextMenu.groupTrash")}>
               {onRestore && (
                 <CommandItem
                   onSelect={() => {
@@ -207,7 +210,7 @@ export function CustomContextMenu({
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                 >
                   <RotateCcw className="size-3.5 text-primary shrink-0" />
-                  <span>放回原处</span>
+                  <span>{t("contextMenu.restore")}</span>
                 </CommandItem>
               )}
               {onDelete && (
@@ -219,7 +222,7 @@ export function CustomContextMenu({
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
                 >
                   <Trash2 className="size-3.5 shrink-0" />
-                  <span>彻底删除</span>
+                  <span>{t("contextMenu.deletePermanently")}</span>
                 </CommandItem>
               )}
             </CommandGroup>
@@ -227,7 +230,7 @@ export function CustomContextMenu({
             /* ================= ITEM CONTEXT ================= */
             <>
               {/* Primary file actions */}
-              <CommandGroup heading="常用操作">
+              <CommandGroup heading={t("contextMenu.groupCommon")}>
                 {onPreview && (
                   <CommandItem
                     onSelect={() => {
@@ -237,8 +240,8 @@ export function CustomContextMenu({
                     className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                   >
                     <Eye className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">全窗口预览</span>
-                    <span className="text-[10px] text-muted-foreground font-mono">空格</span>
+                    <span className="flex-1">{t("contextMenu.fullPreview")}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">{t("contextMenu.shortcutSpace")}</span>
                   </CommandItem>
                 )}
 
@@ -251,7 +254,7 @@ export function CustomContextMenu({
                     className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                   >
                     <Edit2 className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">重命名</span>
+                    <span className="flex-1">{t("common.rename")}</span>
                     <span className="text-[10px] text-muted-foreground font-mono">Enter</span>
                   </CommandItem>
                 )}
@@ -265,7 +268,7 @@ export function CustomContextMenu({
                     className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                   >
                     <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-                    <span>在访达中显示</span>
+                    <span>{t("contextMenu.revealInFinder")}</span>
                   </CommandItem>
                 )}
 
@@ -278,7 +281,7 @@ export function CustomContextMenu({
                     className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                   >
                     <ExternalLink className="size-3.5 text-muted-foreground shrink-0" />
-                    <span>用默认程序打开</span>
+                    <span>{t("contextMenu.openWithDefaultApp")}</span>
                   </CommandItem>
                 )}
 
@@ -291,7 +294,7 @@ export function CustomContextMenu({
                     className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                   >
                     <Copy className="size-3.5 text-muted-foreground shrink-0" />
-                    <span>复制文件路径</span>
+                    <span>{t("contextMenu.copyFilePath")}</span>
                   </CommandItem>
                 )}
 
@@ -309,7 +312,7 @@ export function CustomContextMenu({
                         isFavorite ? "text-amber-500 fill-amber-500" : "text-muted-foreground"
                       )}
                     />
-                    <span>{isFavorite ? "取消收藏" : "收藏"}</span>
+                    <span>{isFavorite ? t("contextMenu.removeFromFavorites") : t("contextMenu.addToFavorites")}</span>
                   </CommandItem>
                 )}
               </CommandGroup>
@@ -318,7 +321,7 @@ export function CustomContextMenu({
 
               {/* Folders Assignment */}
               {flatFolders.length > 0 && onAddToFolder && (
-                <CommandGroup heading="加入文件夹">
+                <CommandGroup heading={t("contextMenu.groupAddToFolder")}>
                   {flatFolders.slice(0, 10).map((f) => (
                     <CommandItem
                       key={f.id}
@@ -341,7 +344,7 @@ export function CustomContextMenu({
                       className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-amber-600 focus:text-amber-600"
                     >
                       <FolderMinus className="size-3.5 shrink-0" />
-                      <span>从当前文件夹移出</span>
+                      <span>{t("contextMenu.removeFromCurrentFolder")}</span>
                     </CommandItem>
                   )}
                 </CommandGroup>
@@ -351,24 +354,24 @@ export function CustomContextMenu({
 
               {/* Tags Assignment */}
               {allTags.length > 0 && (onAddTag || onRemoveTag) && (
-                <CommandGroup heading="标签">
-                  {allTags.map((t) => {
-                    const hasTag = itemTags.includes(t.name);
+                <CommandGroup heading={t("contextMenu.groupTags")}>
+                  {allTags.map((tag) => {
+                    const hasTag = itemTags.includes(tag.name);
                     return (
                       <CommandItem
-                        key={t.name}
+                        key={tag.name}
                         onSelect={() => {
                           if (hasTag) {
-                            onRemoveTag?.(t.name);
+                            onRemoveTag?.(tag.name);
                           } else {
-                            onAddTag?.(t.name);
+                            onAddTag?.(tag.name);
                           }
                           onClose();
                         }}
                         className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                       >
                         <TagIcon className="size-3.5 text-muted-foreground shrink-0" />
-                        <span className="truncate flex-1">{t.name}</span>
+                        <span className="truncate flex-1">{tag.name}</span>
                         {hasTag && <Check className="size-3 text-primary shrink-0" />}
                       </CommandItem>
                     );
@@ -380,7 +383,7 @@ export function CustomContextMenu({
 
               {/* Move to Trash */}
               {onDelete && (
-                <CommandGroup heading="操作">
+                <CommandGroup heading={t("contextMenu.groupActions")}>
                   <CommandItem
                     onSelect={() => {
                       onDelete();
@@ -389,7 +392,7 @@ export function CustomContextMenu({
                     className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
                   >
                     <Trash2 className="size-3.5 shrink-0" />
-                    <span>丢到回收站</span>
+                    <span>{t("contextMenu.moveToTrash")}</span>
                     <span className="text-[10px] opacity-70 ml-auto font-mono">⌫</span>
                   </CommandItem>
                 </CommandGroup>
@@ -397,7 +400,7 @@ export function CustomContextMenu({
             </>
           ) : (
             /* ================= CANVAS / BACKGROUND CONTEXT ================= */
-            <CommandGroup heading="视图操作">
+            <CommandGroup heading={t("contextMenu.groupView")}>
               {onSelectAll && (
                 <CommandItem
                   onSelect={() => {
@@ -407,7 +410,7 @@ export function CustomContextMenu({
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                 >
                   <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex-1">全选</span>
+                  <span className="flex-1">{t("contextMenu.selectAll")}</span>
                   <span className="text-[10px] text-muted-foreground font-mono">⌘A</span>
                 </CommandItem>
               )}
@@ -421,7 +424,7 @@ export function CustomContextMenu({
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                 >
                   <Square className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex-1">取消全选</span>
+                  <span className="flex-1">{t("contextMenu.deselectAll")}</span>
                   <span className="text-[10px] text-muted-foreground font-mono">Esc</span>
                 </CommandItem>
               )}
@@ -435,7 +438,7 @@ export function CustomContextMenu({
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                 >
                   <Upload className="size-3.5 text-muted-foreground shrink-0" />
-                  <span>导入本地文件...</span>
+                  <span>{t("contextMenu.importLocalFiles")}</span>
                 </CommandItem>
               )}
 
@@ -448,7 +451,7 @@ export function CustomContextMenu({
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                 >
                   <FolderPlus className="size-3.5 text-muted-foreground shrink-0" />
-                  <span>新建文件夹...</span>
+                  <span>{t("contextMenu.newFolder")}</span>
                 </CommandItem>
               )}
             </CommandGroup>

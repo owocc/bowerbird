@@ -136,8 +136,8 @@ func TestRecycleBinAndFoldersAndTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTags failed: %v", err)
 	}
-	if len(tags) == 0 || tags[0].Name != "收藏" {
-		t.Errorf("Expected first tag to be 收藏, got %v", tags)
+	if len(tags) == 0 || tags[0].Name != core.FavoriteTagName {
+		t.Errorf("Expected first tag to be the built-in Favorites tag, got %v", tags)
 	}
 
 	// Add tag to item

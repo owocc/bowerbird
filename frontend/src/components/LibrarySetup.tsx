@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation, Trans } from "react-i18next";
 import { FolderPlus, FolderOpen, Folder, Sparkles, AlertCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ interface LibrarySetupProps {
 }
 
 export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
+  const { t } = useTranslation();
   const [libName, setLibName] = useState("MyAssets");
   const [parentDir, setParentDir] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,7 +32,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
         setParentDir(selected);
       }
     } catch (err) {
-      setError(`选择目录失败: ${String(err)}`);
+      setError(t("setup.errors.selectDirectory", { error: String(err) }));
     }
   };
 
@@ -38,11 +40,11 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!parentDir) {
-      setError("请先选择 Library 的存储目录");
+      setError(t("setup.errors.selectStorage"));
       return;
     }
     if (!libName.trim()) {
-      setError("请输入 Library 名称");
+      setError(t("setup.errors.enterName"));
       return;
     }
 
@@ -54,7 +56,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
         onLibraryOpened(lib);
       }
     } catch (err) {
-      setError(`创建 Library 失败: ${String(err)}`);
+      setError(t("setup.errors.createLibrary", { error: String(err) }));
     } finally {
       setLoading(false);
     }
@@ -73,7 +75,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
         }
       }
     } catch (err) {
-      setError(`打开 Library 失败: ${String(err)}`);
+      setError(t("setup.errors.openLibrary", { error: String(err) }));
     } finally {
       setLoading(false);
     }
@@ -90,11 +92,11 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
             <Sparkles className="size-3.5" />
-            <span>本地隔离资产库 · libSQL 索引存储</span>
+            <span>{t("setup.badge")}</span>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">配置你的 Library 资源库</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{t("setup.title")}</h1>
           <p className="text-sm text-muted-foreground">
-            首次使用请先新建或打开已有资源库。所有导入文件将按独立目录副本存储，实现与原目录完全隔离。
+            {t("setup.subtitle")}
           </p>
         </div>
 
@@ -110,21 +112,24 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
           <CardHeader className="pb-4">
             <CardTitle className="text-base flex items-center gap-2">
               <FolderPlus className="size-4 text-primary" />
-              <span>新建资源库 (Create New Library)</span>
+              <span>{t("setup.create.title")}</span>
             </CardTitle>
             <CardDescription className="text-xs">
-              在指定本地目录下创建专属的 <code className="font-mono text-foreground font-semibold">.library</code> 容器文件夹。
+              <Trans
+                i18nKey="setup.create.description"
+                components={{ code: <code className="font-mono text-foreground font-semibold" /> }}
+              />
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleCreate}>
             <CardContent className="space-y-4 text-xs">
               <div className="space-y-1.5">
-                <label className="font-medium text-foreground">资源库名称 (Library Name)</label>
+                <label className="font-medium text-foreground">{t("setup.create.nameLabel")}</label>
                 <div className="flex items-center gap-2">
                   <Input
                     value={libName}
                     onChange={(e) => setLibName(e.target.value)}
-                    placeholder="如: MyAssets"
+                    placeholder={t("setup.create.namePlaceholder")}
                     className="text-xs h-9"
                   />
                   <span className="text-muted-foreground font-mono text-xs shrink-0">.library</span>
@@ -132,12 +137,12 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="font-medium text-foreground">存储路径 (Storage Location)</label>
+                <label className="font-medium text-foreground">{t("setup.create.storageLabel")}</label>
                 <div className="flex gap-2">
                   <Input
                     readOnly
-                    value={parentDir || "尚未选择存储目录..."}
-                    placeholder="请点击右侧按钮选择目录"
+                    value={parentDir || t("setup.create.noDirectory")}
+                    placeholder={t("setup.create.directoryPlaceholder")}
                     className={`text-xs h-9 font-mono ${!parentDir ? "text-muted-foreground italic" : ""}`}
                   />
                   <Button
@@ -148,21 +153,21 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
                     className="shrink-0 h-9 gap-1.5"
                   >
                     <Folder className="size-3.5" />
-                    <span>选择位置</span>
+                    <span>{t("setup.create.chooseLocation")}</span>
                   </Button>
                 </div>
               </div>
 
               {previewPath && (
                 <div className="p-2.5 rounded-lg bg-muted/50 border border-border/60 text-[11px] text-muted-foreground space-y-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">将在本地创建:</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">{t("setup.create.previewLabel")}</span>
                   <p className="font-mono text-foreground break-all">{previewPath}</p>
                 </div>
               )}
             </CardContent>
             <CardFooter className="pt-2 flex justify-end">
               <Button type="submit" disabled={loading || !parentDir} className="gap-2 text-xs h-9">
-                <span>{loading ? "正在初始化..." : "创建并开启资源库"}</span>
+                <span>{loading ? t("setup.create.creating") : t("setup.create.submit")}</span>
                 <ArrowRight className="size-3.5" />
               </Button>
             </CardFooter>
@@ -175,15 +180,15 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
             <span className="w-full border-t border-border" />
           </div>
           <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase font-semibold">
-            或
+            {t("setup.or")}
           </span>
         </div>
 
         <Card className="border-dashed border-border bg-muted/20">
           <CardContent className="py-4 flex items-center justify-between gap-4">
             <div className="space-y-0.5 text-xs">
-              <p className="font-medium">已有现成资源库？</p>
-              <p className="text-[11px] text-muted-foreground">直接加载本地已有的 .library 容器及现有索引数据。</p>
+              <p className="font-medium">{t("setup.open.title")}</p>
+              <p className="text-[11px] text-muted-foreground">{t("setup.open.description")}</p>
             </div>
             <Button
               type="button"
@@ -194,7 +199,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
               className="shrink-0 gap-1.5 text-xs h-9"
             >
               <FolderOpen className="size-3.5" />
-              <span>打开已有资源库</span>
+              <span>{t("setup.open.button")}</span>
             </Button>
           </CardContent>
         </Card>

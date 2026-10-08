@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Search,
@@ -68,6 +69,7 @@ import {
 } from "../../bindings/bowerbird/core/service";
 import type { Item, Folder, Tag, LibraryInfo } from "../../bindings/bowerbird/core/models";
 import { getFileCategory } from "@/lib/formatters";
+import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { useFileDrop } from "@/hooks/useFileDrop";
 
 export interface LibraryWorkspaceProps {
@@ -81,6 +83,7 @@ export function LibraryWorkspace({
   onLibraryClosed,
   onLibraryChanged,
 }: LibraryWorkspaceProps) {
+  const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -151,7 +154,7 @@ export function LibraryWorkspace({
         setItems(data || []);
       }
     } catch (err) {
-      console.error("加载资产失败:", err);
+      console.error("Failed to load items:", err);
     } finally {
       setLoading(false);
     }
@@ -163,7 +166,7 @@ export function LibraryWorkspace({
       const data = await GetFolders();
       setFolders(data || []);
     } catch (err) {
-      console.error("加载文件夹目录失败:", err);
+      console.error("Failed to load folders:", err);
     }
   }, []);
 
@@ -173,7 +176,7 @@ export function LibraryWorkspace({
       const data = await GetTags();
       setTags(data || []);
     } catch (err) {
-      console.error("加载标签列表失败:", err);
+      console.error("Failed to load tags:", err);
     }
   }, []);
 
@@ -183,7 +186,7 @@ export function LibraryWorkspace({
       const count = await GetTrashCount();
       setTrashCount(count || 0);
     } catch (err) {
-      console.error("加载回收站数量失败:", err);
+      console.error("Failed to load trash count:", err);
     }
   }, []);
 
@@ -265,7 +268,7 @@ export function LibraryWorkspace({
           try {
             await AddItemToFolder(id, targetFolderId);
           } catch (err) {
-            console.error("关联资产到当前目录失败:", err);
+            console.error("Failed to add item to current folder:", err);
           }
         }
       }
@@ -438,7 +441,7 @@ export function LibraryWorkspace({
         }
         await handleFullRefresh();
       } catch (err) {
-        console.error("移至回收站失败:", err);
+        console.error("Failed to move to trash:", err);
       }
     })();
   };
@@ -460,7 +463,7 @@ export function LibraryWorkspace({
       }
       await handleFullRefresh();
     } catch (err) {
-      console.error("放回原处失败:", err);
+      console.error("Failed to restore from trash:", err);
     }
   };
 
@@ -472,7 +475,7 @@ export function LibraryWorkspace({
       setActiveItemId(null);
       await handleFullRefresh();
     } catch (err) {
-      console.error("清空回收站失败:", err);
+      console.error("Failed to empty trash:", err);
     }
   };
 
@@ -493,7 +496,7 @@ export function LibraryWorkspace({
     try {
       await RevealInFinder(id);
     } catch (err) {
-      console.error("定位文件失败:", err);
+      console.error("Failed to reveal file:", err);
     }
   };
 
@@ -502,7 +505,7 @@ export function LibraryWorkspace({
       try {
         await RevealInFinder(item.id);
       } catch (err) {
-        console.error("在访达中显示失败:", err);
+        console.error("Failed to reveal in file manager:", err);
       }
     }
   };
@@ -514,7 +517,7 @@ export function LibraryWorkspace({
     try {
       await OpenWithDefaultApp(item.id);
     } catch (err) {
-      console.error("用默认程序打开失败:", err);
+      console.error("Failed to open with default application:", err);
     }
   };
 
@@ -525,9 +528,9 @@ export function LibraryWorkspace({
     try {
       const plainPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : item.shellPath);
       await navigator.clipboard.writeText(plainPath);
-      toast.success("已复制文件路径");
+      toast.success(t("workspace.pathCopied"));
     } catch (err) {
-      console.error("复制文件路径失败:", err);
+      console.error("Failed to copy file path:", err);
     }
   };
 
@@ -538,9 +541,9 @@ export function LibraryWorkspace({
     try {
       const nowFav = await ToggleFavorite(item.id);
       await handleFullRefresh();
-      toast.success(nowFav ? "已添加到收藏" : "已取消收藏");
+      toast.success(nowFav ? t("workspace.favoriteAdded") : t("workspace.favoriteRemoved"));
     } catch (err) {
-      console.error("切换收藏状态失败:", err);
+      console.error("Failed to toggle favorite:", err);
     }
   };
 
@@ -552,7 +555,7 @@ export function LibraryWorkspace({
       }
       await handleFullRefresh();
     } catch (err) {
-      console.error("批量添加到目录失败:", err);
+      console.error("Failed to add items to folder:", err);
     }
   };
 
@@ -564,7 +567,7 @@ export function LibraryWorkspace({
       }
       await handleFullRefresh();
     } catch (err) {
-      console.error("批量移出目录失败:", err);
+      console.error("Failed to remove items from folder:", err);
     }
   };
 
@@ -574,7 +577,7 @@ export function LibraryWorkspace({
       await CreateFolder(name, parentId || "");
       await refreshFolders();
     } catch (err) {
-      console.error("创建文件夹失败:", err);
+      console.error("Failed to create folder:", err);
     }
   };
 
@@ -583,7 +586,7 @@ export function LibraryWorkspace({
       await RenameFolder(folderId, name);
       await refreshFolders();
     } catch (err) {
-      console.error("重命名文件夹失败:", err);
+      console.error("Failed to rename folder:", err);
     }
   };
 
@@ -594,10 +597,10 @@ export function LibraryWorkspace({
         setActiveFolderId(null);
       }
       await handleFullRefresh();
-      toast.success("文件夹已删除");
+      toast.success(t("workspace.folderDeleted"));
     } catch (err) {
-      console.error("删除文件夹失败:", err);
-      toast.error("删除文件夹失败");
+      console.error("Failed to delete folder:", err);
+      toast.error(t("workspace.folderDeleteFailed"));
     }
   };
 
@@ -610,9 +613,9 @@ export function LibraryWorkspace({
     try {
       await MoveItemToFolder(itemId, fromFolderId, toFolderId);
       await handleFullRefresh();
-      toast.success("已移动至指定文件夹");
+      toast.success(t("workspace.itemMoved"));
     } catch (err) {
-      console.error("移动资产失败:", err);
+      console.error("Failed to move item:", err);
     }
   };
 
@@ -670,7 +673,7 @@ export function LibraryWorkspace({
       return;
     }
 
-    console.warn("侧边栏仅接受文件夹类型拖入导入");
+    console.warn("Sidebar import accepts folders only");
   };
 
   const readEntryRecursively = async (entry: any, parentId = "") => {
@@ -710,7 +713,7 @@ export function LibraryWorkspace({
       await CreateTag(name);
       await refreshTags();
     } catch (err) {
-      console.error("创建标签失败:", err);
+      console.error("Failed to create tag:", err);
     }
   };
 
@@ -722,7 +725,7 @@ export function LibraryWorkspace({
       }
       await handleFullRefresh();
     } catch (err) {
-      console.error("删除标签失败:", err);
+      console.error("Failed to delete tag:", err);
     }
   };
 
@@ -731,7 +734,7 @@ export function LibraryWorkspace({
       await AddTagToItem(itemId, tag);
       await handleFullRefresh();
     } catch (err) {
-      console.error("添加标签失败:", err);
+      console.error("Failed to add tag:", err);
     }
   };
 
@@ -740,7 +743,7 @@ export function LibraryWorkspace({
       await RemoveTagFromItem(itemId, tag);
       await handleFullRefresh();
     } catch (err) {
-      console.error("移除标签失败:", err);
+      console.error("Failed to remove tag:", err);
     }
   };
 
@@ -759,6 +762,7 @@ export function LibraryWorkspace({
   const currentFolder = activeFolderId && activeFolderId !== "__trash__"
     ? findFolderById(folders, activeFolderId)
     : null;
+  const activeTagLabel = activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
   const totalSizeBytes = filteredItems.reduce((acc, curr) => acc + (curr.size || 0), 0);
 
   // Global Keyboard shortcuts:
@@ -874,7 +878,7 @@ export function LibraryWorkspace({
                   onDropItemOnTrash={async (ids) => {
                     await BatchMoveToTrash(ids);
                     await handleFullRefresh();
-                    toast.success("已移至回收站");
+                    toast.success(t("workspace.movedToTrash"));
                   }}
                   onCloseLibrary={async () => {
                     await CloseLibrary();
@@ -956,17 +960,19 @@ export function LibraryWorkspace({
                       <Upload className="size-8 text-primary" />
                     </div>
                     <h3 className="text-xl font-bold tracking-tight text-foreground">
-                      {currentFolder ? `松开以导入至「${currentFolder.name}」` : "松开以导入至「全部资产」"}
+                      {currentFolder
+                        ? t("workspace.dropToFolder", { folder: currentFolder.name })
+                        : t("workspace.dropToAll")}
                     </h3>
                     <p className="text-xs text-muted-foreground mt-1 max-w-sm leading-relaxed">
                       {currentFolder
-                        ? `所选文件及子文件夹将扁平存入目录「${currentFolder.name}」`
-                        : "所选文件及子文件夹将直接扁平存入全部资产"}
+                        ? t("workspace.dropSubtitleFolder", { folder: currentFolder.name })
+                        : t("workspace.dropSubtitleAll")}
                     </p>
                     <div className="flex gap-2 mt-3 text-[11px] text-muted-foreground font-mono">
-                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">自动排重</span>
-                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">自动建立索引</span>
-                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">生成缩略图</span>
+                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">{t("workspace.dedupe")}</span>
+                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">{t("workspace.autoIndex")}</span>
+                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">{t("workspace.generateThumbnails")}</span>
                     </div>
                   </motion.div>
                 )}
@@ -1000,12 +1006,12 @@ export function LibraryWorkspace({
                   >
                     <span className="font-semibold text-xs tracking-tight truncate text-foreground">
                       {activeFolderId === "__trash__"
-                        ? "回收站 (Trash)"
+                        ? t("workspace.trash")
                         : activeTag
-                        ? `标签: ${activeTag}`
+                        ? t("workspace.tagWithValue", { tag: activeTagLabel })
                         : currentFolder
                         ? currentFolder.name
-                        : "All"}
+                        : t("workspace.all")}
                     </span>
 
                     {/* Thumbnail row height zoom slider: [-] [slider] [+] */}
@@ -1024,7 +1030,7 @@ export function LibraryWorkspace({
                           setRowHeight((h) => Math.max(60, h - 10));
                         }}
                         className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
-                        title="缩小预览"
+                        title={t("workspace.zoomOut")}
                       >
                         <Minus className="size-3 wails-no-drag pointer-events-none" />
                       </button>
@@ -1051,7 +1057,7 @@ export function LibraryWorkspace({
                           setRowHeight((h) => Math.min(200, h + 10));
                         }}
                         className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
-                        title="放大预览"
+                        title={t("workspace.zoomIn")}
                       >
                         <Plus className="size-3 wails-no-drag pointer-events-none" />
                       </button>
@@ -1068,7 +1074,7 @@ export function LibraryWorkspace({
                       <Input
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search"
+                        placeholder={t("common.search")}
                         className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background wails-no-drag"
                       />
                       {searchQuery && (
@@ -1093,7 +1099,7 @@ export function LibraryWorkspace({
                         className="text-[11px] gap-1 pl-2 pr-1 h-5 mr-1 font-normal bg-primary/10 text-primary border-primary/20"
                       >
                         <TagIcon className="size-2.5" />
-                        <span>{activeTag}</span>
+                        <span>{activeTagLabel}</span>
                         <button
                           onClick={() => setActiveTag(null)}
                           className="hover:text-destructive p-0.5 rounded cursor-pointer"
@@ -1104,12 +1110,12 @@ export function LibraryWorkspace({
                     )}
 
                     {[
-                      { id: "all", label: "All" },
-                      { id: "image", label: "Images" },
-                      { id: "video", label: "Videos" },
-                      { id: "document", label: "Docs" },
-                      { id: "archive", label: "Archives" },
-                      { id: "other", label: "Other" },
+                      { id: "all", labelKey: "workspace.categories.all" },
+                      { id: "image", labelKey: "workspace.categories.images" },
+                      { id: "video", labelKey: "workspace.categories.videos" },
+                      { id: "document", labelKey: "workspace.categories.docs" },
+                      { id: "archive", labelKey: "workspace.categories.archives" },
+                      { id: "other", labelKey: "workspace.categories.other" },
                     ].map((cat) => (
                       <button
                         key={cat.id}
@@ -1120,7 +1126,7 @@ export function LibraryWorkspace({
                             : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                         }`}
                       >
-                        {cat.label}
+                        {t(cat.labelKey)}
                       </button>
                     ))}
                   </div>
@@ -1138,7 +1144,7 @@ export function LibraryWorkspace({
                               className="h-6.5 text-[11px] gap-1 text-primary hover:text-primary cursor-pointer"
                             >
                               <RotateCcw className="size-3" />
-                              <span>放回原处 ({selectedItemIds.size})</span>
+                              <span>{t("workspace.restoreCount", { count: selectedItemIds.size })}</span>
                             </Button>
                             <Button
                               variant="destructive"
@@ -1147,7 +1153,7 @@ export function LibraryWorkspace({
                               className="h-6.5 text-[11px] gap-1 cursor-pointer"
                             >
                               <Trash2 className="size-3" />
-                              <span>彻底删除 ({selectedItemIds.size})</span>
+                              <span>{t("workspace.deletePermanentlyCount", { count: selectedItemIds.size })}</span>
                             </Button>
                           </div>
                         ) : filteredItems.length > 0 ? (
@@ -1158,7 +1164,7 @@ export function LibraryWorkspace({
                             className="h-6.5 text-[11px] gap-1 text-destructive hover:text-destructive cursor-pointer"
                           >
                             <Trash2 className="size-3" />
-                            <span>清空回收站</span>
+                            <span>{t("workspace.emptyTrash")}</span>
                           </Button>
                         ) : null}
                       </>
@@ -1175,7 +1181,7 @@ export function LibraryWorkspace({
                       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-md hover:bg-muted/50 cursor-pointer"
                     >
                       <ArrowUpDown className="size-3" />
-                      <span>{sortOrder === "desc" ? "Newest" : "Oldest"}</span>
+                      <span>{sortOrder === "desc" ? t("workspace.newest") : t("workspace.oldest")}</span>
                     </button>
                   </div>
                 </div>
@@ -1185,7 +1191,7 @@ export function LibraryWorkspace({
               <div className="flex-1 overflow-y-auto p-4 wails-no-drag">
                 {loading ? (
                   <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
-                    正在载入资产索引...
+                    {t("workspace.loadingIndex")}
                   </div>
                 ) : filteredItems.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
@@ -1194,9 +1200,9 @@ export function LibraryWorkspace({
                         <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                           <Trash2 className="size-6 text-muted-foreground" />
                         </div>
-                        <h3 className="font-semibold text-sm mb-1">回收站为空</h3>
+                        <h3 className="font-semibold text-sm mb-1">{t("workspace.trashEmptyTitle")}</h3>
                         <p className="text-xs text-muted-foreground">
-                          被删除的素材会显示在这里，可以随时放回原处
+                          {t("workspace.trashEmptyDesc")}
                         </p>
                       </>
                     ) : activeTag ? (
@@ -1204,9 +1210,9 @@ export function LibraryWorkspace({
                         <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                           <TagIcon className="size-6 text-muted-foreground" />
                         </div>
-                        <h3 className="font-semibold text-sm mb-1">标签 "{activeTag}" 下暂无素材</h3>
+                        <h3 className="font-semibold text-sm mb-1">{t("workspace.tagEmptyTitle", { tag: activeTagLabel })}</h3>
                         <p className="text-xs text-muted-foreground">
-                          可通过右键菜单或详细面板为素材添加此标签
+                          {t("workspace.tagEmptyDesc")}
                         </p>
                       </>
                     ) : (
@@ -1214,9 +1220,9 @@ export function LibraryWorkspace({
                         <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                           <Upload className="size-6 text-muted-foreground" />
                         </div>
-                        <h3 className="font-semibold text-sm mb-1">暂无文件</h3>
+                        <h3 className="font-semibold text-sm mb-1">{t("workspace.noFilesTitle")}</h3>
                         <p className="text-xs text-muted-foreground mb-4">
-                          拖入文件或文件夹即可自动导入
+                          {t("workspace.noFilesDesc")}
                         </p>
                         <Button
                           variant="outline"
@@ -1224,7 +1230,7 @@ export function LibraryWorkspace({
                           onClick={() => fileInputRef.current?.click()}
                           className="text-xs cursor-pointer"
                         >
-                          选择文件导入
+                          {t("workspace.chooseFiles")}
                         </Button>
                       </>
                     )}
@@ -1370,7 +1376,7 @@ export function LibraryWorkspace({
             setActiveItemId(null);
           }}
           onImportFiles={() => fileInputRef.current?.click()}
-          onCreateFolder={() => handleCreateFolder("新建文件夹")}
+          onCreateFolder={() => handleCreateFolder(t("workspace.newFolder"))}
         />
 
         {/* MULTI-FOLDER DELETION & PERMANENT DELETION DIALOG */}
@@ -1382,17 +1388,19 @@ export function LibraryWorkspace({
             <DialogContent className="max-w-sm text-xs">
               <DialogHeader>
                 <DialogTitle className="text-sm font-semibold">
-                  {deleteConfirmDialog.type === "permanent" ? "彻底删除素材" : "删除素材"}
+                  {deleteConfirmDialog.type === "permanent" ? t("workspace.deletePermanentlyTitle") : t("workspace.deleteTitle")}
                 </DialogTitle>
               </DialogHeader>
               <div className="py-2 text-muted-foreground text-xs leading-relaxed">
                 {deleteConfirmDialog.type === "permanent" ? (
                   <p>
-                    确定要彻底删除选中的 {deleteConfirmDialog.items.length} 项素材吗？此操作将永久抹除磁盘文件与记录，无法撤销。
+                    {t("workspace.deletePermanentlyMessage", {
+                      count: deleteConfirmDialog.items.length,
+                    })}
                   </p>
                 ) : (
                   <p>
-                    选中的素材被引用在多个文件夹中。您可以选择仅从当前文件夹移出引用，或将素材丢入回收站：
+                    {t("workspace.deleteMultiFolderMessage")}
                   </p>
                 )}
               </div>
@@ -1403,7 +1411,7 @@ export function LibraryWorkspace({
                   onClick={() => setDeleteConfirmDialog(null)}
                   className="cursor-pointer"
                 >
-                  取消
+                  {t("common.cancel")}
                 </Button>
                 {deleteConfirmDialog.type === "permanent" ? (
                   <Button
@@ -1420,7 +1428,7 @@ export function LibraryWorkspace({
                       await handleFullRefresh();
                     }}
                   >
-                    彻底删除
+                    {t("workspace.deletePermanently")}
                   </Button>
                 ) : (
                   <>
@@ -1440,7 +1448,7 @@ export function LibraryWorkspace({
                         await handleFullRefresh();
                       }}
                     >
-                      仅从当前文件夹移出
+                      {t("workspace.removeFromFolder")}
                     </Button>
                     <Button
                       variant="destructive"
@@ -1455,7 +1463,7 @@ export function LibraryWorkspace({
                         await handleFullRefresh();
                       }}
                     >
-                      丢到回收站
+                      {t("workspace.moveToTrash")}
                     </Button>
                   </>
                 )}
@@ -1472,7 +1480,7 @@ export function LibraryWorkspace({
           >
             <DialogContent className="max-w-sm text-xs">
               <DialogHeader>
-                <DialogTitle className="text-sm font-semibold">重命名素材</DialogTitle>
+                <DialogTitle className="text-sm font-semibold">{t("workspace.renameTitle")}</DialogTitle>
               </DialogHeader>
               <form
                 onSubmit={async (e) => {
@@ -1483,13 +1491,13 @@ export function LibraryWorkspace({
                     setRenameDialog(null);
                     await handleFullRefresh();
                   } catch (err) {
-                    console.error("重命名失败:", err);
+                    console.error("Failed to rename item:", err);
                   }
                 }}
                 className="space-y-4 pt-2"
               >
                 <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground font-medium">新文件名</label>
+                  <label className="text-xs text-muted-foreground font-medium">{t("workspace.newFileName")}</label>
                   <Input
                     autoFocus
                     value={renameDialog.newName}
@@ -1509,10 +1517,10 @@ export function LibraryWorkspace({
                     onClick={() => setRenameDialog(null)}
                     className="cursor-pointer"
                   >
-                    取消
+                    {t("common.cancel")}
                   </Button>
                   <Button type="submit" size="sm" className="cursor-pointer">
-                    确定
+                    {t("common.confirm")}
                   </Button>
                 </DialogFooter>
               </form>

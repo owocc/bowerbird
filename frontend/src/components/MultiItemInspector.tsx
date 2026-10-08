@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   FolderOpen,
   Trash2,
@@ -36,6 +37,7 @@ export function MultiItemInspector({
   onBatchRemoveFromFolder,
   onBatchRestore,
 }: MultiItemInspectorProps) {
+  const { t } = useTranslation();
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
   // Take up to the last 7 selected items to stack like newspapers
@@ -122,7 +124,7 @@ export function MultiItemInspector({
         {/* Selection summary */}
         <div className="text-center space-y-0.5 pt-1">
           <p className="text-xs font-semibold text-foreground">
-            {selectedItems.length} items selected
+            {t("multiInspector.selectedCount", { count: selectedItems.length })}
           </p>
           <p className="text-[10px] text-muted-foreground font-mono">
             {formatBytes(totalSizeBytes)}
@@ -137,10 +139,10 @@ export function MultiItemInspector({
               size="xs"
               onClick={onBatchRestore}
               className="h-7 text-[11px] gap-1.5 text-primary hover:text-primary"
-              title="放回原处"
+              title={t("multiInspector.restore")}
             >
               <RotateCcw className="size-3" />
-              <span>放回原处 ({selectedItems.length})</span>
+              <span>{t("multiInspector.restoreCount", { count: selectedItems.length })}</span>
             </Button>
 
             <Button
@@ -148,10 +150,10 @@ export function MultiItemInspector({
               size="xs"
               onClick={onBatchDelete}
               className="h-7 text-[11px] gap-1.5"
-              title="彻底删除"
+              title={t("multiInspector.deletePermanently")}
             >
               <Trash2 className="size-3" />
-              <span>彻底删除 ({selectedItems.length})</span>
+              <span>{t("multiInspector.deletePermanentlyCount", { count: selectedItems.length })}</span>
             </Button>
           </div>
         ) : (
@@ -161,10 +163,10 @@ export function MultiItemInspector({
               size="xs"
               onClick={onBatchReveal}
               className="h-7 text-[11px] gap-1.5"
-              title="在访达中显示"
+              title={t("multiInspector.revealInFinder")}
             >
               <FolderOpen className="size-3" />
-              <span>在访达中显示</span>
+              <span>{t("multiInspector.revealInFinder")}</span>
             </Button>
 
             <Button
@@ -172,10 +174,10 @@ export function MultiItemInspector({
               size="xs"
               onClick={onBatchDelete}
               className="h-7 text-[11px] gap-1.5"
-              title="丢到回收站"
+              title={t("multiInspector.moveToTrash")}
             >
               <Trash2 className="size-3" />
-              <span>丢到回收站 ({selectedItems.length})</span>
+              <span>{t("multiInspector.moveToTrashCount", { count: selectedItems.length })}</span>
             </Button>
           </div>
         )}
@@ -186,7 +188,7 @@ export function MultiItemInspector({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              Folders
+              {t("multiInspector.folders")}
             </span>
             {flatFolderList.length > 0 && (
               <button
@@ -194,7 +196,7 @@ export function MultiItemInspector({
                 className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
               >
                 <Plus className="size-2.5" />
-                <span>Add to folder...</span>
+                <span>{t("multiInspector.addToFolder")}</span>
               </button>
             )}
           </div>
@@ -203,7 +205,7 @@ export function MultiItemInspector({
           {showFolderPicker && flatFolderList.length > 0 && (
             <div className="p-2 rounded-lg border border-border bg-card shadow-md space-y-1">
               <div className="text-[10px] text-muted-foreground px-1 pb-1 font-medium">
-                Add {selectedItems.length} items to:
+                {t("multiInspector.addItemsTo", { count: selectedItems.length })}
               </div>
               <div className="max-h-36 overflow-y-auto space-y-0.5">
                 {flatFolderList.map((f) => (
@@ -230,7 +232,7 @@ export function MultiItemInspector({
               onClick={() => onBatchRemoveFromFolder(activeFolderId)}
               className="w-full h-7 text-[11px] text-destructive hover:bg-destructive/10 border-destructive/30"
             >
-              <span>Remove from Current Folder</span>
+              <span>{t("multiInspector.removeFromCurrentFolder")}</span>
             </Button>
           )}
         </div>
@@ -240,23 +242,23 @@ export function MultiItemInspector({
         {/* Combined Metadata Summary */}
         <div className="space-y-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            Summary
+            {t("multiInspector.summary")}
           </span>
           <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2 text-[11px]">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Count</span>
+              <span className="text-muted-foreground">{t("multiInspector.count")}</span>
               <span className="font-mono font-medium">{selectedItems.length}</span>
             </div>
 
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Total Size</span>
+              <span className="text-muted-foreground">{t("multiInspector.totalSize")}</span>
               <span className="font-mono font-semibold text-foreground">
                 {formatBytes(totalSizeBytes)}
               </span>
             </div>
 
             <div className="pt-1.5 border-t border-border/40">
-              <div className="text-[10px] text-muted-foreground mb-1">Formats:</div>
+              <div className="text-[10px] text-muted-foreground mb-1">{t("multiInspector.formats")}</div>
               <div className="flex flex-wrap gap-1">
                 {Object.entries(extensionCounts).map(([ext, count]) => (
                   <Badge key={ext} variant="secondary" className="text-[9px] font-mono h-4.5 px-1.5">

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Slider } from "@/components/ui/slider";
 import { Check, ChevronDown } from "lucide-react";
 
@@ -19,6 +20,7 @@ export function ZoomControls({
   onZoomToFit,
   className = "",
 }: ZoomControlsProps) {
+  const { t } = useTranslation();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -65,7 +67,7 @@ export function ZoomControls({
       <button
         type="button"
         onClick={() => setDropdownOpen((prev) => !prev)}
-        title="点击选择预设缩放比例"
+        title={t("zoom.selectPreset")}
         className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-mono font-medium bg-muted/70 hover:bg-muted text-foreground border border-border/60 transition-colors shadow-2xs select-none"
       >
         <span>{currentPercent}%</span>
@@ -111,7 +113,7 @@ export function ZoomControls({
               }}
               className="w-full flex items-center px-2 py-1 rounded-md text-left hover:bg-muted text-foreground transition-colors"
             >
-              <span>实际大小 (100%)</span>
+              <span>{t("zoom.actualSize")}</span>
             </button>
 
             <button
@@ -122,7 +124,7 @@ export function ZoomControls({
               }}
               className="w-full flex items-center px-2 py-1 rounded-md text-left hover:bg-muted text-foreground transition-colors"
             >
-              <span>适应窗口 (Fit)</span>
+              <span>{t("zoom.fitToWindow")}</span>
             </button>
           </div>
         </div>
