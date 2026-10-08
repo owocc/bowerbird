@@ -101,7 +101,7 @@ export function UniversalThumbnail({
         height: typeof height === "number" ? `${height}px` : height,
         aspectRatio: aspectRatio,
       }}
-      className={`relative rounded-xl overflow-hidden bg-muted/20 border border-border/80 flex items-center justify-center select-none draggable-asset-card wails-no-drag ${className}`}
+      className={`relative rounded-sm overflow-hidden bg-muted/20 border border-border/80 flex items-center justify-center select-none draggable-asset-card wails-no-drag ${className}`}
     >
 
       {hasVisual ? (
@@ -127,10 +127,10 @@ export function UniversalThumbnail({
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center gap-1.5 p-2 pointer-events-none select-none">
-          <div className="relative size-12 rounded-xl flex items-center justify-center bg-card border border-border/80 shadow-xs">
+          <div className="relative size-12 rounded-sm flex items-center justify-center bg-card border border-border/80 shadow-xs">
             <CategoryIcon category={category} ext={item.extension} className="size-6 stroke-[1.6]" />
           </div>
-          <span className="font-mono text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-muted/80 text-muted-foreground border border-border/40">
+          <span className="font-mono text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-sm bg-muted/80 text-muted-foreground border border-border/40">
             {item.extension || "FILE"}
           </span>
         </div>

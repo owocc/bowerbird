@@ -329,7 +329,7 @@ export function UnifiedPreviewModal({
                       className="size-32 object-contain pointer-events-none drop-shadow-lg"
                     />
                   ) : (
-                    <div className="relative size-24 rounded-2xl flex items-center justify-center bg-muted/60 border border-border/80 shadow-xs">
+                    <div className="relative size-24 rounded-sm flex items-center justify-center bg-muted/60 border border-border/80 shadow-xs">
                       <PreviewCategoryIcon category={category} className="size-12 stroke-[1.5] text-foreground/80" />
                     </div>
                   )}

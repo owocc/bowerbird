@@ -41,7 +41,7 @@ export function ImageThumbnailCard({
       className="flex flex-col cursor-pointer select-none draggable-asset-card wails-no-drag"
     >
       {/* Thumbnail Container */}
-      <div className="relative w-full rounded-xl overflow-hidden">
+      <div className="relative w-full rounded-sm overflow-hidden">
         <UniversalThumbnail
           item={item}
           height={cardHeight}
@@ -60,7 +60,7 @@ export function ImageThumbnailCard({
       {/* Full File Name (Centered with selection text background highlight) */}
       <div className="w-full mt-1.5 flex justify-center pointer-events-none select-none px-0.5">
         <span
-          className={`text-[11px] truncate max-w-full px-1.5 py-0.5 rounded-md leading-tight text-center ${
+          className={`text-[11px] truncate max-w-full px-1.5 py-0.5 rounded-sm leading-tight text-center ${
             isSelected
               ? "bg-primary text-primary-foreground font-medium shadow-2xs"
               : "text-foreground font-normal"
