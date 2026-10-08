@@ -53,6 +53,32 @@ export function JustifiedGallery({
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
   const [lastClickedItemId, setLastClickedItemId] = useState<string | null>(null);
 
+  // Rubbery-band (marquee) selection internals. Everything the mouse handlers need
+  // lives in refs so the listeners can stay attached for the whole session instead
+  // of being re-registered on every mousemove.
+  const marqueeRef = useRef<MarqueeBox | null>(null);
+  const cardBoxesRef = useRef<{ id: string; left: number; right: number; top: number; bottom: number }[]>([]);
+  const pendingPointRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const selectionKeyRef = useRef("");
+  const baseSelectionRef = useRef<Set<string>>(new Set());
+  const gestureAdditiveRef = useRef(false);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressOriginRef = useRef<{ clientX: number; clientY: number } | null>(null);
+  const longPressArmedRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
+  const selectedIdsRef = useRef(selectedItemIds);
+  const onSelectionChangeRef = useRef(onSelectionChange);
+
+  useEffect(() => {
+    selectedIdsRef.current = selectedItemIds;
+  }, [selectedItemIds]);
+
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
+
   // Measure container width responsively
   useEffect(() => {
     if (!containerRef.current) return;
@@ -172,6 +198,12 @@ export function JustifiedGallery({
   const handleCardClick = (e: React.MouseEvent, item: Item) => {
     e.stopPropagation();
 
+    // The selection was just made by a long-press marquee: keep it.
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+
     if (e.metaKey || e.ctrlKey) {
       // Toggle selection of this item
       const newSelection = new Set(selectedItemIds);
@@ -202,116 +234,274 @@ export function JustifiedGallery({
     }
   };
 
-  // Marquee mouse drag handling
-  const handleMouseDown = (e: React.MouseEvent) => {
-    // Left click only
-    if (e.button !== 0) return;
+  // ---------------------------------------------------------------------------
+  // Rubbery-band selection
+  // - the gesture may start anywhere in the main canvas, including the scroll
+  //   padding; a press that lands on a card keeps its native drag (move / export)
+  //   and only switches to a marquee after a one second long press
+  // - the box is clamped to the visible canvas, so it can never run off to the
+  //   left or grow endlessly to the right
+  // ---------------------------------------------------------------------------
+  const canvasBounds = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return null;
+    const box = container.getBoundingClientRect();
+    const host = container.parentElement?.getBoundingClientRect();
+    return {
+      box,
+      left: Math.max(box.left, host?.left ?? box.left),
+      right: Math.min(box.right, host?.right ?? box.right),
+      top: Math.max(box.top, host?.top ?? box.top),
+      bottom: Math.min(box.bottom, host?.bottom ?? box.bottom),
+    };
+  }, []);
 
-    // If click was on an asset card or button, let card handler deal with it
-    const target = e.target as HTMLElement;
-    if (target.closest("[data-asset-id]") || target.closest("button") || target.closest("input")) {
-      return;
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
+  }, []);
 
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const startX = e.clientX - rect.left;
-    const startY = e.clientY - rect.top;
-
-    // Clear selection on empty canvas click if no modifier key held
-    if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
-      onSelectionChange(new Set());
-      setLastClickedItemId(null);
+  const endMarquee = useCallback(() => {
+    cancelLongPress();
+    // Hand the pointer back so the app behaves normally again.
+    const host = containerRef.current?.parentElement;
+    const pointerId = activePointerIdRef.current;
+    if (host && pointerId !== null) {
+      try {
+        if (host.hasPointerCapture(pointerId)) host.releasePointerCapture(pointerId);
+      } catch {
+        /* pointer already gone */
+      }
     }
+    activePointerIdRef.current = null;
+    longPressOriginRef.current = null;
+    // A marquee born from a long press owns the gesture: swallow the click that
+    // would otherwise reset the selection to the card underneath the cursor.
+    if (longPressArmedRef.current) suppressClickRef.current = true;
+    longPressArmedRef.current = false;
+    gestureAdditiveRef.current = false;
+    pendingPointRef.current = null;
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    marqueeRef.current = null;
+    setMarquee(null);
+  }, [cancelLongPress]);
 
-    setMarquee({
-      startX,
-      startY,
-      currentX: startX,
-      currentY: startY,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      currentClientX: e.clientX,
-      currentClientY: e.clientY,
-    });
-  };
+  const beginMarquee = useCallback(
+    (clientX: number, clientY: number) => {
+      const container = containerRef.current;
+      const bounds = canvasBounds();
+      if (!container || !bounds) return;
 
-  const handleMouseMove = useCallback(
-    (e: MouseEvent) => {
-      if (!marquee || !containerRef.current) return;
+      // Cache the card boxes once per gesture: the layout cannot change mid-drag.
+      cardBoxesRef.current = Array.from(
+        container.querySelectorAll<HTMLElement>("[data-asset-id]")
+      )
+        .map((el) => {
+          const r = el.getBoundingClientRect();
+          return {
+            id: el.dataset.assetId ?? "",
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+          };
+        })
+        .filter((card) => card.id);
 
-      const rect = containerRef.current.getBoundingClientRect();
-      const currentX = e.clientX - rect.left;
-      const currentY = e.clientY - rect.top;
+      const cx = Math.min(Math.max(clientX, bounds.left), bounds.right);
+      const cy = Math.min(Math.max(clientY, bounds.top), bounds.bottom);
+      const box: MarqueeBox = {
+        startX: cx - bounds.box.left,
+        startY: cy - bounds.box.top,
+        currentX: cx - bounds.box.left,
+        currentY: cy - bounds.box.top,
+        startClientX: cx,
+        startClientY: cy,
+        currentClientX: cx,
+        currentClientY: cy,
+      };
+      // Capture the pointer: without this a release that happens outside the
+      // window (or after the browser tried to start a file drag) never reaches us
+      // and the marquee would stay stuck on screen.
+      const pointerId = activePointerIdRef.current;
+      const host = containerRef.current?.parentElement;
+      if (pointerId !== null && host) {
+        try {
+          if (!host.hasPointerCapture(pointerId)) host.setPointerCapture(pointerId);
+        } catch {
+          /* capture unavailable — the buttons check below still recovers */
+        }
+      }
 
-      setMarquee((prev) =>
-        prev
-          ? {
-              ...prev,
-              currentX,
-              currentY,
-              currentClientX: e.clientX,
-              currentClientY: e.clientY,
-            }
-          : null
-      );
+      selectionKeyRef.current = "";
+      marqueeRef.current = box;
+      setMarquee(box);
+    },
+    [canvasBounds]
+  );
 
-      // Compute client coordinates bounding box of marquee selection
-      const boxLeft = Math.min(marquee.startClientX, e.clientX);
-      const boxRight = Math.max(marquee.startClientX, e.clientX);
-      const boxTop = Math.min(marquee.startClientY, e.clientY);
-      const boxBottom = Math.max(marquee.startClientY, e.clientY);
+  const queueMarqueeMove = useCallback(
+    (clientX: number, clientY: number, additive: boolean) => {
+      const bounds = canvasBounds();
+      if (!bounds) return;
 
-      // Only perform intersection if drag has moved more than 4px
-      if (Math.abs(boxRight - boxLeft) < 4 && Math.abs(boxBottom - boxTop) < 4) {
+      const cx = Math.min(Math.max(clientX, bounds.left), bounds.right);
+      const cy = Math.min(Math.max(clientY, bounds.top), bounds.bottom);
+      pendingPointRef.current = {
+        x: cx - bounds.box.left,
+        y: cy - bounds.box.top,
+        clientX: cx,
+        clientY: cy,
+      };
+
+      // Coalesce mousemove bursts into one paint per frame.
+      if (frameRef.current !== null) return;
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        const point = pendingPointRef.current;
+        const current = marqueeRef.current;
+        if (!point || !current) return;
+
+        const next: MarqueeBox = {
+          ...current,
+          currentX: point.x,
+          currentY: point.y,
+          currentClientX: point.clientX,
+          currentClientY: point.clientY,
+        };
+        marqueeRef.current = next;
+        setMarquee(next);
+
+        const boxLeft = Math.min(current.startClientX, point.clientX);
+        const boxRight = Math.max(current.startClientX, point.clientX);
+        const boxTop = Math.min(current.startClientY, point.clientY);
+        const boxBottom = Math.max(current.startClientY, point.clientY);
+        // Ignore 1-3px jitter so a plain click never selects through the marquee.
+        if (boxRight - boxLeft < 4 && boxBottom - boxTop < 4) return;
+
+        const ids = new Set<string>(additive ? baseSelectionRef.current : []);
+        for (const card of cardBoxesRef.current) {
+          const hit = !(
+            card.right < boxLeft ||
+            card.left > boxRight ||
+            card.bottom < boxTop ||
+            card.top > boxBottom
+          );
+          if (hit) ids.add(card.id);
+        }
+
+        // Skip the parent update when the highlighted set did not actually change.
+        const key = Array.from(ids).sort().join("|");
+        if (key === selectionKeyRef.current) return;
+        selectionKeyRef.current = key;
+        onSelectionChangeRef.current(ids);
+      });
+    },
+    [canvasBounds]
+  );
+
+  // Listeners are attached once; the handlers no-op unless a gesture is running.
+  // The scroll host (parent of the gallery) is used as the press surface so the
+  // marquee can start anywhere in the pane, padding included.
+  useEffect(() => {
+    const host = containerRef.current?.parentElement;
+    if (!host) return;
+
+    const handleDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      activePointerIdRef.current = e.pointerId;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      // Real controls keep their own behaviour.
+      if (target.closest("button, input, textarea, select, [contenteditable='true']")) return;
+
+      const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+      gestureAdditiveRef.current = additive;
+      baseSelectionRef.current = additive ? new Set(selectedIdsRef.current) : new Set();
+      suppressClickRef.current = false;
+
+      if (target.closest("[data-asset-id]")) {
+        // Pressed on a card: leave the native drag (move / export) alone. Holding
+        // still for a second cancels it and turns this gesture into a marquee.
+        cancelLongPress();
+        longPressOriginRef.current = { clientX: e.clientX, clientY: e.clientY };
+        longPressTimerRef.current = window.setTimeout(() => {
+          longPressTimerRef.current = null;
+          const origin = longPressOriginRef.current;
+          if (!origin) return;
+          longPressArmedRef.current = true;
+          beginMarquee(origin.clientX, origin.clientY);
+        }, 1000);
         return;
       }
 
-      const cardElements = containerRef.current.querySelectorAll<HTMLElement>("[data-asset-id]");
-      const intersectedIds = new Set<string>(
-        e.shiftKey || e.metaKey || e.ctrlKey ? selectedItemIds : []
-      );
-
-      cardElements.forEach((el) => {
-        const id = el.dataset.assetId;
-        if (!id) return;
-        const cardRect = el.getBoundingClientRect();
-
-        // Standard 2D Axis-Aligned Bounding Box (AABB) intersection check
-        const intersects = !(
-          cardRect.right < boxLeft ||
-          cardRect.left > boxRight ||
-          cardRect.bottom < boxTop ||
-          cardRect.top > boxBottom
-        );
-
-        if (intersects) {
-          intersectedIds.add(id);
-        }
-      });
-
-      onSelectionChange(intersectedIds);
-    },
-    [marquee, selectedItemIds, onSelectionChange]
-  );
-
-  const handleMouseUp = useCallback(() => {
-    if (marquee) {
-      setMarquee(null);
-    }
-  }, [marquee]);
-
-  // Global window listeners for drag move & release
-  useEffect(() => {
-    if (!marquee) return;
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      // Empty canvas: start straight away, clearing the old selection unless a
+      // modifier asks to keep it.
+      if (!additive) {
+        onSelectionChangeRef.current(new Set());
+        setLastClickedItemId(null);
+      }
+      beginMarquee(e.clientX, e.clientY);
     };
-  }, [marquee, handleMouseMove, handleMouseUp]);
+
+    const handleMove = (e: PointerEvent) => {
+      // Self-healing: if the button is no longer held (its release was swallowed
+      // by a native drag or happened outside the window) the marquee must close.
+      if (marqueeRef.current && e.buttons === 0) {
+        endMarquee();
+        return;
+      }
+      if (longPressOriginRef.current && !longPressArmedRef.current) {
+        // Still waiting for the long press: real movement means the user is
+        // dragging the card, so the marquee must never start.
+        const origin = longPressOriginRef.current;
+        if (Math.abs(e.clientX - origin.clientX) > 6 || Math.abs(e.clientY - origin.clientY) > 6) {
+          cancelLongPress();
+          longPressOriginRef.current = null;
+        }
+        return;
+      }
+      if (!marqueeRef.current) return;
+      queueMarqueeMove(
+        e.clientX,
+        e.clientY,
+        gestureAdditiveRef.current || e.shiftKey || e.metaKey || e.ctrlKey
+      );
+    };
+
+    const handleUp = (e: Event) => {
+      // Only the left button release finishes the gesture.
+      if (e.type === "pointerup" && (e as PointerEvent).button !== 0) return;
+      if (longPressOriginRef.current || marqueeRef.current) endMarquee();
+      else {
+        cancelLongPress();
+        activePointerIdRef.current = null;
+      }
+    };
+
+    host.addEventListener("pointerdown", handleDown);
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+    // Losing the capture (window switch, compositor grab, ...) also ends it.
+    host.addEventListener("lostpointercapture", handleUp);
+    window.addEventListener("blur", handleUp);
+    document.addEventListener("visibilitychange", handleUp);
+    return () => {
+      host.removeEventListener("pointerdown", handleDown);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+      host.removeEventListener("lostpointercapture", handleUp);
+      window.removeEventListener("blur", handleUp);
+      document.removeEventListener("visibilitychange", handleUp);
+    };
+  }, [beginMarquee, queueMarqueeMove, cancelLongPress, endMarquee]);
 
   // Calculate visual marquee rect styles
   const marqueeStyle = useMemo(() => {
@@ -332,7 +522,16 @@ export function JustifiedGallery({
   return (
     <div
       ref={containerRef}
-      onMouseDown={handleMouseDown}
+      onDragStartCapture={(e) => {
+        if (longPressArmedRef.current) {
+          // The long press took over: don't let the browser hijack it into a file drag.
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        // A real card drag started — drop any pending long press or marquee.
+        endMarquee();
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onCanvasContextMenu(e);
@@ -344,8 +543,9 @@ export function JustifiedGallery({
       */}
       {marqueeStyle && (
         <div
+          data-selection-marquee="true"
           style={marqueeStyle}
-          className="absolute z-40 border border-primary/90 bg-primary/15 rounded-md pointer-events-none shadow-xs"
+          className="absolute z-40 border border-border bg-primary/15 rounded-sm pointer-events-none"
         />
       )}
 
