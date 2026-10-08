@@ -1,4 +1,5 @@
 import { Upload, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { DropState } from "@/hooks/useFileDrop";
 
 interface DropzoneOverlayProps {
@@ -7,6 +8,7 @@ interface DropzoneOverlayProps {
 }
 
 export function DropzoneOverlay({ state, targetName }: DropzoneOverlayProps) {
+  const { t } = useTranslation();
   const { status, total, current, filename, message } = state;
 
   const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
@@ -20,15 +22,17 @@ export function DropzoneOverlay({ state, targetName }: DropzoneOverlayProps) {
             <Upload className="size-8" />
           </div>
           <h3 className="text-lg font-bold tracking-tight text-foreground">
-            {targetName ? `松开以导入至目录「${targetName}」` : "松开以导入至全部资产"}
+            {targetName
+              ? t("dropzone.releaseToFolder", { name: targetName })
+              : t("dropzone.releaseToAll")}
           </h3>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm text-center leading-relaxed">
-            支持外部文件与文件夹 · 文件夹将自动递归提取子素材扁平归属
+            {t("dropzone.supportedHint")}
           </p>
           <div className="flex gap-2 mt-3 text-[11px] text-muted-foreground font-mono">
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">自动排重</span>
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">生成缩略图</span>
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">元数据提取</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">{t("dropzone.badge.dedupe")}</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">{t("dropzone.badge.thumbnail")}</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">{t("dropzone.badge.metadata")}</span>
           </div>
         </div>
       )}
@@ -40,7 +44,7 @@ export function DropzoneOverlay({ state, targetName }: DropzoneOverlayProps) {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Loader2 className="size-4 text-primary animate-spin" />
-                <span className="font-semibold text-xs tracking-tight">Importing assets...</span>
+                <span className="font-semibold text-xs tracking-tight">{t("dropzone.importing")}</span>
               </div>
               <span className="font-mono text-xs text-muted-foreground">
                 {current} / {total || 1} ({percent}%)
@@ -56,7 +60,7 @@ export function DropzoneOverlay({ state, targetName }: DropzoneOverlayProps) {
             </div>
 
             <p className="text-[11px] text-muted-foreground truncate font-mono" title={filename}>
-              {message || filename || "Processing..."}
+              {message || filename || t("dropzone.processing")}
             </p>
           </div>
         </div>

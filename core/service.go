@@ -134,7 +134,7 @@ func (s *Service) SelectDirectory() (string, error) {
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(true).
-		SetTitle("选择 Library 存储目录")
+		SetTitle("Choose a directory for the Library")
 	return dialog.PromptForSingleSelection()
 }
 
@@ -147,7 +147,7 @@ func (s *Service) SelectLibraryDialog() (string, error) {
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(false).
-		SetTitle("选择现有的 .library 文件夹")
+		SetTitle("Choose an existing .library folder")
 	return dialog.PromptForSingleSelection()
 }
 

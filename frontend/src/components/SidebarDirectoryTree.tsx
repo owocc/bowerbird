@@ -53,6 +53,8 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
+import { useIsMacOS } from "@/lib/macos";
+import { useTranslation } from "react-i18next";
 import {
   GetRecentLibraries,
   OpenLibrary,
@@ -103,6 +105,7 @@ export function SidebarDirectoryTree({
   onLibraryChanged,
   onToggleCollapse,
 }: SidebarDirectoryTreeProps) {
+  const { t } = useTranslation();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParentId, setNewFolderParentId] = useState<string | undefined>(undefined);
@@ -118,6 +121,11 @@ export function SidebarDirectoryTree({
   // Recent libraries list for dropdown
   const [recentLibraries, setRecentLibraries] = useState<string[]>([]);
   const [libPopoverOpen, setLibPopoverOpen] = useState(false);
+
+  // Platform adaptation: macOS keeps the hidden-inset titlebar layout (traffic
+  // lights spacer on its own row + library row below), while Linux / Windows
+  // merge the library switcher and the collapse button into a single row.
+  const isMac = useIsMacOS();
 
   // Context menu state for folders
   const [folderContextMenu, setFolderContextMenu] = useState<{
@@ -181,7 +189,7 @@ export function SidebarDirectoryTree({
       const list = await GetRecentLibraries();
       setRecentLibraries(list || []);
     } catch (err) {
-      console.error("加载最近资源库列表失败:", err);
+      console.error("Failed to load recent libraries:", err);
     }
   }, []);
 
@@ -201,7 +209,7 @@ export function SidebarDirectoryTree({
           }
         }
       } catch (err) {
-        console.error("选择资源库失败:", err);
+        console.error("Failed to select library:", err);
       }
       return;
     }
@@ -216,7 +224,7 @@ export function SidebarDirectoryTree({
           onLibraryChanged(opened);
         }
       } catch (err) {
-        console.error("切换资源库失败:", err);
+        console.error("Failed to switch library:", err);
       }
     }
   };
@@ -268,6 +276,102 @@ export function SidebarDirectoryTree({
     setRenameDialogOpen(false);
   };
 
+  // Shared library switcher popover: rendered on its own row on macOS (below
+  // the traffic lights row) and inline in the single merged row on Linux / Windows.
+  const librarySwitcher = (
+    <Popover open={libPopoverOpen} onOpenChange={setLibPopoverOpen}>
+      <PopoverTrigger
+        className="min-w-0 w-fit max-w-[calc(100%-16px)] h-8 px-2 py-1 flex items-center gap-1.5 text-xs font-semibold rounded-lg hover:bg-sidebar-accent/80 text-sidebar-foreground transition-colors cursor-pointer outline-none border-0 shadow-none bg-transparent"
+        title={library.name}
+      >
+        <Layers3 className="size-4 shrink-0 text-foreground/80" />
+        <span className="truncate min-w-0 max-w-[140px] leading-tight">{library.name}</span>
+        <ChevronsUpDown className="size-3 text-muted-foreground/70 shrink-0" />
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        className="w-64 p-0 rounded-xl shadow-xl border border-neutral-300 dark:border-neutral-700 bg-popover text-popover-foreground z-50 overflow-hidden ring-0"
+      >
+        <Command className="rounded-xl">
+          <CommandInput
+            placeholder={t("sidebar.searchLibraryPlaceholder")}
+            className="h-8 text-xs"
+          />
+          <CommandList className="max-h-64 p-1">
+            <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+              {t("sidebar.noLibrariesFound")}
+            </CommandEmpty>
+            <CommandGroup>
+              {/* Current library item without redundant "当前资源库" label */}
+              <CommandItem
+                value={`${library.name} ${library.path}`}
+                onSelect={() => setLibPopoverOpen(false)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer bg-accent/40 font-medium"
+              >
+                <Layers3 className="size-3.5 text-primary shrink-0" />
+                <span className="truncate flex-1 text-xs">{library.name}</span>
+                <Check className="size-3.5 text-primary shrink-0" />
+              </CommandItem>
+
+              {/* Recent libraries without redundant "最近使用的资源库" label */}
+              {otherRecentLibraries.map((p) => {
+                const normalized = p.replace(/[/\\]+$/, "");
+                const parts = normalized.split(/[/\\]/);
+                const lastPart = parts[parts.length - 1] || p;
+                const displayName = lastPart.endsWith(".library") ? lastPart.slice(0, -8) : lastPart;
+                return (
+                  <CommandItem
+                    key={p}
+                    value={`${displayName} ${p}`}
+                    onSelect={() => {
+                      setLibPopoverOpen(false);
+                      handleSelectLibraryValue(p);
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-accent"
+                  >
+                    <FolderIcon className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate flex-1 text-xs">{displayName}</span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+
+            <CommandSeparator className="my-1" />
+
+            <CommandGroup>
+              <CommandItem
+                value="__action_open_dialog__ Open Library..."
+                onSelect={() => {
+                  setLibPopoverOpen(false);
+                  handleSelectLibraryValue("__action_open_dialog__");
+                }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-accent"
+              >
+                <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
+                <span>{t("sidebar.openLibrary")}</span>
+              </CommandItem>
+              <CommandItem
+                value="__action_close__ Close Library"
+                onSelect={() => {
+                  setLibPopoverOpen(false);
+                  handleSelectLibraryValue("__action_close__");
+                }}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              >
+                <LogOut className="size-3.5 shrink-0" />
+                <span>{t("sidebar.closeLibrary")}</span>
+              </CommandItem>
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+
+  // Sidebar collapse / expand tooltip, adapted to the platform modifier key.
+  const collapseShortcutLabel = isMac ? "⌘B" : "Ctrl+B";
+
   return (
     <>
       <aside
@@ -278,7 +382,10 @@ export function SidebarDirectoryTree({
         onDragLeave={handleSidebarRootDragLeave}
         onDrop={handleSidebarRootDrop}
         className={cn(
-          "flex flex-col w-full h-full min-w-[200px] bg-sidebar text-sidebar-foreground select-none overflow-hidden transition-all border-2 border-transparent relative",
+          // No min-w here on purpose: the pixel floor lives on the outer ResizablePanel.
+          // An inner min-width makes the aside wider than the panel, and the panel then
+          // clips the header (the collapse button sits on the right edge).
+          "flex flex-col w-full h-full min-w-0 bg-sidebar text-sidebar-foreground select-none overflow-hidden transition-all border-2 border-transparent relative",
           isSidebarRootDragOver && "border-dashed border-primary bg-primary/5 ring-2 ring-primary/40 ring-inset"
         )}
       >
@@ -294,8 +401,8 @@ export function SidebarDirectoryTree({
               <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
                 <FolderPlus className="size-7 text-primary" />
               </div>
-              <div className="font-bold text-sm text-primary">松开以导入为根目录文件夹</div>
-              <div className="text-[11px] text-primary/80 mt-1">将在侧边栏建立对应层级文件夹结构</div>
+              <div className="font-bold text-sm text-primary">{t("sidebar.dropToImportRoot")}</div>
+              <div className="text-[11px] text-primary/80 mt-1">{t("sidebar.dropToImportRootHint")}</div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -303,127 +410,71 @@ export function SidebarDirectoryTree({
           <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
             <FolderPlus className="size-7 text-primary" />
           </div>
-          <div className="font-bold text-sm text-primary">松开以导入为根目录文件夹</div>
-          <div className="text-[11px] text-primary/80 mt-1">将在侧边栏建立对应层级文件夹结构</div>
+          <div className="font-bold text-sm text-primary">{t("sidebar.dropToImportRoot")}</div>
+          <div className="text-[11px] text-primary/80 mt-1">{t("sidebar.dropToImportRootHint")}</div>
         </div>
         <SidebarHeader className="p-0 border-b-0 select-none shrink-0">
-          {/* Top Row: macOS Traffic Lights Spacer + Collapse Button on the far right */}
-          <div className="h-(--titlebar-height) pl-2 pr-2.5 flex items-center justify-between wails-drag">
-            {/* Universal macOS Traffic Lights Spacer (80px blank on Mac) */}
-            <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
+          {isMac ? (
+            <>
+              {/* macOS only — Row 1: Traffic Lights Spacer + Collapse Button on the far right */}
+              <div className="h-(--titlebar-height) pl-2 pr-2.5 flex items-center justify-between wails-drag">
+                {/* Universal macOS Traffic Lights Spacer (80px blank on Mac) */}
+                <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
 
-            {/* Draggable header filler */}
-            <div className="flex-1 min-w-0 h-full" />
+                {/* Draggable header filler */}
+                <div className="flex-1 min-w-0 h-full" />
 
-            {/* Collapse button: all the way to the right */}
-            {onToggleCollapse && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onToggleCollapse}
-                title="Collapse Sidebar (⌘B)"
-                className="size-7 text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-lg shrink-0 wails-no-drag"
-              >
-                <PanelLeftClose className="size-4" />
-              </Button>
-            )}
-          </div>
+                {/* Collapse button: all the way to the right */}
+                {onToggleCollapse && (
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onToggleCollapse}
+                    title={t("sidebar.collapseSidebar", { shortcut: collapseShortcutLabel })}
+                    className="size-7 text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-lg shrink-0 wails-no-drag"
+                  >
+                    <PanelLeftClose className="size-4" />
+                  </Button>
+                )}
+              </div>
 
-          {/* Library Select Row: Unified padding with items, height h-9 matches main header Div 2 */}
-          <div className="h-9 px-2 flex items-center wails-no-drag">
-            <div className="flex items-center w-full gap-0.5">
-              <div className="w-3.5 shrink-0" />
-              <Popover open={libPopoverOpen} onOpenChange={setLibPopoverOpen}>
-                <PopoverTrigger
-                  className="w-fit max-w-[calc(100%-16px)] h-8 px-2 py-1 flex items-center gap-1.5 text-xs font-semibold rounded-lg hover:bg-sidebar-accent/80 text-sidebar-foreground transition-colors cursor-pointer outline-none border-0 shadow-none bg-transparent"
-                  title={library.name}
+              {/* macOS only — Row 2: Library Select Row, height h-9 matches main header Div 2 */}
+              <div className="h-9 px-2 flex items-center wails-no-drag">
+                <div className="flex items-center w-full gap-0.5">
+                  <div className="w-3.5 shrink-0" />
+                  {librarySwitcher}
+                </div>
+              </div>
+            </>
+          ) : (
+            /* Linux / Windows only — single row: no traffic lights, so the library
+               switcher and the collapse button share one titlebar-height row, and
+               the switcher sits flush left with the directory tree padding (8px). */
+            <div className="h-(--titlebar-height) pl-2 pr-2.5 flex items-center justify-between gap-1.5 wails-drag">
+              {/* Library switcher: flush left, its padding matches the collapse
+                  button on the right. flex-1 keeps a definite width so long names
+                  ellipsize properly; the leftover space stays window-draggable. */}
+              <div className="flex items-center flex-1 min-w-0">{librarySwitcher}</div>
+
+              {/* Collapse button: all the way to the right */}
+              {onToggleCollapse && (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onToggleCollapse}
+                  title={t("sidebar.collapseSidebar", { shortcut: collapseShortcutLabel })}
+                  className="size-7 text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-lg shrink-0 wails-no-drag"
                 >
-                  <Layers3 className="size-4 shrink-0 text-foreground/80" />
-                  <span className="truncate max-w-[140px] leading-tight">{library.name}</span>
-                  <ChevronsUpDown className="size-3 text-muted-foreground/70 shrink-0" />
-                </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                sideOffset={4}
-                className="w-64 p-0 rounded-xl shadow-xl border border-neutral-300 dark:border-neutral-700 bg-popover text-popover-foreground z-50 overflow-hidden ring-0"
-              >
-                <Command className="rounded-xl">
-                  <CommandInput placeholder="Search library..." className="h-8 text-xs" />
-                  <CommandList className="max-h-64 p-1">
-                    <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-                      No libraries found
-                    </CommandEmpty>
-                    <CommandGroup>
-                      {/* Current library item without redundant "当前资源库" label */}
-                      <CommandItem
-                        value={`${library.name} ${library.path}`}
-                        onSelect={() => setLibPopoverOpen(false)}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer bg-accent/40 font-medium"
-                      >
-                        <Layers3 className="size-3.5 text-primary shrink-0" />
-                        <span className="truncate flex-1 text-xs">{library.name}</span>
-                        <Check className="size-3.5 text-primary shrink-0" />
-                      </CommandItem>
-
-                      {/* Recent libraries without redundant "最近使用的资源库" label */}
-                      {otherRecentLibraries.map((p) => {
-                        const normalized = p.replace(/[/\\]+$/, "");
-                        const parts = normalized.split(/[/\\]/);
-                        const lastPart = parts[parts.length - 1] || p;
-                        const displayName = lastPart.endsWith(".library") ? lastPart.slice(0, -8) : lastPart;
-                        return (
-                          <CommandItem
-                            key={p}
-                            value={`${displayName} ${p}`}
-                            onSelect={() => {
-                              setLibPopoverOpen(false);
-                              handleSelectLibraryValue(p);
-                            }}
-                            className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-accent"
-                          >
-                            <FolderIcon className="size-3.5 text-muted-foreground shrink-0" />
-                            <span className="truncate flex-1 text-xs">{displayName}</span>
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-
-                    <CommandSeparator className="my-1" />
-
-                    <CommandGroup>
-                      <CommandItem
-                        value="__action_open_dialog__ Open Library..."
-                        onSelect={() => {
-                          setLibPopoverOpen(false);
-                          handleSelectLibraryValue("__action_open_dialog__");
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-accent"
-                      >
-                        <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-                        <span>Open Library...</span>
-                      </CommandItem>
-                      <CommandItem
-                        value="__action_close__ Close Library"
-                        onSelect={() => {
-                          setLibPopoverOpen(false);
-                          handleSelectLibraryValue("__action_close__");
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                      >
-                        <LogOut className="size-3.5 shrink-0" />
-                        <span>Close Library</span>
-                      </CommandItem>
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-              </Popover>
+                  <PanelLeftClose className="size-4" />
+                </Button>
+              )}
             </div>
-          </div>
+          )}
         </SidebarHeader>
 
-        {/* Directory Navigation Tree */}
-        <SidebarContent className="px-2 py-2.5 space-y-3.5 flex-1 overflow-y-auto">
+        {/* Directory Navigation Tree — pl-0 cancels the primitive's built-in px-2 so
+            the tree gutter lines up with the library switcher above (see row math). */}
+        <SidebarContent className="pl-0 pr-2 py-2.5 space-y-3.5 flex-1 overflow-y-auto">
           {/* Top Views: All Assets + Trash (no "资产视图" label) */}
           <SidebarGroup className="py-0">
             <SidebarGroupContent>
@@ -457,21 +508,21 @@ export function SidebarDirectoryTree({
                         } catch {}
                       }
                     }}
-                    className="flex items-center w-full gap-0.5 relative rounded-lg overflow-hidden"
+                    className="flex items-center w-full relative rounded-lg overflow-hidden"
                   >
-                    <div className="w-3.5 shrink-0" />
+                    <div className="w-3 shrink-0" />
                     <button
                       type="button"
                       onClick={() => onSelectFolder(null)}
                       className={cn(
-                        "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
                         activeFolderId === null && !tagsSidebarOpen
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Library className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-xs">All</span>
+                      <span className="truncate flex-1 text-xs">{t("sidebar.all")}</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {totalItemCount}
                       </SidebarMenuBadge>
@@ -488,10 +539,10 @@ export function SidebarDirectoryTree({
                         >
                           <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                             <Library className="size-4 shrink-0 text-primary animate-pulse" />
-                            <span className="truncate">移入全部资产</span>
+                            <span className="truncate">{t("sidebar.moveToAll")}</span>
                           </div>
                           <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                            松开移入
+                            {t("sidebar.dropToMove")}
                           </span>
                         </motion.div>
                       )}
@@ -499,30 +550,30 @@ export function SidebarDirectoryTree({
                     <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
                       <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                         <Library className="size-4 shrink-0 text-primary animate-pulse" />
-                        <span className="truncate">移入全部资产</span>
+                        <span className="truncate">{t("sidebar.moveToAll")}</span>
                       </div>
                       <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                        松开移入
+                        {t("sidebar.dropToMove")}
                       </span>
                     </div>
                   </div>
                 </SidebarMenuItem>
                 {/* 2. Tags */}
                 <SidebarMenuItem>
-                  <div className="flex items-center w-full gap-0.5">
-                    <div className="w-3.5 shrink-0" />
+                  <div className="flex items-center w-full">
+                    <div className="w-3 shrink-0" />
                     <button
                       type="button"
                       onClick={() => onToggleTagsSidebar?.()}
                       className={cn(
-                        "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
                         tagsSidebarOpen
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Tag className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-xs">Tags</span>
+                      <span className="truncate flex-1 text-xs">{t("sidebar.tags")}</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {tagsCount}
                       </SidebarMenuBadge>
@@ -557,21 +608,21 @@ export function SidebarDirectoryTree({
                         } catch {}
                       }
                     }}
-                    className="flex items-center w-full gap-0.5 relative rounded-lg overflow-hidden"
+                    className="flex items-center w-full relative rounded-lg overflow-hidden"
                   >
-                    <div className="w-3.5 shrink-0" />
+                    <div className="w-3 shrink-0" />
                     <button
                       type="button"
                       onClick={() => onSelectFolder("__trash__")}
                       className={cn(
-                        "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
                         activeFolderId === "__trash__"
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Trash2 className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-xs">Trash</span>
+                      <span className="truncate flex-1 text-xs">{t("sidebar.trash")}</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {trashCount}
                       </SidebarMenuBadge>
@@ -588,10 +639,10 @@ export function SidebarDirectoryTree({
                         >
                           <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
                             <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
-                            <span className="truncate">丢入回收站</span>
+                            <span className="truncate">{t("sidebar.dropToTrash")}</span>
                           </div>
                           <span className="text-[10px] bg-destructive text-destructive-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                            松开删除
+                            {t("sidebar.dropToDelete")}
                           </span>
                         </motion.div>
                       )}
@@ -599,10 +650,10 @@ export function SidebarDirectoryTree({
                     <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-destructive bg-destructive/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
                       <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
                         <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
-                        <span className="truncate">丢入回收站</span>
+                        <span className="truncate">{t("sidebar.dropToTrash")}</span>
                       </div>
                       <span className="text-[10px] bg-destructive text-destructive-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                        松开删除
+                        {t("sidebar.dropToDelete")}
                       </span>
                     </div>
                   </div>
@@ -615,8 +666,12 @@ export function SidebarDirectoryTree({
             <div className="mx-2 my-1.5 p-2 rounded-xl border-2 border-dashed border-primary bg-primary/10 text-primary text-xs flex items-center gap-2 animate-in fade-in duration-100 shadow-xs">
               <FolderPlus className="size-4 shrink-0 text-primary animate-bounce" />
               <div className="min-w-0 flex-1">
-                <div className="font-semibold text-xs leading-tight">松开以导入为根目录</div>
-                <div className="text-[10px] text-primary/80">递归生成层级文件夹</div>
+                <div className="font-semibold text-xs leading-tight">
+                  {t("sidebar.dropToImportRootShort")}
+                </div>
+                <div className="text-[10px] text-primary/80">
+                  {t("sidebar.dropToImportRootShortHint")}
+                </div>
               </div>
             </div>
           )}
@@ -632,9 +687,9 @@ export function SidebarDirectoryTree({
               });
             }}
           >
-            <SidebarGroupLabel className="flex items-center justify-between text-[10px] tracking-wider text-muted-foreground/80 font-semibold pl-[18px] pr-2 h-6 select-none cursor-default">
+            <SidebarGroupLabel className="flex items-center justify-between text-[10px] tracking-wider text-muted-foreground/80 font-semibold pl-4 pr-2 h-6 select-none cursor-default">
               <span className="flex items-center gap-1.5">
-                <span>Folders</span>
+                <span>{t("sidebar.folders")}</span>
                 {folders.length > 0 && (
                   <span className="text-[9px] font-mono px-1 rounded bg-muted/60 text-muted-foreground">
                     {folders.length}
@@ -646,9 +701,9 @@ export function SidebarDirectoryTree({
               <SidebarMenu className="space-y-0.5">
                 {folders.length === 0 ? (
                   <div className="py-5 px-3 text-center border border-dashed border-sidebar-border/80 rounded-xl my-1 bg-muted/5">
-                    <p className="text-[11px] text-muted-foreground">No folders</p>
+                    <p className="text-[11px] text-muted-foreground">{t("sidebar.noFolders")}</p>
                     <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                      Drag items here to organize
+                      {t("sidebar.noFoldersHint")}
                     </p>
                     <Button
                       variant="outline"
@@ -657,7 +712,7 @@ export function SidebarDirectoryTree({
                       className="mt-2.5 text-[11px] h-6.5 gap-1 shadow-2xs"
                     >
                       <Plus className="size-3" />
-                      <span>New Folder</span>
+                      <span>{t("sidebar.newFolder")}</span>
                     </Button>
                   </div>
                 ) : (
@@ -695,17 +750,19 @@ export function SidebarDirectoryTree({
         <DialogContent className="max-w-xs text-xs">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">
-              {newFolderParentId ? "New Subfolder" : "New Folder"}
+              {newFolderParentId ? t("sidebar.newSubfolder") : t("sidebar.newFolder")}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmCreate} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground font-medium">Folder Name</label>
+              <label className="text-xs text-muted-foreground font-medium">
+                {t("sidebar.folderName")}
+              </label>
               <Input
                 autoFocus
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="e.g. Design, Inspiration..."
+                placeholder={t("sidebar.folderNamePlaceholder")}
                 className="h-8 text-xs"
               />
             </div>
@@ -717,7 +774,7 @@ export function SidebarDirectoryTree({
                 onClick={() => setCreateDialogOpen(false)}
                 className="h-7 text-xs"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -725,7 +782,7 @@ export function SidebarDirectoryTree({
                 disabled={!newFolderName.trim()}
                 className="h-7 text-xs"
               >
-                Create
+                {t("common.create")}
               </Button>
             </DialogFooter>
           </form>
@@ -736,16 +793,20 @@ export function SidebarDirectoryTree({
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
         <DialogContent className="max-w-xs text-xs">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">Rename Folder</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">
+              {t("sidebar.renameFolder")}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmRename} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground font-medium">New Name</label>
+              <label className="text-xs text-muted-foreground font-medium">
+                {t("sidebar.newName")}
+              </label>
               <Input
                 autoFocus
                 value={renameFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="Enter new name..."
+                onChange={(e) => setRenameFolderName(e.target.value)}
+                placeholder={t("sidebar.newNamePlaceholder")}
                 className="h-8 text-xs"
               />
             </div>
@@ -757,7 +818,7 @@ export function SidebarDirectoryTree({
                 onClick={() => setRenameDialogOpen(false)}
                 className="h-7 text-xs"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -765,7 +826,7 @@ export function SidebarDirectoryTree({
                 disabled={!renameFolderName.trim()}
                 className="h-7 text-xs"
               >
-                Save
+                {t("common.save")}
               </Button>
             </DialogFooter>
           </form>
@@ -796,12 +857,14 @@ export function SidebarDirectoryTree({
         >
           <DialogContent className="max-w-xs text-xs">
             <DialogHeader>
-              <DialogTitle className="text-sm font-semibold">删除文件夹</DialogTitle>
+              <DialogTitle className="text-sm font-semibold">
+                {t("sidebar.deleteFolderTitle")}
+              </DialogTitle>
             </DialogHeader>
             <div className="py-2 text-xs text-muted-foreground leading-relaxed">
-              确定要删除文件夹「{deleteFolderDialog.folderName}」吗？
+              {t("sidebar.deleteFolderConfirm", { name: deleteFolderDialog.folderName })}
               <p className="mt-1 text-[11px] text-muted-foreground/80">
-                此操作仅删除目录结构，其中的文件素材仍将保留在全部资产中。
+                {t("sidebar.deleteFolderHint")}
               </p>
             </div>
             <DialogFooter className="flex justify-end gap-2 pt-2">
@@ -812,7 +875,7 @@ export function SidebarDirectoryTree({
                 onClick={() => setDeleteFolderDialog(null)}
                 className="cursor-pointer text-xs"
               >
-                取消
+                {t("common.cancel")}
               </Button>
               <Button
                 type="button"
@@ -825,7 +888,7 @@ export function SidebarDirectoryTree({
                 }}
                 className="cursor-pointer text-xs"
               >
-                删除
+                {t("common.delete")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -864,6 +927,7 @@ function FolderTreeItemNode({
   onOpenContextMenu,
   depth = 0,
 }: FolderTreeItemNodeProps) {
+  const { t } = useTranslation();
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounter = useRef(0);
   const hasChildren = folder.children && folder.children.length > 0;
@@ -942,7 +1006,7 @@ function FolderTreeItemNode({
           onOpenContextMenu(e, folder);
         }}
         className={cn(
-          "relative flex items-center w-full gap-0.5 rounded-lg transition-all border-2 border-transparent px-1 overflow-hidden",
+          "relative flex items-center w-full rounded-lg transition-all border-2 border-transparent overflow-hidden",
           isDragOver && "border-dashed border-primary bg-primary/20 ring-2 ring-primary/40 shadow-sm"
         )}
       >
@@ -957,10 +1021,12 @@ function FolderTreeItemNode({
             >
               <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                 <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
-                <span className="truncate">放入「{folder.name}」</span>
+                <span className="truncate">
+                  {t("sidebar.dropIntoFolder", { name: folder.name })}
+                </span>
               </div>
               <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                松开放入
+                {t("sidebar.dropToPlace")}
               </span>
             </motion.div>
           )}
@@ -969,19 +1035,23 @@ function FolderTreeItemNode({
         <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
           <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
             <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
-            <span className="truncate">放入「{folder.name}」</span>
+            <span className="truncate">
+              {t("sidebar.dropIntoFolder", { name: folder.name })}
+            </span>
           </div>
           <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-            松开放入
+            {t("sidebar.dropToPlace")}
           </span>
         </div>
 
-        {/* Chevron arrow: OUTSIDE highlight, does NOT participate in highlighting */}
+        {/* Chevron arrow: OUTSIDE highlight, does NOT participate in highlighting.
+            -ml-0.5 cancels this row's 2px transparent border so the arrow sits at
+            the very left edge and the icon keeps the same 16px baseline as the rest. */}
         <button
           type="button"
           onClick={(e) => onToggleExpand(folder.id, e)}
           className={cn(
-            "size-3.5 shrink-0 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-transform cursor-pointer",
+            "size-3 -ml-0.5 shrink-0 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-transform cursor-pointer",
             hasChildren ? "visible" : "invisible pointer-events-none"
           )}
         >
@@ -997,7 +1067,7 @@ function FolderTreeItemNode({
           type="button"
           onClick={() => onSelectFolder(folder.id)}
           className={cn(
-            "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+            "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
             isDragOver && "text-primary font-bold",
             !isDragOver && isSelected && "bg-primary/10 text-primary font-semibold shadow-2xs",
             !isDragOver && !isSelected && "hover:bg-sidebar-accent/70 text-sidebar-foreground"
@@ -1014,9 +1084,12 @@ function FolderTreeItemNode({
           </span>
         </button>
       </div>
-      {/* Recursive children rendering with tree guides */}
+      {/* Recursive children rendering with tree guides.
+          ml-7.5 (30px) puts the guide line under the right edge of the parent folder
+          icon, i.e. one icon width (16px) deeper than the old ml-3.5 (14px);
+          pl-2 then indents the child rows past the guide line. */}
       {hasChildren && expanded && (
-        <SidebarMenuSub className="ml-3.5 border-l border-sidebar-border/80 pl-2 my-0.5 space-y-0.5">
+        <SidebarMenuSub className="ml-7.5 border-l border-sidebar-border/80 pl-2 my-0.5 space-y-0.5">
           {folder.children!.map((child) => (
             <FolderTreeItemNode
               key={child.id}
@@ -1059,6 +1132,7 @@ function FolderContextMenu({
   onRenameFolder,
   onDeleteFolder,
 }: FolderContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1092,7 +1166,7 @@ function FolderContextMenu({
     <div
       ref={menuRef}
       style={{ left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` }}
-      className="fixed z-50 min-w-[145px] rounded-xl border border-border bg-popover/95 p-1 text-popover-foreground shadow-xl backdrop-blur-md animate-in fade-in-0 zoom-in-95 select-none wails-no-drag"
+      className="fixed z-50 min-w-[145px] rounded-xl border border-border bg-popover/95 p-1 text-popover-foreground shadow-xl backdrop-blur-md select-none wails-no-drag"
     >
       {folder ? (
         <>
@@ -1105,7 +1179,7 @@ function FolderContextMenu({
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
           >
             <FolderPlus className="size-3.5 text-muted-foreground" />
-            <span>New Subfolder...</span>
+            <span>{t("sidebar.newSubfolderMenu")}</span>
           </button>
           <button
             type="button"
@@ -1116,7 +1190,7 @@ function FolderContextMenu({
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
           >
             <Edit2 className="size-3.5 text-muted-foreground" />
-            <span>Rename...</span>
+            <span>{t("sidebar.renameMenu")}</span>
           </button>
           <div className="my-1 h-px bg-border/60" />
           <button
@@ -1128,7 +1202,7 @@ function FolderContextMenu({
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-destructive hover:bg-destructive/10 text-left transition-colors cursor-pointer"
           >
             <Trash2 className="size-3.5 text-destructive" />
-            <span>Delete Folder</span>
+            <span>{t("sidebar.deleteFolderMenu")}</span>
           </button>
         </>
       ) : (
@@ -1141,7 +1215,7 @@ function FolderContextMenu({
           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
         >
           <FolderPlus className="size-3.5 text-muted-foreground" />
-          <span>New Folder...</span>
+          <span>{t("sidebar.newFolderMenu")}</span>
         </button>
       )}
     </div>

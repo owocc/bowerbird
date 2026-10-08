@@ -68,11 +68,24 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  wrapperClassName,
+  groupClassName,
+  addonClassName,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  /** Extra classes for the outer wrapper (padding / full-bleed control). */
+  wrapperClassName?: string
+  /** Extra classes for the input group box (radius, border, background...). */
+  groupClassName?: string
+  /** Extra classes for the leading search-icon addon. */
+  addonClassName?: string
+}) {
   return (
-    <div data-slot="command-input-wrapper" className="p-1 pb-0">
-      <InputGroup className="h-8! bg-input/50">
+    <div
+      data-slot="command-input-wrapper"
+      className={cn("p-1 pb-0", wrapperClassName)}
+    >
+      <InputGroup className={cn("h-8! bg-input/50", groupClassName)}>
         <CommandPrimitive.Input
           data-slot="command-input"
           className={cn(
@@ -81,7 +94,7 @@ function CommandInput({
           )}
           {...props}
         />
-        <InputGroupAddon>
+        <InputGroupAddon className={addonClassName}>
           <SearchIcon className="size-4 shrink-0 opacity-50" />
         </InputGroupAddon>
       </InputGroup>

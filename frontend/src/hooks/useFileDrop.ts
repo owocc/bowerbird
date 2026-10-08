@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Events } from "@wailsio/runtime";
 import { ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
 
@@ -18,6 +19,7 @@ interface UseFileDropOptions {
 }
 
 export function useFileDrop({ onRefresh }: UseFileDropOptions) {
+  const { t } = useTranslation();
   const [state, setState] = useState<DropState>({
     status: "idle",
     total: 0,
@@ -46,8 +48,8 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         status: "importing",
         total,
         current: 0,
-        filename: "Preparing import...",
-        message: `Analyzing ${total} files...`,
+        filename: t("importing.preparing"),
+        message: t("importing.analyzing", { count: total }),
       });
     });
 
@@ -62,7 +64,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         total,
         current,
         filename,
-        message: `Importing (${current}/${total}): ${filename}`,
+        message: t("importing.progress", { current, total, filename }),
       }));
     });
 
@@ -78,14 +80,14 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         message: null,
       });
       if (count > 0) {
-        toast.success(`成功导入 ${count} 项资产`);
+        toast.success(t("importing.importedAssets", { count }));
       }
       onRefresh(ids);
       clearTimer();
     });
 
     const unsubError = Events.On("import-error", (event: any) => {
-      const msg = typeof event?.data === "string" ? event.data : typeof event === "string" ? event : "未知错误";
+      const msg = typeof event?.data === "string" ? event.data : typeof event === "string" ? event : t("importing.unknownError");
       setState({
         status: "idle",
         total: 0,
@@ -93,7 +95,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         filename: "",
         message: null,
       });
-      toast.error(`导入失败: ${msg}`);
+      toast.error(t("importing.failed", { error: msg }));
       clearTimer();
     });
 
@@ -109,7 +111,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       unsubUpdated();
       clearTimer();
     };
-  }, [onRefresh]);
+  }, [onRefresh, t]);
   // Window-level listener: whenever external files are dragged over the window,
   // dynamically set document.body[data-dragging-files="true"] to disable all window dragging (-webkit-app-region: drag)
   useEffect(() => {
@@ -173,7 +175,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         const item = await ImportFromBase64(file.name, reader.result as string);
         resolve(item?.id || null);
       } catch (err) {
-        console.error("导入文件失败:", file.name, err);
+        console.error("Failed to import file:", file.name, err);
         resolve(null);
       }
     };
@@ -194,7 +196,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         total: files.length,
         current: 0,
         filename: files[0].name,
-        message: `正在导入 ${files.length} 个文件...`,
+        message: t("importing.importingFiles", { count: files.length }),
       });
 
       const importedIds: string[] = [];
@@ -205,7 +207,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
           total: files.length,
           current: i + 1,
           filename: file.name,
-          message: `正在处理 (${i + 1}/${files.length}): ${file.name}`,
+          message: t("importing.processing", { current: i + 1, total: files.length, filename: file.name }),
         });
         const itemId = await importFileObject(file);
         if (itemId) importedIds.push(itemId);
@@ -216,7 +218,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         total: importedIds.length,
         current: importedIds.length,
         filename: "",
-        message: `成功导入 ${importedIds.length} 个文件`,
+        message: t("importing.importedFiles", { count: importedIds.length }),
       });
       await onRefresh(importedIds);
       clearTimer();
@@ -225,7 +227,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       }, 3000);
       return importedIds;
     },
-    [importFileObject, onRefresh]
+    [importFileObject, onRefresh, t]
   );
 
   // Import from network URL via Go backend
@@ -237,7 +239,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         total: 1,
         current: 1,
         filename: url,
-        message: "正在通过后端原生下载网络资源 (无 CORS 限制)...",
+        message: t("importing.downloadingRemote"),
       });
 
       try {
@@ -248,18 +250,18 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
             total: 1,
             current: 1,
             filename: item.filename,
-            message: `成功导入网络资源: ${item.name}`,
+            message: t("importing.remoteImported", { name: item.name }),
           });
           await onRefresh([item.id]);
         }
       } catch (err) {
-        console.error("抓取网络资源失败:", err);
+        console.error("Failed to fetch remote asset:", err);
         setState({
           status: "error",
           total: 0,
           current: 0,
           filename: "",
-          message: `网络资源抓取失败: ${String(err)}`,
+          message: t("importing.remoteFailed", { error: String(err) }),
         });
       } finally {
         clearTimer();
@@ -268,7 +270,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         }, 3000);
       }
     },
-    [onRefresh]
+    [onRefresh, t]
   );
 
   const isInternalDrag = (e: React.DragEvent): boolean => {
