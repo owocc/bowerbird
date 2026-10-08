@@ -805,7 +805,7 @@ export function SidebarDirectoryTree({
               <Input
                 autoFocus
                 value={renameFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
+                onChange={(e) => setRenameFolderName(e.target.value)}
                 placeholder={t("sidebar.newNamePlaceholder")}
                 className="h-8 text-xs"
               />
