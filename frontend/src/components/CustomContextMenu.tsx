@@ -157,14 +157,18 @@ export function CustomContextMenu({
         top: `${adjustedY}px`,
         maxHeight: "80vh",
       }}
-      className="fixed z-50 w-64 max-h-[80vh] flex flex-col rounded-xl border border-border/80 bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-md p-1 select-none animate-in fade-in zoom-in-95 duration-100 overflow-hidden"
+      className="fixed z-50 w-64 max-h-[80vh] flex flex-col rounded-xl border border-border/80 bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-md p-1 select-none overflow-hidden"
     >
       <Command className="rounded-lg bg-transparent p-0 flex flex-col max-h-[80vh] overflow-hidden">
+        {/* Minimal search field: full-bleed, square, no fill — just a bottom rule. */}
         <CommandInput
           value={search}
           onValueChange={setSearch}
           placeholder="搜索操作、目录、标签..."
-          className="h-8 text-xs bg-transparent shrink-0"
+          wrapperClassName="p-0"
+          groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-2.5 shadow-none ring-0!"
+          addonClassName="pl-0 pr-1.5 [&_svg]:size-3.5"
+          className="h-8 text-xs bg-transparent placeholder:text-muted-foreground/70 shrink-0"
         />
 
         <CommandList className="max-h-[calc(80vh-44px)] p-1 overflow-y-auto flex-1">

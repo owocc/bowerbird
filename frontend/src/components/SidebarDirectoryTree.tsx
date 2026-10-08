@@ -1143,7 +1143,7 @@ function FolderContextMenu({
     <div
       ref={menuRef}
       style={{ left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` }}
-      className="fixed z-50 min-w-[145px] rounded-xl border border-border bg-popover/95 p-1 text-popover-foreground shadow-xl backdrop-blur-md animate-in fade-in-0 zoom-in-95 select-none wails-no-drag"
+      className="fixed z-50 min-w-[145px] rounded-xl border border-border bg-popover/95 p-1 text-popover-foreground shadow-xl backdrop-blur-md select-none wails-no-drag"
     >
       {folder ? (
         <>
