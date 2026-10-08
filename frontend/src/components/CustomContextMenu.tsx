@@ -152,6 +152,18 @@ export function CustomContextMenu({
   const itemTags = targetItem?.tags || [];
   const isFavorite = itemTags.includes(FAVORITE_TAG);
 
+  // Sections are separated by rules only (no group headings), so each rule is
+  // rendered solely when both the preceding and the following section exist.
+  const hasPrimaryActions = Boolean(
+    onPreview ||
+      onReveal ||
+      (selectedCount === 1 &&
+        (onRename || onOpenWithDefaultApp || onCopyPath || onToggleFavorite))
+  );
+  const hasFolderActions = flatFolders.length > 0 && Boolean(onAddToFolder);
+  const hasTagActions = allTags.length > 0 && Boolean(onAddTag || onRemoveTag);
+  const hasTrashAction = Boolean(onDelete);
+
   return (
     <div
       ref={menuRef}
@@ -200,7 +212,7 @@ export function CustomContextMenu({
 
           {/* ================= TRASH CONTEXT ================= */}
           {isTrashView ? (
-            <CommandGroup heading={t("contextMenu.groupTrash")}>
+            <CommandGroup>
               {onRestore && (
                 <CommandItem
                   onSelect={() => {
@@ -230,7 +242,7 @@ export function CustomContextMenu({
             /* ================= ITEM CONTEXT ================= */
             <>
               {/* Primary file actions */}
-              <CommandGroup heading={t("contextMenu.groupCommon")}>
+              <CommandGroup>
                 {onPreview && (
                   <CommandItem
                     onSelect={() => {
@@ -317,11 +329,11 @@ export function CustomContextMenu({
                 )}
               </CommandGroup>
 
-              <CommandSeparator className="my-1" />
+              {hasPrimaryActions && hasFolderActions && <CommandSeparator className="my-1" />}
 
               {/* Folders Assignment */}
               {flatFolders.length > 0 && onAddToFolder && (
-                <CommandGroup heading={t("contextMenu.groupAddToFolder")}>
+                <CommandGroup>
                   {flatFolders.slice(0, 10).map((f) => (
                     <CommandItem
                       key={f.id}
@@ -350,11 +362,13 @@ export function CustomContextMenu({
                 </CommandGroup>
               )}
 
-              <CommandSeparator className="my-1" />
+              {(hasPrimaryActions || hasFolderActions) && hasTagActions && (
+                <CommandSeparator className="my-1" />
+              )}
 
               {/* Tags Assignment */}
               {allTags.length > 0 && (onAddTag || onRemoveTag) && (
-                <CommandGroup heading={t("contextMenu.groupTags")}>
+                <CommandGroup>
                   {allTags.map((tag) => {
                     const hasTag = itemTags.includes(tag.name);
                     return (
@@ -379,11 +393,13 @@ export function CustomContextMenu({
                 </CommandGroup>
               )}
 
-              <CommandSeparator className="my-1" />
+              {(hasPrimaryActions || hasFolderActions || hasTagActions) && hasTrashAction && (
+                <CommandSeparator className="my-1" />
+              )}
 
               {/* Move to Trash */}
               {onDelete && (
-                <CommandGroup heading={t("contextMenu.groupActions")}>
+                <CommandGroup>
                   <CommandItem
                     onSelect={() => {
                       onDelete();
@@ -400,7 +416,7 @@ export function CustomContextMenu({
             </>
           ) : (
             /* ================= CANVAS / BACKGROUND CONTEXT ================= */
-            <CommandGroup heading={t("contextMenu.groupView")}>
+            <CommandGroup>
               {onSelectAll && (
                 <CommandItem
                   onSelect={() => {
