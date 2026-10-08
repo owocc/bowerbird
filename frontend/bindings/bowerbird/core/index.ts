@@ -10,5 +10,6 @@ export type {
     Folder,
     Item,
     LibraryInfo,
-    LibraryManager
+    LibraryManager,
+    Tag
 } from "./models.js";

@@ -9,44 +9,60 @@ import {
   Folder as FolderIcon,
   Plus,
   HardDrive,
+  Star,
+  Tag as TagIcon,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { UniversalThumbnail } from "./UniversalThumbnail";
-import type { Item, Folder } from "../../bindings/bowerbird/core/models";
-import { AddItemToFolder, RemoveItemFromFolder } from "../../bindings/bowerbird/core/service";
+import type { Item, Folder, Tag as TagModel } from "../../bindings/bowerbird/core/models";
+import { AddItemToFolder, RemoveItemFromFolder, AddTagToItem, RemoveTagFromItem, ToggleFavorite } from "../../bindings/bowerbird/core/service";
 import { formatBytes, formatDate, escapePathForShell } from "@/lib/formatters";
+import { cn } from "cn";
 
 export interface ItemDetailPanelProps {
   item: Item | null;
   currentFolder: Folder | null;
   allFolders: Folder[];
+  allTags?: TagModel[];
   totalItemCount: number;
   totalSizeBytes?: number;
+  isTrashView?: boolean;
   onClose?: () => void;
   onPreview?: () => void;
   onReveal?: () => void;
   onDelete?: () => void;
+  onRestore?: () => void;
+  onToggleFavorite?: () => void;
   onFolderUpdated?: () => void;
+  onTagsUpdated?: () => void;
 }
 
 export function ItemDetailPanel({
   item,
   currentFolder,
   allFolders,
+  allTags = [],
   totalItemCount,
   totalSizeBytes = 0,
+  isTrashView = false,
   onClose,
   onPreview,
   onReveal,
   onDelete,
+  onRestore,
+  onToggleFavorite,
   onFolderUpdated,
+  onTagsUpdated,
 }: ItemDetailPanelProps) {
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [newTagText, setNewTagText] = useState("");
   // Flatten folder tree for selection
   const flattenFolders = (folders: Folder[], prefix = ""): { id: string; name: string }[] => {
     let result: { id: string; name: string }[] = [];
@@ -202,41 +218,91 @@ export function ItemDetailPanel({
         </div>
 
         {/* Action Button Row */}
-        <div className="grid grid-cols-3 gap-1.5 pt-1">
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={onPreview}
-            className="h-7 text-[11px] gap-1"
-            title="全屏预览 (空格)"
-          >
-            <Eye className="size-3" />
-            <span>预览</span>
-          </Button>
+        {isTrashView ? (
+          <div className="grid grid-cols-2 gap-1.5 pt-1">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={onRestore}
+              className="h-7 text-[11px] gap-1 text-primary hover:text-primary"
+              title="放回原处"
+            >
+              <RotateCcw className="size-3" />
+              <span>放回原处</span>
+            </Button>
+            <Button
+              variant="destructive"
+              size="xs"
+              onClick={onDelete}
+              className="h-7 text-[11px] gap-1"
+              title="彻底删除文件"
+            >
+              <Trash2 className="size-3" />
+              <span>彻底删除</span>
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-4 gap-1 pt-1">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={onPreview}
+              className="h-7 text-[11px] px-1 gap-1"
+              title="全屏预览 (空格)"
+            >
+              <Eye className="size-3" />
+              <span>预览</span>
+            </Button>
 
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={onReveal}
-            className="h-7 text-[11px] gap-1"
-            title="在访达中显示"
-          >
-            <FolderOpen className="size-3" />
-            <span>访达</span>
-          </Button>
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={onReveal}
+              className="h-7 text-[11px] px-1 gap-1"
+              title="在访达中显示"
+            >
+              <FolderOpen className="size-3" />
+              <span>访达</span>
+            </Button>
 
-          <Button
-            variant="destructive"
-            size="xs"
-            onClick={onDelete}
-            className="h-7 text-[11px] gap-1"
-            title="删除文件"
-          >
-            <Trash2 className="size-3" />
-            <span>删除</span>
-          </Button>
-        </div>
+            <Button
+              variant={item.tags?.includes("收藏") ? "secondary" : "outline"}
+              size="xs"
+              onClick={async () => {
+                if (onToggleFavorite) {
+                  onToggleFavorite();
+                } else {
+                  await ToggleFavorite(item.id);
+                  onTagsUpdated?.();
+                }
+              }}
+              className={cn(
+                "h-7 text-[11px] px-1 gap-1",
+                item.tags?.includes("收藏") && "text-amber-500 font-medium"
+              )}
+              title="收藏素材"
+            >
+              <Star
+                className={cn(
+                  "size-3",
+                  item.tags?.includes("收藏") && "fill-amber-500"
+                )}
+              />
+              <span>{item.tags?.includes("收藏") ? "已收藏" : "收藏"}</span>
+            </Button>
 
+            <Button
+              variant="destructive"
+              size="xs"
+              onClick={onDelete}
+              className="h-7 text-[11px] px-1 gap-1"
+              title="丢到回收站"
+            >
+              <Trash2 className="size-3" />
+              <span>删除</span>
+            </Button>
+          </div>
+        )}
         <Separator className="bg-border/60" />
 
         {/* Folders Section (Directory memberships) */}
@@ -303,6 +369,91 @@ export function ItemDetailPanel({
           )}
         </div>
 
+        <Separator className="bg-border/60" />
+
+        {/* Tags Section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              所属标签 ({item.tags?.length || 0})
+            </span>
+            {!isTrashView && (
+              <button
+                onClick={() => setShowTagInput(!showTagInput)}
+                className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+              >
+                <Plus className="size-2.5" />
+                <span>添加标签</span>
+              </button>
+            )}
+          </div>
+
+          {/* Tag add input */}
+          {showTagInput && !isTrashView && (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const clean = newTagText.trim();
+                if (!clean) return;
+                await AddTagToItem(item.id, clean);
+                setNewTagText("");
+                setShowTagInput(false);
+                onTagsUpdated?.();
+              }}
+              className="flex items-center gap-1"
+            >
+              <input
+                autoFocus
+                value={newTagText}
+                onChange={(e) => setNewTagText(e.target.value)}
+                placeholder="输入标签名称..."
+                className="flex-1 h-6 px-2 text-[11px] rounded border border-border bg-card text-foreground"
+              />
+              <Button type="submit" size="xs" className="h-6 px-2 text-[10px]">
+                添加
+              </Button>
+            </form>
+          )}
+
+          {/* Tag Badges */}
+          {!item.tags || item.tags.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground italic">
+              暂无标签
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {item.tags.map((tag) => (
+                <Badge
+                  key={tag}
+                  variant="secondary"
+                  className={cn(
+                    "text-[10px] gap-1 pl-2 pr-1 py-0.5 font-normal h-5",
+                    tag === "收藏" && "border border-amber-500/40 text-amber-500 bg-amber-500/10"
+                  )}
+                >
+                  {tag === "收藏" ? (
+                    <Star className="size-2.5 fill-amber-500" />
+                  ) : (
+                    <TagIcon className="size-2.5 text-muted-foreground" />
+                  )}
+                  <span className="max-w-[120px] truncate">{tag}</span>
+                  {!isTrashView && (
+                    <button
+                      onClick={async () => {
+                        await RemoveTagFromItem(item.id, tag);
+                        onTagsUpdated?.();
+                      }}
+                      title="移除标签"
+                      className="hover:text-destructive p-0.5 rounded cursor-pointer"
+                    >
+                      <X className="size-2.5" />
+                    </button>
+                  )}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
         <Separator className="bg-border/60" />
 
         {/* Basic Metadata */}
@@ -379,14 +530,15 @@ export function ItemDetailPanel({
             </span>
             <button
               onClick={async () => {
-                await navigator.clipboard.writeText(shellPath);
+                const plainPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : shellPath);
+                await navigator.clipboard.writeText(plainPath);
                 setCopiedPath(true);
                 setTimeout(() => setCopiedPath(false), 1500);
               }}
               className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
               {copiedPath ? <Check className="size-2.5 text-green-500" /> : <Copy className="size-2.5" />}
-              <span>{copiedPath ? "已复制" : "终端转义路径"}</span>
+              <span>{copiedPath ? "已复制" : "复制文件路径"}</span>
             </button>
           </div>
           <div className="p-2 rounded-lg border border-border/60 bg-muted/20 font-mono text-[10px] text-muted-foreground break-all select-text max-h-24 overflow-y-auto">

@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -321,6 +322,15 @@ func (m *LibraryManager) initSchema(db *sql.DB) error {
 	}
 
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN hex TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN in_trash INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN trashed_at INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN trashed_folders TEXT DEFAULT ''")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_items_in_trash ON items(in_trash)")
+	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS tags (
+		name TEXT PRIMARY KEY,
+		created_at INTEGER NOT NULL,
+		color TEXT DEFAULT ''
+	)`)
 	return nil
 }
 
@@ -336,12 +346,12 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 		return []Item{}, nil
 	}
 
-	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at FROM items"
+	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0) FROM items WHERE (in_trash = 0 OR in_trash IS NULL)"
 	var args []any
 
 	trimmed := strings.TrimSpace(query)
 	if trimmed != "" {
-		sqlQuery += " WHERE (name LIKE ? OR tags LIKE ? OR extension LIKE ? OR hex LIKE ?)"
+		sqlQuery += " AND (name LIKE ? OR tags LIKE ? OR extension LIKE ? OR hex LIKE ?)"
 		like := "%" + trimmed + "%"
 		args = append(args, like, like, like, like)
 	}
@@ -374,6 +384,8 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 		var item Item
 		var tagsStr string
 		var hasThumbInt int
+		var inTrashInt int
+		var trashedAtInt int64
 		if err := rows.Scan(
 			&item.ID,
 			&item.Hex,
@@ -388,9 +400,13 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 			&tagsStr,
 			&item.CreatedAt,
 			&item.ImportedAt,
+			&inTrashInt,
+			&trashedAtInt,
 		); err != nil {
 			continue
 		}
+		item.InTrash = inTrashInt == 1
+		item.TrashedAt = trashedAtInt
 
 		item.HasThumbnail = hasThumbInt == 1
 		if tagsStr != "" {
@@ -425,10 +441,12 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 		return nil, errors.New("no active library")
 	}
 
-	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at FROM items WHERE id = ? OR hex = ?", id, id)
+	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0) FROM items WHERE id = ? OR hex = ?", id, id)
 	var item Item
 	var tagsStr string
 	var hasThumbInt int
+	var inTrashInt int
+	var trashedAtInt int64
 	if err := row.Scan(
 		&item.ID,
 		&item.Hex,
@@ -443,9 +461,13 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 		&tagsStr,
 		&item.CreatedAt,
 		&item.ImportedAt,
+		&inTrashInt,
+		&trashedAtInt,
 	); err != nil {
 		return nil, err
 	}
+	item.InTrash = inTrashInt == 1
+	item.TrashedAt = trashedAtInt
 
 	item.HasThumbnail = hasThumbInt == 1
 	if tagsStr != "" {
@@ -1034,7 +1056,13 @@ func (m *LibraryManager) GetFolders() ([]Folder, error) {
 
 	// 1. Get counts of items in each folder
 	counts := make(map[string]int)
-	cRows, err := db.Query("SELECT folder_id, COUNT(DISTINCT item_id) FROM item_folders GROUP BY folder_id")
+	cRows, err := db.Query(`
+		SELECT item_folders.folder_id, COUNT(DISTINCT item_folders.item_id)
+		FROM item_folders
+		JOIN items ON item_folders.item_id = items.id
+		WHERE (items.in_trash = 0 OR items.in_trash IS NULL)
+		GROUP BY item_folders.folder_id
+	`)
 	if err == nil {
 		for cRows.Next() {
 			var fID string
@@ -1262,4 +1290,810 @@ func (m *LibraryManager) SetItemFolders(itemID string, folderIDs []string) error
 	}
 
 	return tx.Commit()
+}
+
+// PermanentDeleteItem permanently removes an item directory from disk and database.
+func (m *LibraryManager) PermanentDeleteItem(id string) error {
+	return m.DeleteItem(id)
+}
+
+// MoveToTrash moves an item to the recycle bin, preserving all folder references for restore.
+func (m *LibraryManager) MoveToTrash(id string) error {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return errors.New("no active library")
+	}
+
+	// 1. Collect current folder associations
+	var currentFolders []string
+	rows, err := db.Query("SELECT folder_id FROM item_folders WHERE item_id = ?", id)
+	if err == nil {
+		for rows.Next() {
+			var fID string
+			if rows.Scan(&fID) == nil {
+				currentFolders = append(currentFolders, fID)
+			}
+		}
+		rows.Close()
+	}
+	if currentFolders == nil {
+		currentFolders = []string{}
+	}
+
+	foldersJSON, _ := json.Marshal(currentFolders)
+	now := time.Now().Unix()
+
+	// 2. Update database row
+	_, err = db.Exec("UPDATE items SET in_trash = 1, trashed_at = ?, trashed_folders = ? WHERE id = ? OR hex = ?",
+		now, string(foldersJSON), id, id,
+	)
+	if err != nil {
+		return err
+	}
+
+	// 3. Remove active links from item_folders so it no longer counts in active views
+	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
+
+	// 4. Update metadata.json on disk if present
+	itemDir := filepath.Join(active.Path, "items", id)
+	metaPath := filepath.Join(itemDir, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.InTrash = true
+			meta.TrashedAt = now
+			meta.TrashedFolders = currentFolders
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	return nil
+}
+
+// BatchMoveToTrash moves multiple items to the recycle bin.
+func (m *LibraryManager) BatchMoveToTrash(ids []string) error {
+	for _, id := range ids {
+		if err := m.MoveToTrash(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RestoreFromTrash restores an item from the recycle bin back to its original folders.
+func (m *LibraryManager) RestoreFromTrash(id string) error {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return errors.New("no active library")
+	}
+
+	var trashedFoldersStr string
+	err := db.QueryRow("SELECT COALESCE(trashed_folders, '') FROM items WHERE id = ? OR hex = ?", id, id).Scan(&trashedFoldersStr)
+	if err != nil {
+		return err
+	}
+
+	var restoredFolders []string
+	if trashedFoldersStr != "" {
+		_ = json.Unmarshal([]byte(trashedFoldersStr), &restoredFolders)
+	}
+
+	now := time.Now().Unix()
+	for _, fID := range restoredFolders {
+		var exists int
+		_ = db.QueryRow("SELECT COUNT(*) FROM folders WHERE id = ?", fID).Scan(&exists)
+		if exists > 0 {
+			_, _ = db.Exec("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)", id, fID, now)
+		}
+	}
+
+	_, err = db.Exec("UPDATE items SET in_trash = 0, trashed_at = 0, trashed_folders = '' WHERE id = ? OR hex = ?", id, id)
+	if err != nil {
+		return err
+	}
+
+	itemDir := filepath.Join(active.Path, "items", id)
+	metaPath := filepath.Join(itemDir, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.InTrash = false
+			meta.TrashedAt = 0
+			meta.TrashedFolders = nil
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	return nil
+}
+
+// BatchRestoreFromTrash restores multiple items from the recycle bin.
+func (m *LibraryManager) BatchRestoreFromTrash(ids []string) error {
+	for _, id := range ids {
+		if err := m.RestoreFromTrash(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// EmptyTrash permanently deletes all items in the recycle bin.
+func (m *LibraryManager) EmptyTrash() error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	rows, err := db.Query("SELECT id FROM items WHERE in_trash = 1")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var itID string
+		if rows.Scan(&itID) == nil {
+			ids = append(ids, itID)
+		}
+	}
+
+	for _, itID := range ids {
+		_ = m.PermanentDeleteItem(itID)
+	}
+	return nil
+}
+
+// GetTrashItems retrieves items that are currently in the recycle bin.
+func (m *LibraryManager) GetTrashItems(query string, sortOrder string) ([]Item, error) {
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	port := m.GetAssetServerPort()
+	m.mu.RUnlock()
+
+	if db == nil || active == nil {
+		return []Item{}, nil
+	}
+
+	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, '') FROM items WHERE in_trash = 1"
+	var args []any
+
+	trimmed := strings.TrimSpace(query)
+	if trimmed != "" {
+		sqlQuery += " AND (name LIKE ? OR tags LIKE ? OR extension LIKE ? OR hex LIKE ?)"
+		like := "%" + trimmed + "%"
+		args = append(args, like, like, like, like)
+	}
+
+	if strings.ToLower(sortOrder) == "asc" {
+		sqlQuery += " ORDER BY trashed_at ASC, imported_at ASC"
+	} else {
+		sqlQuery += " ORDER BY trashed_at DESC, imported_at DESC"
+	}
+
+	rows, err := db.Query(sqlQuery, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query trash items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []Item
+	for rows.Next() {
+		var item Item
+		var tagsStr string
+		var hasThumbInt int
+		var inTrashInt int
+		var trashedAtInt int64
+		var trashedFoldersStr string
+		if err := rows.Scan(
+			&item.ID,
+			&item.Hex,
+			&item.Name,
+			&item.Extension,
+			&item.Filename,
+			&item.Size,
+			&item.MimeType,
+			&item.Width,
+			&item.Height,
+			&hasThumbInt,
+			&tagsStr,
+			&item.CreatedAt,
+			&item.ImportedAt,
+			&inTrashInt,
+			&trashedAtInt,
+			&trashedFoldersStr,
+		); err != nil {
+			continue
+		}
+
+		item.HasThumbnail = hasThumbInt == 1
+		item.InTrash = inTrashInt == 1
+		item.TrashedAt = trashedAtInt
+		if tagsStr != "" {
+			item.Tags = strings.Split(tagsStr, ",")
+		} else {
+			item.Tags = []string{}
+		}
+
+		item.Folders = []string{}
+		if trashedFoldersStr != "" {
+			_ = json.Unmarshal([]byte(trashedFoldersStr), &item.Folders)
+		}
+		if item.Folders == nil {
+			item.Folders = []string{}
+		}
+
+		m.populateItemPaths(&item, active.Path, port)
+		items = append(items, item)
+	}
+
+	if items == nil {
+		items = []Item{}
+	}
+	return items, nil
+}
+
+// GetTrashCount returns the number of items currently in the recycle bin.
+func (m *LibraryManager) GetTrashCount() (int, error) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return 0, nil
+	}
+
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM items WHERE in_trash = 1").Scan(&count)
+	return count, err
+}
+
+// MoveItemToFolder moves an item from one folder to another. If fromFolderID is empty, it replaces item folders with toFolderID.
+func (m *LibraryManager) MoveItemToFolder(itemID string, fromFolderID string, toFolderID string) error {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	cleanTo := strings.TrimSpace(toFolderID)
+	cleanFrom := strings.TrimSpace(fromFolderID)
+	if cleanFrom != "" && cleanFrom == cleanTo {
+		return nil
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if cleanFrom != "" {
+		_, _ = tx.Exec("DELETE FROM item_folders WHERE item_id = ? AND folder_id = ?", itemID, cleanFrom)
+	} else {
+		_, _ = tx.Exec("DELETE FROM item_folders WHERE item_id = ?", itemID)
+	}
+
+	if cleanTo != "" {
+		_, err = tx.Exec("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)",
+			itemID, cleanTo, time.Now().Unix(),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// ImportFolderRecursively imports an external directory into the library, creating matching virtual folders
+// and importing files into the library flatly while associating them with their respective virtual folders.
+func (m *LibraryManager) ImportFolderRecursively(dirPath string, parentFolderID string) (*Folder, error) {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return nil, errors.New("no active library")
+	}
+
+	stat, err := os.Stat(dirPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat failed on %s: %w", dirPath, err)
+	}
+	if !stat.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", dirPath)
+	}
+
+	folderName := filepath.Base(dirPath)
+	rootFolder, err := m.CreateFolder(folderName, parentFolderID)
+	if err != nil {
+		return nil, err
+	}
+
+	var walkDir func(currentPath string, currentFolderID string)
+	walkDir = func(currentPath string, currentFolderID string) {
+		entries, err := os.ReadDir(currentPath)
+		if err != nil {
+			return
+		}
+
+		for _, entry := range entries {
+			entryName := entry.Name()
+			if strings.HasPrefix(entryName, ".") {
+				continue
+			}
+			fullPath := filepath.Join(currentPath, entryName)
+
+			if entry.IsDir() {
+				subFolder, err := m.CreateFolder(entryName, currentFolderID)
+				if err == nil && subFolder != nil {
+					walkDir(fullPath, subFolder.ID)
+				}
+			} else {
+				item, err := m.importSingleFile(fullPath)
+				if err == nil && item != nil {
+					_ = m.AddItemToFolder(item.ID, currentFolderID)
+				}
+			}
+		}
+	}
+
+	walkDir(dirPath, rootFolder.ID)
+	return rootFolder, nil
+}
+
+// ImportFoldersRecursively imports multiple external directories into the library.
+func (m *LibraryManager) ImportFoldersRecursively(dirPaths []string, parentFolderID string) ([]Folder, error) {
+	var created []Folder
+	for _, p := range dirPaths {
+		f, err := m.ImportFolderRecursively(p, parentFolderID)
+		if err == nil && f != nil {
+			created = append(created, *f)
+		}
+	}
+	return created, nil
+}
+
+// GetTags returns all tags with item count, with built-in "收藏" pinned first.
+func (m *LibraryManager) GetTags() ([]Tag, error) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return []Tag{}, nil
+	}
+
+	// 1. Get all declared tags from tags table
+	tagSet := make(map[string]int64)
+	tRows, err := db.Query("SELECT name, created_at FROM tags")
+	if err == nil {
+		for tRows.Next() {
+			var name string
+			var createdAt int64
+			if tRows.Scan(&name, &createdAt) == nil {
+				name = strings.TrimSpace(name)
+				if name != "" {
+					tagSet[name] = createdAt
+				}
+			}
+		}
+		tRows.Close()
+	}
+
+	if _, ok := tagSet["收藏"]; !ok {
+		tagSet["收藏"] = time.Now().Unix()
+	}
+
+	// 2. Count non-trashed items for each tag
+	tagCounts := make(map[string]int)
+	iRows, err := db.Query("SELECT tags FROM items WHERE (in_trash = 0 OR in_trash IS NULL) AND tags != ''")
+	if err == nil {
+		for iRows.Next() {
+			var tagsStr string
+			if iRows.Scan(&tagsStr) == nil && tagsStr != "" {
+				for _, t := range strings.Split(tagsStr, ",") {
+					t = strings.TrimSpace(t)
+					if t != "" {
+						tagCounts[t]++
+						if _, ok := tagSet[t]; !ok {
+							tagSet[t] = time.Now().Unix()
+						}
+					}
+				}
+			}
+		}
+		iRows.Close()
+	}
+
+	var tags []Tag
+	for name, createdAt := range tagSet {
+		tags = append(tags, Tag{
+			Name:      name,
+			CreatedAt: createdAt,
+			ItemCount: tagCounts[name],
+		})
+	}
+
+	sort.Slice(tags, func(i, j int) bool {
+		if tags[i].Name == "收藏" {
+			return true
+		}
+		if tags[j].Name == "收藏" {
+			return false
+		}
+		return tags[i].Name < tags[j].Name
+	})
+
+	return tags, nil
+}
+
+// CreateTag creates a new tag in the library taxonomy.
+func (m *LibraryManager) CreateTag(name string) (*Tag, error) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+
+	if db == nil {
+		return nil, errors.New("no active library")
+	}
+
+	clean := strings.TrimSpace(name)
+	if clean == "" {
+		return nil, errors.New("标签名称不能为空")
+	}
+
+	now := time.Now().Unix()
+	_, err := db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", clean, now)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Tag{
+		Name:      clean,
+		CreatedAt: now,
+		ItemCount: 0,
+	}, nil
+}
+
+// DeleteTag deletes a tag from library and removes it from all items.
+func (m *LibraryManager) DeleteTag(name string) error {
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	m.mu.RUnlock()
+
+	if db == nil {
+		return errors.New("no active library")
+	}
+
+	clean := strings.TrimSpace(name)
+	if clean == "" || clean == "收藏" {
+		return errors.New("无法删除内置标签")
+	}
+
+	_, _ = db.Exec("DELETE FROM tags WHERE name = ?", clean)
+
+	rows, err := db.Query("SELECT id, tags FROM items WHERE tags LIKE ?", "%"+clean+"%")
+	if err == nil {
+		type itemTagUpdate struct {
+			id      string
+			newTags []string
+		}
+		var updates []itemTagUpdate
+		for rows.Next() {
+			var itID, tagsStr string
+			if rows.Scan(&itID, &tagsStr) == nil {
+				var remaining []string
+				for _, t := range strings.Split(tagsStr, ",") {
+					t = strings.TrimSpace(t)
+					if t != "" && t != clean {
+						remaining = append(remaining, t)
+					}
+				}
+				updates = append(updates, itemTagUpdate{id: itID, newTags: remaining})
+			}
+		}
+		rows.Close()
+
+		for _, u := range updates {
+			newStr := strings.Join(u.newTags, ",")
+			_, _ = db.Exec("UPDATE items SET tags = ? WHERE id = ?", newStr, u.id)
+			if active != nil {
+				metaPath := filepath.Join(active.Path, "items", u.id, "metadata.json")
+				if data, rErr := os.ReadFile(metaPath); rErr == nil {
+					var meta ItemMetadata
+					if json.Unmarshal(data, &meta) == nil {
+						meta.Tags = u.newTags
+						updated, _ := json.MarshalIndent(meta, "", "  ")
+						_ = os.WriteFile(metaPath, updated, 0644)
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// AddTagToItem associates a tag with an item.
+func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	m.mu.RUnlock()
+
+	if db == nil || active == nil {
+		return errors.New("no active library")
+	}
+
+	cleanTag := strings.TrimSpace(tag)
+	if cleanTag == "" {
+		return errors.New("标签不能为空")
+	}
+
+	var tagsStr string
+	err := db.QueryRow("SELECT COALESCE(tags, '') FROM items WHERE id = ? OR hex = ?", itemID, itemID).Scan(&tagsStr)
+	if err != nil {
+		return err
+	}
+
+	var existingTags []string
+	if tagsStr != "" {
+		for _, t := range strings.Split(tagsStr, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				if t == cleanTag {
+					return nil
+				}
+				existingTags = append(existingTags, t)
+			}
+		}
+	}
+	existingTags = append(existingTags, cleanTag)
+	newTagsStr := strings.Join(existingTags, ",")
+
+	_, err = db.Exec("UPDATE items SET tags = ? WHERE id = ? OR hex = ?", newTagsStr, itemID, itemID)
+	if err != nil {
+		return err
+	}
+
+	_, _ = db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", cleanTag, time.Now().Unix())
+
+	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.Tags = existingTags
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	return nil
+}
+
+// RemoveTagFromItem removes a tag from an item.
+func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	m.mu.RUnlock()
+
+	if db == nil || active == nil {
+		return errors.New("no active library")
+	}
+
+	cleanTag := strings.TrimSpace(tag)
+	var tagsStr string
+	err := db.QueryRow("SELECT COALESCE(tags, '') FROM items WHERE id = ? OR hex = ?", itemID, itemID).Scan(&tagsStr)
+	if err != nil {
+		return err
+	}
+
+	var newTags []string
+	if tagsStr != "" {
+		for _, t := range strings.Split(tagsStr, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" && t != cleanTag {
+				newTags = append(newTags, t)
+			}
+		}
+	}
+	newTagsStr := strings.Join(newTags, ",")
+
+	_, err = db.Exec("UPDATE items SET tags = ? WHERE id = ? OR hex = ?", newTagsStr, itemID, itemID)
+	if err != nil {
+		return err
+	}
+
+	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.Tags = newTags
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	return nil
+}
+
+// SetItemTags sets the complete list of tags for an item.
+func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	m.mu.RUnlock()
+
+	if db == nil || active == nil {
+		return errors.New("no active library")
+	}
+
+	var cleanTags []string
+	seen := make(map[string]bool)
+	now := time.Now().Unix()
+	for _, t := range tags {
+		c := strings.TrimSpace(t)
+		if c != "" && !seen[c] {
+			seen[c] = true
+			cleanTags = append(cleanTags, c)
+			_, _ = db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", c, now)
+		}
+	}
+	if cleanTags == nil {
+		cleanTags = []string{}
+	}
+
+	newTagsStr := strings.Join(cleanTags, ",")
+	_, err := db.Exec("UPDATE items SET tags = ? WHERE id = ? OR hex = ?", newTagsStr, itemID, itemID)
+	if err != nil {
+		return err
+	}
+
+	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.Tags = cleanTags
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	return nil
+}
+
+// ToggleFavorite toggles the special "收藏" tag for an item.
+func (m *LibraryManager) ToggleFavorite(itemID string) (bool, error) {
+	item, err := m.GetItem(itemID)
+	if err != nil || item == nil {
+		return false, errors.New("item not found")
+	}
+
+	isFav := false
+	for _, t := range item.Tags {
+		if t == "收藏" {
+			isFav = true
+			break
+		}
+	}
+
+	if isFav {
+		err = m.RemoveTagFromItem(itemID, "收藏")
+		return false, err
+	}
+	err = m.AddTagToItem(itemID, "收藏")
+	return true, err
+}
+
+// RenameItem renames the asset's display name and physical file on disk, updating metadata.json.
+func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	port := m.GetAssetServerPort()
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return nil, errors.New("no active library")
+	}
+
+	cleanName := strings.TrimSpace(newName)
+	for _, badChar := range []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", "\x00"} {
+		cleanName = strings.ReplaceAll(cleanName, badChar, "")
+	}
+	cleanName = strings.TrimSpace(cleanName)
+	if cleanName == "" {
+		return nil, errors.New("文件名不能为空")
+	}
+
+	item, err := m.GetItem(id)
+	if err != nil || item == nil {
+		return nil, errors.New("item not found")
+	}
+
+	extSuffix := "." + strings.ToLower(item.Extension)
+	var newFilename string
+	var displayName string
+	if strings.HasSuffix(strings.ToLower(cleanName), extSuffix) {
+		newFilename = cleanName
+		displayName = cleanName[:len(cleanName)-len(extSuffix)]
+	} else {
+		newFilename = cleanName + "." + item.Extension
+		displayName = cleanName
+	}
+
+	oldPhysicalPath := filepath.Join(item.ItemPath, item.Filename)
+	newPhysicalPath := filepath.Join(item.ItemPath, newFilename)
+
+	if oldPhysicalPath != newPhysicalPath {
+		if _, statErr := os.Stat(oldPhysicalPath); statErr == nil {
+			if err := os.Rename(oldPhysicalPath, newPhysicalPath); err != nil {
+				return nil, fmt.Errorf("failed to rename file on disk: %w", err)
+			}
+		}
+	}
+
+	_, err = db.Exec("UPDATE items SET name = ?, filename = ? WHERE id = ? OR hex = ?", displayName, newFilename, id, id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update item in database: %w", err)
+	}
+
+	metaPath := filepath.Join(item.ItemPath, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.Name = displayName
+			meta.Filename = newFilename
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	item.Name = displayName
+	item.Filename = newFilename
+	m.populateItemPaths(item, active.Path, port)
+	return item, nil
+}
+
+// OpenWithDefaultApp opens the physical file with the OS default application.
+func (m *LibraryManager) OpenWithDefaultApp(id string) error {
+	item, err := m.GetItem(id)
+	if err != nil || item == nil {
+		return errors.New("item not found")
+	}
+
+	filePath := filepath.Join(item.ItemPath, item.Filename)
+	if _, statErr := os.Stat(filePath); statErr != nil {
+		return fmt.Errorf("file not found on disk: %s", filePath)
+	}
+
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", filePath).Run()
+	case "windows":
+		return exec.Command("cmd", "/c", "start", "", filePath).Run()
+	default:
+		return exec.Command("xdg-open", filePath).Run()
+	}
 }

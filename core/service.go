@@ -206,3 +206,143 @@ func (s *Service) SetItemFolders(itemID string, folderIDs []string) error {
 	}
 	return s.mgr.SetItemFolders(itemID, folderIDs)
 }
+
+func (s *Service) PermanentDeleteItem(id string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.PermanentDeleteItem(id)
+}
+
+func (s *Service) MoveToTrash(id string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.MoveToTrash(id)
+}
+
+func (s *Service) BatchMoveToTrash(ids []string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.BatchMoveToTrash(ids)
+}
+
+func (s *Service) RestoreFromTrash(id string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.RestoreFromTrash(id)
+}
+
+func (s *Service) BatchRestoreFromTrash(ids []string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.BatchRestoreFromTrash(ids)
+}
+
+func (s *Service) EmptyTrash() error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.EmptyTrash()
+}
+
+func (s *Service) GetTrashItems(query string, sortOrder string) ([]Item, error) {
+	if s.mgr == nil {
+		return []Item{}, errors.New("core manager not initialized")
+	}
+	return s.mgr.GetTrashItems(query, sortOrder)
+}
+
+func (s *Service) GetTrashCount() (int, error) {
+	if s.mgr == nil {
+		return 0, errors.New("core manager not initialized")
+	}
+	return s.mgr.GetTrashCount()
+}
+
+func (s *Service) MoveItemToFolder(itemID string, fromFolderID string, toFolderID string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.MoveItemToFolder(itemID, fromFolderID, toFolderID)
+}
+
+func (s *Service) ImportFolderRecursively(dirPath string, parentFolderID string) (*Folder, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.ImportFolderRecursively(dirPath, parentFolderID)
+}
+
+func (s *Service) ImportFoldersRecursively(dirPaths []string, parentFolderID string) ([]Folder, error) {
+	if s.mgr == nil {
+		return []Folder{}, errors.New("core manager not initialized")
+	}
+	return s.mgr.ImportFoldersRecursively(dirPaths, parentFolderID)
+}
+
+func (s *Service) GetTags() ([]Tag, error) {
+	if s.mgr == nil {
+		return []Tag{}, errors.New("core manager not initialized")
+	}
+	return s.mgr.GetTags()
+}
+
+func (s *Service) CreateTag(name string) (*Tag, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.CreateTag(name)
+}
+
+func (s *Service) DeleteTag(name string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.DeleteTag(name)
+}
+
+func (s *Service) AddTagToItem(itemID string, tag string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.AddTagToItem(itemID, tag)
+}
+
+func (s *Service) RemoveTagFromItem(itemID string, tag string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.RemoveTagFromItem(itemID, tag)
+}
+
+func (s *Service) SetItemTags(itemID string, tags []string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.SetItemTags(itemID, tags)
+}
+
+func (s *Service) ToggleFavorite(itemID string) (bool, error) {
+	if s.mgr == nil {
+		return false, errors.New("core manager not initialized")
+	}
+	return s.mgr.ToggleFavorite(itemID)
+}
+
+func (s *Service) RenameItem(id string, newName string) (*Item, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.RenameItem(id, newName)
+}
+
+func (s *Service) OpenWithDefaultApp(id string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.OpenWithDefaultApp(id)
+}

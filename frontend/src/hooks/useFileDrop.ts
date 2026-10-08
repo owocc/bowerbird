@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events } from "@wailsio/runtime";
 import { ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
+import { toast } from "sonner";
 
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
 
@@ -70,32 +71,30 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       const count = typeof data === "object" && data && "count" in data ? Number(data.count) : 0;
       const ids = typeof data === "object" && data && "ids" in data && Array.isArray(data.ids) ? data.ids : undefined;
       setState({
-        status: "success",
-        total: count,
-        current: count,
-        filename: "",
-        message: `Imported ${count} assets successfully`,
-      });
-      onRefresh(ids);
-      clearTimer();
-      resetTimer.current = window.setTimeout(() => {
-        setState((prev) => (prev.status === "success" ? { ...prev, status: "idle", message: null } : prev));
-      }, 3000);
-    });
-
-    const unsubError = Events.On("import-error", (event: any) => {
-      const msg = typeof event?.data === "string" ? event.data : typeof event === "string" ? event : "Unknown error";
-      setState({
-        status: "error",
+        status: "idle",
         total: 0,
         current: 0,
         filename: "",
-        message: `Import failed: ${msg}`,
+        message: null,
       });
+      if (count > 0) {
+        toast.success(`成功导入 ${count} 项资产`);
+      }
+      onRefresh(ids);
       clearTimer();
-      resetTimer.current = window.setTimeout(() => {
-        setState((prev) => (prev.status === "error" ? { ...prev, status: "idle", message: null } : prev));
-      }, 4000);
+    });
+
+    const unsubError = Events.On("import-error", (event: any) => {
+      const msg = typeof event?.data === "string" ? event.data : typeof event === "string" ? event : "未知错误";
+      setState({
+        status: "idle",
+        total: 0,
+        current: 0,
+        filename: "",
+        message: null,
+      });
+      toast.error(`导入失败: ${msg}`);
+      clearTimer();
     });
 
     const unsubUpdated = Events.On("library-items-updated", () => {
@@ -277,7 +276,8 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     const types = Array.from(e.dataTransfer.types || []);
     return (
       types.includes("application/x-bowerbird-internal-drag") ||
-      types.includes("application/x-bowerbird-item-id")
+      types.includes("application/x-bowerbird-item-id") ||
+      types.includes("application/x-bowerbird-item-ids")
     );
   };
 
@@ -300,8 +300,8 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       return;
     }
     e.dataTransfer.dropEffect = "copy";
+    setState((prev) => (prev.status === "idle" ? { ...prev, status: "dragging-over" } : prev));
   }, []);
-
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     if (isInternalDrag(e)) return;

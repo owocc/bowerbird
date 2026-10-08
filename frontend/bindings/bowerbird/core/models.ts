@@ -34,6 +34,8 @@ export interface Item {
     "hasThumbnail": boolean;
     "tags": string[] | null;
     "folders": string[] | null;
+    "inTrash": boolean;
+    "trashedAt": number;
     "createdAt": number;
     "importedAt": number;
 
@@ -88,4 +90,13 @@ export interface LibraryInfo {
  * LibraryManager coordinates library lifecycle, storage, libSQL indexing, and user data.
  */
 export interface LibraryManager {
+}
+
+/**
+ * Tag represents a tag taxonomy entry with its item count.
+ */
+export interface Tag {
+    "name": string;
+    "createdAt": number;
+    "itemCount": number;
 }

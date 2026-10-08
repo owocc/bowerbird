@@ -12,6 +12,7 @@ import type { LibraryInfo } from "../bindings/bowerbird/core/models";
 import { LibrarySetup } from "@/components/LibrarySetup";
 import { LibraryWorkspace } from "@/components/LibraryWorkspace";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 
 function RootLayout() {
   return (
@@ -19,6 +20,7 @@ function RootLayout() {
       <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
         <Outlet />
       </div>
+      <Toaster position="bottom-right" richColors />
     </ThemeProvider>
   );
 }

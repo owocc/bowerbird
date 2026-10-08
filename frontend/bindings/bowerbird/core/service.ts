@@ -18,6 +18,18 @@ export function AddItemToFolder(itemID: string, folderID: string): $CancellableP
     return $Call.ByID(2158034121, itemID, folderID);
 }
 
+export function AddTagToItem(itemID: string, tag: string): $CancellablePromise<void> {
+    return $Call.ByID(1309573619, itemID, tag);
+}
+
+export function BatchMoveToTrash(ids: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2613574810, ids);
+}
+
+export function BatchRestoreFromTrash(ids: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(273105104, ids);
+}
+
 export function CloseLibrary(): $CancellablePromise<void> {
     return $Call.ByID(3049267163);
 }
@@ -30,12 +42,24 @@ export function CreateLibrary(parentDir: string, libName: string): $CancellableP
     return $Call.ByID(3111065859, parentDir, libName);
 }
 
+export function CreateTag(name: string): $CancellablePromise<$models.Tag | null> {
+    return $Call.ByID(3476818424, name);
+}
+
 export function DeleteFolder(id: string): $CancellablePromise<void> {
     return $Call.ByID(2706508003, id);
 }
 
 export function DeleteItem(id: string): $CancellablePromise<void> {
     return $Call.ByID(4132191696, id);
+}
+
+export function DeleteTag(name: string): $CancellablePromise<void> {
+    return $Call.ByID(2635846365, name);
+}
+
+export function EmptyTrash(): $CancellablePromise<void> {
+    return $Call.ByID(1085111149);
 }
 
 export function GetActiveLibrary(): $CancellablePromise<$models.LibraryInfo | null> {
@@ -62,8 +86,28 @@ export function GetRecentLibraries(): $CancellablePromise<string[] | null> {
     return $Call.ByID(2812002174);
 }
 
+export function GetTags(): $CancellablePromise<$models.Tag[] | null> {
+    return $Call.ByID(3158423089);
+}
+
+export function GetTrashCount(): $CancellablePromise<number> {
+    return $Call.ByID(1812568121);
+}
+
+export function GetTrashItems(query: string, sortOrder: string): $CancellablePromise<$models.Item[] | null> {
+    return $Call.ByID(2032446766, query, sortOrder);
+}
+
 export function ImportFiles(sourcePaths: string[] | null): $CancellablePromise<$models.Item[] | null> {
     return $Call.ByID(3027212300, sourcePaths);
+}
+
+export function ImportFolderRecursively(dirPath: string, parentFolderID: string): $CancellablePromise<$models.Folder | null> {
+    return $Call.ByID(3163874372, dirPath, parentFolderID);
+}
+
+export function ImportFoldersRecursively(dirPaths: string[] | null, parentFolderID: string): $CancellablePromise<$models.Folder[] | null> {
+    return $Call.ByID(919255833, dirPaths, parentFolderID);
 }
 
 export function ImportFromBase64(filename: string, base64Data: string): $CancellablePromise<$models.Item | null> {
@@ -74,16 +118,44 @@ export function ImportFromURL(rawURL: string): $CancellablePromise<$models.Item 
     return $Call.ByID(780943642, rawURL);
 }
 
+export function MoveItemToFolder(itemID: string, fromFolderID: string, toFolderID: string): $CancellablePromise<void> {
+    return $Call.ByID(711622371, itemID, fromFolderID, toFolderID);
+}
+
+export function MoveToTrash(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3048189762, id);
+}
+
 export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(2189258727, libraryPath);
+}
+
+export function OpenWithDefaultApp(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1339771288, id);
+}
+
+export function PermanentDeleteItem(id: string): $CancellablePromise<void> {
+    return $Call.ByID(1495285998, id);
 }
 
 export function RemoveItemFromFolder(itemID: string, folderID: string): $CancellablePromise<void> {
     return $Call.ByID(4055258539, itemID, folderID);
 }
 
+export function RemoveTagFromItem(itemID: string, tag: string): $CancellablePromise<void> {
+    return $Call.ByID(859989507, itemID, tag);
+}
+
 export function RenameFolder(id: string, name: string): $CancellablePromise<void> {
     return $Call.ByID(2472567758, id, name);
+}
+
+export function RenameItem(id: string, newName: string): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(283144029, id, newName);
+}
+
+export function RestoreFromTrash(id: string): $CancellablePromise<void> {
+    return $Call.ByID(486319240, id);
 }
 
 export function RevealInFinder(id: string): $CancellablePromise<void> {
@@ -102,10 +174,18 @@ export function SetItemFolders(itemID: string, folderIDs: string[] | null): $Can
     return $Call.ByID(3134410356, itemID, folderIDs);
 }
 
+export function SetItemTags(itemID: string, tags: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2432494974, itemID, tags);
+}
+
 export function SetManager(mgr: $models.LibraryManager | null): $CancellablePromise<void> {
     return $Call.ByID(3918042731, mgr);
 }
 
 export function StartDrag(id: string): $CancellablePromise<void> {
     return $Call.ByID(1926602914, id);
+}
+
+export function ToggleFavorite(itemID: string): $CancellablePromise<boolean> {
+    return $Call.ByID(2124554484, itemID);
 }

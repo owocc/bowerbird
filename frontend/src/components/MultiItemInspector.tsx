@@ -4,6 +4,7 @@ import {
   Trash2,
   Folder as FolderIcon,
   Plus,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ export interface MultiItemInspectorProps {
   onBatchDelete: () => void;
   onBatchAddToFolder: (folderId: string) => void;
   onBatchRemoveFromFolder?: (folderId: string) => void;
+  onBatchRestore?: () => void;
 }
 
 export function MultiItemInspector({
@@ -32,6 +34,7 @@ export function MultiItemInspector({
   onBatchDelete,
   onBatchAddToFolder,
   onBatchRemoveFromFolder,
+  onBatchRestore,
 }: MultiItemInspectorProps) {
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
@@ -127,29 +130,55 @@ export function MultiItemInspector({
         </div>
 
         {/* Batch Action Buttons */}
-        <div className="grid grid-cols-2 gap-2 pt-1">
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={onBatchReveal}
-            className="h-7 text-[11px] gap-1.5"
-            title="Reveal in Finder"
-          >
-            <FolderOpen className="size-3" />
-            <span>Reveal in Finder</span>
-          </Button>
+        {activeFolderId === "__trash__" ? (
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={onBatchRestore}
+              className="h-7 text-[11px] gap-1.5 text-primary hover:text-primary"
+              title="放回原处"
+            >
+              <RotateCcw className="size-3" />
+              <span>放回原处 ({selectedItems.length})</span>
+            </Button>
 
-          <Button
-            variant="destructive"
-            size="xs"
-            onClick={onBatchDelete}
-            className="h-7 text-[11px] gap-1.5"
-            title="Delete selected assets"
-          >
-            <Trash2 className="size-3" />
-            <span>Delete ({selectedItems.length})</span>
-          </Button>
-        </div>
+            <Button
+              variant="destructive"
+              size="xs"
+              onClick={onBatchDelete}
+              className="h-7 text-[11px] gap-1.5"
+              title="彻底删除"
+            >
+              <Trash2 className="size-3" />
+              <span>彻底删除 ({selectedItems.length})</span>
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={onBatchReveal}
+              className="h-7 text-[11px] gap-1.5"
+              title="在访达中显示"
+            >
+              <FolderOpen className="size-3" />
+              <span>在访达中显示</span>
+            </Button>
+
+            <Button
+              variant="destructive"
+              size="xs"
+              onClick={onBatchDelete}
+              className="h-7 text-[11px] gap-1.5"
+              title="丢到回收站"
+            >
+              <Trash2 className="size-3" />
+              <span>丢到回收站 ({selectedItems.length})</span>
+            </Button>
+          </div>
+        )}
 
         <Separator className="bg-border/60" />
 
