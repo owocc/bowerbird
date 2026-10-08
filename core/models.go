@@ -20,6 +20,13 @@ type Folder struct {
 	ItemCount int      `json:"itemCount"`
 }
 
+// Tag represents a tag taxonomy entry with its item count.
+type Tag struct {
+	Name      string `json:"name"`
+	CreatedAt int64  `json:"createdAt"`
+	ItemCount int    `json:"itemCount"`
+}
+
 // Item represents a single managed asset in the library.
 type Item struct {
 	ID           string   `json:"id"`
@@ -34,6 +41,8 @@ type Item struct {
 	HasThumbnail bool     `json:"hasThumbnail"`
 	Tags         []string `json:"tags"`
 	Folders      []string `json:"folders"`
+	InTrash      bool     `json:"inTrash"`
+	TrashedAt    int64    `json:"trashedAt"`
 	CreatedAt    int64    `json:"createdAt"`
 	ImportedAt   int64    `json:"importedAt"`
 	ItemPath     string   `json:"itemPath"`     // local disk path of item directory (items/<HEX>)
@@ -57,8 +66,11 @@ type ItemMetadata struct {
 	Width        int      `json:"width"`
 	Height       int      `json:"height"`
 	HasThumbnail bool     `json:"hasThumbnail"`
-	Tags         []string `json:"tags"`
-	Folders      []string `json:"folders"`
-	CreatedAt    int64    `json:"createdAt"`
-	ImportedAt   int64    `json:"importedAt"`
+	Tags           []string `json:"tags"`
+	Folders        []string `json:"folders"`
+	InTrash        bool     `json:"inTrash,omitempty"`
+	TrashedAt      int64    `json:"trashedAt,omitempty"`
+	TrashedFolders []string `json:"trashedFolders,omitempty"`
+	CreatedAt      int64    `json:"createdAt"`
+	ImportedAt     int64    `json:"importedAt"`
 }

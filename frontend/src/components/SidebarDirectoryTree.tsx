@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Folder as FolderIcon,
   FolderOpen,
@@ -14,6 +15,7 @@ import {
   PanelLeftClose,
   ChevronsUpDown,
   Check,
+  Tag,
 } from "lucide-react";
 import {
   SidebarHeader,
@@ -62,12 +64,19 @@ export interface SidebarDirectoryTreeProps {
   folders: Folder[];
   activeFolderId: string | null;
   totalItemCount: number;
+  trashCount?: number;
+  tagsCount?: number;
+  tagsSidebarOpen?: boolean;
+  onToggleTagsSidebar?: () => void;
   onSelectFolder: (folderId: string | null) => void;
   onCreateFolder: (name: string, parentId?: string) => Promise<void>;
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onDropItemOnFolder?: (itemId: string, folderId: string) => Promise<void>;
+  onMoveItemToFolder?: (itemId: string, fromFolderId: string, toFolderId: string) => Promise<void>;
   onDropExternalFilesOnFolder?: (fileList: FileList, folderId: string) => Promise<void>;
+  onDropFolderImport?: (e: React.DragEvent, targetFolderId?: string) => Promise<void>;
+  onDropItemOnTrash?: (itemIds: string[]) => Promise<void>;
   onCloseLibrary: () => void;
   onLibraryChanged?: (newLib: LibraryInfo) => void;
   onToggleCollapse?: () => void;
@@ -77,12 +86,19 @@ export function SidebarDirectoryTree({
   folders,
   activeFolderId,
   totalItemCount,
+  trashCount = 0,
+  tagsCount = 0,
+  tagsSidebarOpen = false,
+  onToggleTagsSidebar,
   onSelectFolder,
   onCreateFolder,
   onRenameFolder,
   onDeleteFolder,
   onDropItemOnFolder,
+  onMoveItemToFolder,
   onDropExternalFilesOnFolder,
+  onDropFolderImport,
+  onDropItemOnTrash,
   onCloseLibrary,
   onLibraryChanged,
   onToggleCollapse,
@@ -109,6 +125,51 @@ export function SidebarDirectoryTree({
     folder: Folder | null;
   } | null>(null);
 
+  const [isSidebarRootDragOver, setIsSidebarRootDragOver] = useState(false);
+  const sidebarDragCounter = useRef(0);
+  const [isAllDragOver, setIsAllDragOver] = useState(false);
+  const [isTrashDragOver, setIsTrashDragOver] = useState(false);
+
+  const handleSidebarRootDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebarDragCounter.current += 1;
+    setIsSidebarRootDragOver(true);
+  };
+
+  const handleSidebarRootDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+    if (!isSidebarRootDragOver) setIsSidebarRootDragOver(true);
+  };
+
+  const handleSidebarRootDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebarDragCounter.current -= 1;
+    if (sidebarDragCounter.current <= 0) {
+      sidebarDragCounter.current = 0;
+      setIsSidebarRootDragOver(false);
+    }
+  };
+
+  const handleSidebarRootDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    sidebarDragCounter.current = 0;
+    setIsSidebarRootDragOver(false);
+
+    // If intra-app item drag, ignore root drop
+    const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
+    const singleId = e.dataTransfer.getData("application/x-bowerbird-item-id");
+    if (itemIdsJson || singleId) return;
+
+    // External drag: strictly folder import
+    if (onDropFolderImport) {
+      await onDropFolderImport(e, "");
+    }
+  };
   const loadRecentLibraries = useCallback(async () => {
     try {
       const list = await GetRecentLibraries();
@@ -204,8 +265,34 @@ export function SidebarDirectoryTree({
   return (
     <>
       <aside
-        className="flex flex-col w-full h-full min-w-[200px] bg-sidebar text-sidebar-foreground select-none overflow-hidden"
+        data-file-drop-target="sidebar"
+        data-folder-id=""
+        onDragEnter={handleSidebarRootDragEnter}
+        onDragOver={handleSidebarRootDragOver}
+        onDragLeave={handleSidebarRootDragLeave}
+        onDrop={handleSidebarRootDrop}
+        className={cn(
+          "flex flex-col w-full h-full min-w-[200px] bg-sidebar text-sidebar-foreground select-none overflow-hidden transition-all border-2 border-transparent relative",
+          isSidebarRootDragOver && "border-dashed border-primary bg-primary/5 ring-2 ring-primary/40 ring-inset"
+        )}
       >
+        <AnimatePresence>
+          {isSidebarRootDragOver && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0 z-40 pointer-events-none border-4 border-dashed border-primary bg-primary/15 backdrop-blur-[2px] flex flex-col items-center justify-center p-4 text-center select-none shadow-xl"
+            >
+              <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
+                <FolderPlus className="size-7 text-primary" />
+              </div>
+              <div className="font-bold text-sm text-primary">松开以导入为根目录文件夹</div>
+              <div className="text-[11px] text-primary/80 mt-1">将在侧边栏建立对应层级文件夹结构</div>
+            </motion.div>
+          )}
+        </AnimatePresence>
         {/* Workspace Brand / Library Header */}
         <SidebarHeader className="p-0 border-b-0 select-none shrink-0">
           {/* Top Row: macOS Traffic Lights Spacer + Collapse Button on the far right */}
@@ -336,41 +423,124 @@ export function SidebarDirectoryTree({
                     <button
                       type="button"
                       onClick={() => onSelectFolder(null)}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setIsAllDragOver(true);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setIsAllDragOver(true);
+                      }}
+                      onDragLeave={() => setIsAllDragOver(false)}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsAllDragOver(false);
+                        const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
+                        if (itemIdsJson && onMoveItemToFolder) {
+                          try {
+                            const ids = JSON.parse(itemIdsJson);
+                            for (const id of ids) {
+                              await onMoveItemToFolder(id, activeFolderId || "", "");
+                            }
+                          } catch {}
+                        }
+                      }}
                       className={cn(
                         "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                        activeFolderId === null
+                        isAllDragOver && "border-2 border-dashed border-primary bg-primary/20 text-primary font-semibold ring-1 ring-primary/40",
+                        !isAllDragOver && activeFolderId === null && !tagsSidebarOpen
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Library className="size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-xs">All</span>
+                      {isAllDragOver ? (
+                        <span className="text-[9px] bg-primary text-primary-foreground font-semibold px-1 rounded animate-pulse">
+                          移入All
+                        </span>
+                      ) : (
+                        <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                          {totalItemCount}
+                        </SidebarMenuBadge>
+                      )}
+                    </button>
+                  </div>
+                </SidebarMenuItem>
+
+                {/* 2. Tags */}
+                <SidebarMenuItem>
+                  <div className="flex items-center w-full gap-0.5">
+                    <div className="w-3.5 shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() => onToggleTagsSidebar?.()}
+                      className={cn(
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        tagsSidebarOpen
+                          ? "bg-primary/10 text-primary font-semibold shadow-2xs"
+                          : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
+                      )}
+                    >
+                      <Tag className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate flex-1 text-xs">Tags</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
-                        {totalItemCount}
+                        {tagsCount}
                       </SidebarMenuBadge>
                     </button>
                   </div>
                 </SidebarMenuItem>
 
-                {/* 2. Trash (future recycling bin integration) */}
+                {/* 3. Trash */}
                 <SidebarMenuItem>
                   <div className="flex items-center w-full gap-0.5">
                     <div className="w-3.5 shrink-0" />
                     <button
                       type="button"
                       onClick={() => onSelectFolder("__trash__")}
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setIsTrashDragOver(true);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setIsTrashDragOver(true);
+                      }}
+                      onDragLeave={() => setIsTrashDragOver(false)}
+                      onDrop={async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsTrashDragOver(false);
+                        const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
+                        if (itemIdsJson && onDropItemOnTrash) {
+                          try {
+                            const ids = JSON.parse(itemIdsJson);
+                            await onDropItemOnTrash(ids);
+                          } catch {}
+                        }
+                      }}
                       className={cn(
                         "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
-                        activeFolderId === "__trash__"
+                        isTrashDragOver && "border-2 border-dashed border-destructive bg-destructive/20 text-destructive font-semibold ring-1 ring-destructive/40",
+                        !isTrashDragOver && activeFolderId === "__trash__"
                           ? "bg-primary/10 text-primary font-semibold shadow-2xs"
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
                       <Trash2 className="size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-xs">Trash</span>
-                      <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
-                        0
-                      </SidebarMenuBadge>
+                      {isTrashDragOver ? (
+                        <span className="text-[9px] bg-destructive text-destructive-foreground font-semibold px-1 rounded animate-pulse">
+                          移入回收站
+                        </span>
+                      ) : (
+                        <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                          {trashCount}
+                        </SidebarMenuBadge>
+                      )}
                     </button>
                   </div>
                 </SidebarMenuItem>
@@ -378,6 +548,16 @@ export function SidebarDirectoryTree({
             </SidebarGroupContent>
           </SidebarGroup>
 
+          {/* Root Sidebar Drag-Over Banner */}
+          {isSidebarRootDragOver && (
+            <div className="mx-2 my-1.5 p-2 rounded-xl border-2 border-dashed border-primary bg-primary/10 text-primary text-xs flex items-center gap-2 animate-in fade-in duration-100 shadow-xs">
+              <FolderPlus className="size-4 shrink-0 text-primary animate-bounce" />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-xs leading-tight">松开以导入为根目录</div>
+                <div className="text-[10px] text-primary/80">递归生成层级文件夹</div>
+              </div>
+            </div>
+          )}
           {/* Folders Section: Hierarchical virtual folders */}
           <SidebarGroup
             className="py-0"
@@ -430,8 +610,8 @@ export function SidebarDirectoryTree({
                       onCreateSubfolder={handleOpenCreateSub}
                       onRenameFolder={handleOpenRename}
                       onDeleteFolder={onDeleteFolder}
-                      onDropItemOnFolder={onDropItemOnFolder}
-                      onDropExternalFilesOnFolder={onDropExternalFilesOnFolder}
+                      onMoveItemToFolder={onMoveItemToFolder}
+                      onDropFolderImport={onDropFolderImport}
                       onOpenContextMenu={(e, f) => {
                         setFolderContextMenu({
                           position: { x: e.clientX, y: e.clientY },
@@ -556,8 +736,8 @@ interface FolderTreeItemNodeProps {
   onCreateSubfolder: (parentId: string, e?: React.MouseEvent) => void;
   onRenameFolder: (folder: Folder, e?: React.MouseEvent) => void;
   onDeleteFolder: (folderId: string) => Promise<void>;
-  onDropItemOnFolder?: (itemId: string, folderId: string) => Promise<void>;
-  onDropExternalFilesOnFolder?: (fileList: FileList, folderId: string) => Promise<void>;
+  onMoveItemToFolder?: (itemId: string, fromFolderId: string, toFolderId: string) => Promise<void>;
+  onDropFolderImport?: (e: React.DragEvent, targetFolderId?: string) => Promise<void>;
   onOpenContextMenu: (e: React.MouseEvent, folder: Folder) => void;
   depth?: number;
 }
@@ -571,57 +751,70 @@ function FolderTreeItemNode({
   onCreateSubfolder,
   onRenameFolder,
   onDeleteFolder,
-  onDropItemOnFolder,
-  onDropExternalFilesOnFolder,
+  onMoveItemToFolder,
+  onDropFolderImport,
   onOpenContextMenu,
   depth = 0,
 }: FolderTreeItemNodeProps) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounter = useRef(0);
   const hasChildren = folder.children && folder.children.length > 0;
   const isSelected = activeFolderId === folder.id;
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current += 1;
+    setIsDragOver(true);
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = "copy";
+    e.dataTransfer.dropEffect = "move";
     if (!isDragOver) setIsDragOver(true);
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setIsDragOver(false);
+    dragCounter.current -= 1;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setIsDragOver(false);
+    }
   };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    dragCounter.current = 0;
     setIsDragOver(false);
 
-    // 1. Intra-app asset drag: add reference to folder (supports multi-selection)
+    // 1. Intra-app asset drag: MOVE to folder (supports multi-selection)
     const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
-    if (itemIdsJson && onDropItemOnFolder) {
+    if (itemIdsJson && onMoveItemToFolder) {
       try {
         const ids = JSON.parse(itemIdsJson);
         if (Array.isArray(ids) && ids.length > 0) {
           for (const id of ids) {
-            await onDropItemOnFolder(id, folder.id);
+            await onMoveItemToFolder(id, activeFolderId || "", folder.id);
           }
           return;
         }
       } catch {
-        // fallback to single item ID
+        // fallback
       }
     }
     const itemId = e.dataTransfer.getData("application/x-bowerbird-item-id");
-    if (itemId && onDropItemOnFolder) {
-      await onDropItemOnFolder(itemId, folder.id);
+    if (itemId && onMoveItemToFolder) {
+      await onMoveItemToFolder(itemId, activeFolderId || "", folder.id);
       return;
     }
 
-    // 2. External file drop: import directly into this folder
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && onDropExternalFilesOnFolder) {
-      await onDropExternalFilesOnFolder(e.dataTransfer.files, folder.id);
+    // 2. External drop: strictly folder import
+    if (onDropFolderImport) {
+      await onDropFolderImport(e, folder.id);
       return;
     }
   };
@@ -629,6 +822,9 @@ function FolderTreeItemNode({
   return (
     <SidebarMenuItem className="group/item relative select-none">
       <div
+        data-file-drop-target="folder"
+        data-folder-id={folder.id}
+        onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -637,8 +833,31 @@ function FolderTreeItemNode({
           e.stopPropagation();
           onOpenContextMenu(e, folder);
         }}
-        className="flex items-center w-full gap-0.5"
+        className={cn(
+          "relative flex items-center w-full gap-0.5 rounded-lg transition-all border-2 border-transparent px-1 overflow-hidden",
+          isDragOver && "border-dashed border-primary bg-primary/20 ring-2 ring-primary/40 shadow-sm"
+        )}
       >
+        <AnimatePresence>
+          {isDragOver && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.12 }}
+              className="absolute inset-0 z-30 pointer-events-none rounded-lg border-2 border-dashed border-primary bg-primary/25 backdrop-blur-[1px] flex items-center justify-between px-2 shadow-sm"
+            >
+              <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
+                <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
+                <span className="truncate">放入「{folder.name}」</span>
+              </div>
+              <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
+                松开放入
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Chevron arrow: OUTSIDE highlight, does NOT participate in highlighting */}
         <button
           type="button"
@@ -655,37 +874,28 @@ function FolderTreeItemNode({
           )}
         </button>
 
-        {/* Highlighted name portion: ONLY this button receives highlight */}
+        {/* Highlighted name portion */}
         <button
           type="button"
           onClick={() => onSelectFolder(folder.id)}
           className={cn(
             "flex-1 flex items-center gap-2 min-w-0 h-8 px-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
-            isDragOver && "bg-primary/20 ring-2 ring-primary ring-inset text-primary font-medium",
+            isDragOver && "text-primary font-bold",
             !isDragOver && isSelected && "bg-primary/10 text-primary font-semibold shadow-2xs",
             !isDragOver && !isSelected && "hover:bg-sidebar-accent/70 text-sidebar-foreground"
           )}
         >
           {isSelected || expanded ? (
-            <FolderOpen className={cn("size-3.5 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
+            <FolderOpen className={cn("size-3.5 shrink-0 pointer-events-none", isSelected ? "text-primary" : "text-muted-foreground")} />
           ) : (
-            <FolderIcon className={cn("size-3.5 shrink-0", isSelected ? "text-primary" : "text-muted-foreground")} />
+            <FolderIcon className={cn("size-3.5 shrink-0 pointer-events-none", isSelected ? "text-primary" : "text-muted-foreground")} />
           )}
-          <span className="truncate flex-1">{folder.name}</span>
-          {isDragOver ? (
-            <span className="text-[9px] bg-primary text-primary-foreground font-semibold px-1 rounded animate-pulse">
-              + 引用
-            </span>
-          ) : (
-            folder.itemCount !== undefined && folder.itemCount > 0 && (
-              <span className="text-[10px] font-mono px-1.5 py-0 rounded text-muted-foreground/70 bg-sidebar-accent/50">
-                {folder.itemCount}
-              </span>
-            )
-          )}
+          <span className="truncate flex-1 pointer-events-none">{folder.name}</span>
+          <span className="text-[10px] font-mono px-1.5 py-0 rounded text-muted-foreground/70 bg-sidebar-accent/50 pointer-events-none">
+            {folder.itemCount ?? 0}
+          </span>
         </button>
       </div>
-
       {/* Recursive children rendering with tree guides */}
       {hasChildren && expanded && (
         <SidebarMenuSub className="ml-3.5 border-l border-sidebar-border/80 pl-2 my-0.5 space-y-0.5">
@@ -700,8 +910,8 @@ function FolderTreeItemNode({
               onCreateSubfolder={onCreateSubfolder}
               onRenameFolder={onRenameFolder}
               onDeleteFolder={onDeleteFolder}
-              onDropItemOnFolder={onDropItemOnFolder}
-              onDropExternalFilesOnFolder={onDropExternalFilesOnFolder}
+              onMoveItemToFolder={onMoveItemToFolder}
+              onDropFolderImport={onDropFolderImport}
               onOpenContextMenu={onOpenContextMenu}
               depth={depth + 1}
             />

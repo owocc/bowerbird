@@ -1,11 +1,12 @@
-import { Upload, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, Loader2 } from "lucide-react";
 import type { DropState } from "@/hooks/useFileDrop";
 
 interface DropzoneOverlayProps {
   state: DropState;
+  targetName?: string;
 }
 
-export function DropzoneOverlay({ state }: DropzoneOverlayProps) {
+export function DropzoneOverlay({ state, targetName }: DropzoneOverlayProps) {
   const { status, total, current, filename, message } = state;
 
   const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
@@ -14,18 +15,20 @@ export function DropzoneOverlay({ state }: DropzoneOverlayProps) {
     <>
       {/* 1. Dragging Over Overlay: Fullscreen active drop target feedback */}
       {status === "dragging-over" && (
-        <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-primary transition-all pointer-events-none select-none animate-in fade-in duration-150">
-          <div className="size-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-4 animate-bounce shadow-md">
+        <div className="absolute inset-0 z-50 bg-background/85 backdrop-blur-md flex flex-col items-center justify-center border-4 border-dashed border-primary transition-all pointer-events-none select-none animate-in fade-in duration-150">
+          <div className="size-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mb-3 animate-bounce shadow-md">
             <Upload className="size-8" />
           </div>
-          <h3 className="text-xl font-bold tracking-tight">Drop files to import into library</h3>
-          <p className="text-xs text-muted-foreground mt-1.5 max-w-sm text-center leading-relaxed">
-            Drop local files, folders, or web images to import
+          <h3 className="text-lg font-bold tracking-tight text-foreground">
+            {targetName ? `松开以导入至目录「${targetName}」` : "松开以导入至全部资产"}
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1 max-w-sm text-center leading-relaxed">
+            支持外部文件与文件夹 · 文件夹将自动递归提取子素材扁平归属
           </p>
-          <div className="flex gap-2 mt-4 text-[11px] text-muted-foreground font-mono">
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">Isolated Copy</span>
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">Deduplicated</span>
-            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">Thumbnails</span>
+          <div className="flex gap-2 mt-3 text-[11px] text-muted-foreground font-mono">
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">自动排重</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">生成缩略图</span>
+            <span className="px-2 py-0.5 rounded bg-muted/60 border border-border">元数据提取</span>
           </div>
         </div>
       )}
@@ -56,22 +59,6 @@ export function DropzoneOverlay({ state }: DropzoneOverlayProps) {
               {message || filename || "Processing..."}
             </p>
           </div>
-        </div>
-      )}
-
-      {/* 3. Floating Success Toast Banner */}
-      {status === "success" && message && (
-        <div className="absolute bottom-10 right-6 z-40 max-w-md p-3 px-4 rounded-xl bg-card/95 border border-primary/30 shadow-lg backdrop-blur-md flex items-center gap-3 animate-in slide-in-from-bottom-3 duration-200 select-none">
-          <CheckCircle2 className="size-4 text-primary shrink-0" />
-          <p className="text-xs font-medium text-foreground truncate">{message}</p>
-        </div>
-      )}
-
-      {/* 4. Floating Error Toast Banner */}
-      {status === "error" && message && (
-        <div className="absolute bottom-10 right-6 z-40 max-w-md p-3 px-4 rounded-xl bg-destructive/10 border border-destructive/30 shadow-lg backdrop-blur-md flex items-center gap-3 animate-in slide-in-from-bottom-3 duration-200 select-none">
-          <AlertCircle className="size-4 text-destructive shrink-0" />
-          <p className="text-xs font-medium text-destructive truncate">{message}</p>
         </div>
       )}
     </>
