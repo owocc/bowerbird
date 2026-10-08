@@ -191,7 +191,7 @@ export function ItemDetailPanel({
         {/* Large Thumbnail Preview Box using UniversalThumbnail */}
         <div
           onClick={onPreview}
-          className="group relative aspect-square w-full rounded-2xl overflow-hidden border border-border/80 bg-muted/20 cursor-pointer flex items-center justify-center shadow-xs hover:border-primary/60 transition-all"
+          className="group relative aspect-square w-full rounded-sm overflow-hidden border border-border/80 bg-muted/20 cursor-pointer flex items-center justify-center shadow-xs hover:border-primary/60 transition-all"
         >
           <UniversalThumbnail
             item={item}

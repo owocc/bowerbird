@@ -103,7 +103,7 @@ export function MultiItemInspector({
                   width: `${calculatedWidth}px`,
                   transform: `translate(${preset.x}px, ${preset.y}px) rotate(${preset.rotate}deg)`,
                 }}
-                className="absolute rounded-xl overflow-hidden border border-border/80 bg-card shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
+                className="absolute rounded-sm overflow-hidden border border-border/80 bg-card shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
               >
                 <UniversalThumbnail
                   item={item}
