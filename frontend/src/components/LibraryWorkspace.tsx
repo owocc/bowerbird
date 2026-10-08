@@ -836,12 +836,15 @@ export function LibraryWorkspace({
         >
           {sidebarOpen && (
             <>
+              {/* Sidebar panel owns the pixel floor (220px) and a relative cap: max 40%
+                  of the group, so it can be dragged far wider than the old 400px.
+                  No CSS max-width here — it would clip the 40% cap back to 400px. */}
               <ResizablePanel
                 id="sidebar-panel"
                 defaultSize={220}
-                minSize={180}
-                maxSize={400}
-                className="min-w-[180px] max-w-[400px]"
+                minSize={220}
+                maxSize="40%"
+                className="min-w-[220px]"
               >
                 <SidebarDirectoryTree
                   library={library}

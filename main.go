@@ -62,6 +62,8 @@ func main() {
 		Title:          "Bowerbird",
 		Width:          1280,
 		Height:         800,
+		MinWidth:       900,
+		MinHeight:      600,
 		EnableFileDrop: true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 54,
