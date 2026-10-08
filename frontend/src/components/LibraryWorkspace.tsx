@@ -594,8 +594,10 @@ export function LibraryWorkspace({
         setActiveFolderId(null);
       }
       await handleFullRefresh();
+      toast.success("文件夹已删除");
     } catch (err) {
       console.error("删除文件夹失败:", err);
+      toast.error("删除文件夹失败");
     }
   };
 
