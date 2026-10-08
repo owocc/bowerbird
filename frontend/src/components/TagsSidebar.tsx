@@ -63,7 +63,7 @@ export function TagsSidebar({
   };
 
   return (
-    <aside className="w-52 h-full bg-sidebar/70 border-r border-sidebar-border flex flex-col select-none overflow-hidden text-xs">
+    <aside className="w-full h-full bg-sidebar/70 border-r border-sidebar-border flex flex-col select-none overflow-hidden text-xs">
       {/* Header */}
       <div className="h-10 px-3 flex items-center justify-between border-b border-sidebar-border/60 shrink-0">
         <div className="flex items-center gap-1.5 font-semibold text-sidebar-foreground">
