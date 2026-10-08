@@ -966,7 +966,7 @@ export function LibraryWorkspace({
                 )}
               </AnimatePresence>
               {!isInternalDragging && (
-                <div className="pointer-events-none absolute inset-0 z-50 hidden flex-col items-center justify-center border-4 border-dashed border-primary bg-background/85 p-6 text-center select-none shadow-2xl backdrop-blur-md group-[.file-drop-target-active]/main:!flex">
+                <div className="pointer-events-none absolute inset-0 z-50 hidden flex-col items-center justify-center border-4 border-dashed border-primary bg-background/85 p-6 text-center select-none shadow-2xl backdrop-blur-md [.file-drop-target-active_&]:!flex">
                   <div className="size-16 rounded-2xl bg-primary/15 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
                     <Upload className="size-8 text-primary" />
                   </div>

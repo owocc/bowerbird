@@ -293,7 +293,7 @@ export function SidebarDirectoryTree({
             </motion.div>
           )}
         </AnimatePresence>
-        <div className="pointer-events-none absolute inset-0 z-40 hidden flex-col items-center justify-center border-4 border-dashed border-primary bg-primary/15 p-4 text-center select-none shadow-xl backdrop-blur-[2px] group-[.file-drop-target-active]/sidebar:!flex">
+        <div className="pointer-events-none absolute inset-0 z-40 hidden flex-col items-center justify-center border-4 border-dashed border-primary bg-primary/15 p-4 text-center select-none shadow-xl backdrop-blur-[2px] [.file-drop-target-active_&]:!flex">
           <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
             <FolderPlus className="size-7 text-primary" />
           </div>
@@ -490,7 +490,7 @@ export function SidebarDirectoryTree({
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] group-[.file-drop-target-active]/all:!flex">
+                    <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
                       <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                         <Library className="size-4 shrink-0 text-primary animate-pulse" />
                         <span className="truncate">移入全部资产</span>
@@ -590,7 +590,7 @@ export function SidebarDirectoryTree({
                         </motion.div>
                       )}
                     </AnimatePresence>
-                    <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-destructive bg-destructive/25 px-2 shadow-sm backdrop-blur-[1px] group-[.file-drop-target-active]/trash:!flex">
+                    <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-destructive bg-destructive/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
                       <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
                         <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
                         <span className="truncate">丢入回收站</span>
@@ -914,7 +914,7 @@ function FolderTreeItemNode({
           )}
         </AnimatePresence>
 
-        <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] group-[.file-drop-target-active]/folder:!flex">
+        <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
           <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
             <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
             <span className="truncate">放入「{folder.name}」</span>
