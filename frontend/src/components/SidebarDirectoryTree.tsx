@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/command";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { useIsMacOS } from "@/lib/macos";
+import { useTranslation } from "react-i18next";
 import {
   GetRecentLibraries,
   OpenLibrary,
@@ -104,6 +105,7 @@ export function SidebarDirectoryTree({
   onLibraryChanged,
   onToggleCollapse,
 }: SidebarDirectoryTreeProps) {
+  const { t } = useTranslation();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderParentId, setNewFolderParentId] = useState<string | undefined>(undefined);
@@ -187,7 +189,7 @@ export function SidebarDirectoryTree({
       const list = await GetRecentLibraries();
       setRecentLibraries(list || []);
     } catch (err) {
-      console.error("加载最近资源库列表失败:", err);
+      console.error("Failed to load recent libraries:", err);
     }
   }, []);
 
@@ -207,7 +209,7 @@ export function SidebarDirectoryTree({
           }
         }
       } catch (err) {
-        console.error("选择资源库失败:", err);
+        console.error("Failed to select library:", err);
       }
       return;
     }
@@ -222,7 +224,7 @@ export function SidebarDirectoryTree({
           onLibraryChanged(opened);
         }
       } catch (err) {
-        console.error("切换资源库失败:", err);
+        console.error("Failed to switch library:", err);
       }
     }
   };
@@ -292,10 +294,13 @@ export function SidebarDirectoryTree({
         className="w-64 p-0 rounded-xl shadow-xl border border-neutral-300 dark:border-neutral-700 bg-popover text-popover-foreground z-50 overflow-hidden ring-0"
       >
         <Command className="rounded-xl">
-          <CommandInput placeholder="Search library..." className="h-8 text-xs" />
+          <CommandInput
+            placeholder={t("sidebar.searchLibraryPlaceholder")}
+            className="h-8 text-xs"
+          />
           <CommandList className="max-h-64 p-1">
             <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-              No libraries found
+              {t("sidebar.noLibrariesFound")}
             </CommandEmpty>
             <CommandGroup>
               {/* Current library item without redundant "当前资源库" label */}
@@ -344,7 +349,7 @@ export function SidebarDirectoryTree({
                 className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer hover:bg-accent"
               >
                 <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-                <span>Open Library...</span>
+                <span>{t("sidebar.openLibrary")}</span>
               </CommandItem>
               <CommandItem
                 value="__action_close__ Close Library"
@@ -355,7 +360,7 @@ export function SidebarDirectoryTree({
                 className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer text-muted-foreground hover:text-destructive hover:bg-destructive/10"
               >
                 <LogOut className="size-3.5 shrink-0" />
-                <span>Close Library</span>
+                <span>{t("sidebar.closeLibrary")}</span>
               </CommandItem>
             </CommandGroup>
           </CommandList>
@@ -396,8 +401,8 @@ export function SidebarDirectoryTree({
               <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
                 <FolderPlus className="size-7 text-primary" />
               </div>
-              <div className="font-bold text-sm text-primary">松开以导入为根目录文件夹</div>
-              <div className="text-[11px] text-primary/80 mt-1">将在侧边栏建立对应层级文件夹结构</div>
+              <div className="font-bold text-sm text-primary">{t("sidebar.dropToImportRoot")}</div>
+              <div className="text-[11px] text-primary/80 mt-1">{t("sidebar.dropToImportRootHint")}</div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -405,8 +410,8 @@ export function SidebarDirectoryTree({
           <div className="size-14 rounded-2xl bg-primary/25 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
             <FolderPlus className="size-7 text-primary" />
           </div>
-          <div className="font-bold text-sm text-primary">松开以导入为根目录文件夹</div>
-          <div className="text-[11px] text-primary/80 mt-1">将在侧边栏建立对应层级文件夹结构</div>
+          <div className="font-bold text-sm text-primary">{t("sidebar.dropToImportRoot")}</div>
+          <div className="text-[11px] text-primary/80 mt-1">{t("sidebar.dropToImportRootHint")}</div>
         </div>
         <SidebarHeader className="p-0 border-b-0 select-none shrink-0">
           {isMac ? (
@@ -425,7 +430,7 @@ export function SidebarDirectoryTree({
                     variant="ghost"
                     size="icon-xs"
                     onClick={onToggleCollapse}
-                    title={`Collapse Sidebar (${collapseShortcutLabel})`}
+                    title={t("sidebar.collapseSidebar", { shortcut: collapseShortcutLabel })}
                     className="size-7 text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-lg shrink-0 wails-no-drag"
                   >
                     <PanelLeftClose className="size-4" />
@@ -457,7 +462,7 @@ export function SidebarDirectoryTree({
                   variant="ghost"
                   size="icon-xs"
                   onClick={onToggleCollapse}
-                  title={`Collapse Sidebar (${collapseShortcutLabel})`}
+                  title={t("sidebar.collapseSidebar", { shortcut: collapseShortcutLabel })}
                   className="size-7 text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent rounded-lg shrink-0 wails-no-drag"
                 >
                   <PanelLeftClose className="size-4" />
@@ -517,7 +522,7 @@ export function SidebarDirectoryTree({
                       )}
                     >
                       <Library className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-xs">All</span>
+                      <span className="truncate flex-1 text-xs">{t("sidebar.all")}</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {totalItemCount}
                       </SidebarMenuBadge>
@@ -534,10 +539,10 @@ export function SidebarDirectoryTree({
                         >
                           <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                             <Library className="size-4 shrink-0 text-primary animate-pulse" />
-                            <span className="truncate">移入全部资产</span>
+                            <span className="truncate">{t("sidebar.moveToAll")}</span>
                           </div>
                           <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                            松开移入
+                            {t("sidebar.dropToMove")}
                           </span>
                         </motion.div>
                       )}
@@ -545,10 +550,10 @@ export function SidebarDirectoryTree({
                     <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
                       <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                         <Library className="size-4 shrink-0 text-primary animate-pulse" />
-                        <span className="truncate">移入全部资产</span>
+                        <span className="truncate">{t("sidebar.moveToAll")}</span>
                       </div>
                       <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                        松开移入
+                        {t("sidebar.dropToMove")}
                       </span>
                     </div>
                   </div>
@@ -568,7 +573,7 @@ export function SidebarDirectoryTree({
                       )}
                     >
                       <Tag className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-xs">Tags</span>
+                      <span className="truncate flex-1 text-xs">{t("sidebar.tags")}</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {tagsCount}
                       </SidebarMenuBadge>
@@ -617,7 +622,7 @@ export function SidebarDirectoryTree({
                       )}
                     >
                       <Trash2 className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="truncate flex-1 text-xs">Trash</span>
+                      <span className="truncate flex-1 text-xs">{t("sidebar.trash")}</span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {trashCount}
                       </SidebarMenuBadge>
@@ -634,10 +639,10 @@ export function SidebarDirectoryTree({
                         >
                           <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
                             <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
-                            <span className="truncate">丢入回收站</span>
+                            <span className="truncate">{t("sidebar.dropToTrash")}</span>
                           </div>
                           <span className="text-[10px] bg-destructive text-destructive-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                            松开删除
+                            {t("sidebar.dropToDelete")}
                           </span>
                         </motion.div>
                       )}
@@ -645,10 +650,10 @@ export function SidebarDirectoryTree({
                     <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-destructive bg-destructive/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
                       <div className="flex items-center gap-1.5 text-destructive font-bold text-xs truncate">
                         <Trash2 className="size-4 shrink-0 text-destructive animate-pulse" />
-                        <span className="truncate">丢入回收站</span>
+                        <span className="truncate">{t("sidebar.dropToTrash")}</span>
                       </div>
                       <span className="text-[10px] bg-destructive text-destructive-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                        松开删除
+                        {t("sidebar.dropToDelete")}
                       </span>
                     </div>
                   </div>
@@ -661,8 +666,12 @@ export function SidebarDirectoryTree({
             <div className="mx-2 my-1.5 p-2 rounded-xl border-2 border-dashed border-primary bg-primary/10 text-primary text-xs flex items-center gap-2 animate-in fade-in duration-100 shadow-xs">
               <FolderPlus className="size-4 shrink-0 text-primary animate-bounce" />
               <div className="min-w-0 flex-1">
-                <div className="font-semibold text-xs leading-tight">松开以导入为根目录</div>
-                <div className="text-[10px] text-primary/80">递归生成层级文件夹</div>
+                <div className="font-semibold text-xs leading-tight">
+                  {t("sidebar.dropToImportRootShort")}
+                </div>
+                <div className="text-[10px] text-primary/80">
+                  {t("sidebar.dropToImportRootShortHint")}
+                </div>
               </div>
             </div>
           )}
@@ -680,7 +689,7 @@ export function SidebarDirectoryTree({
           >
             <SidebarGroupLabel className="flex items-center justify-between text-[10px] tracking-wider text-muted-foreground/80 font-semibold pl-4 pr-2 h-6 select-none cursor-default">
               <span className="flex items-center gap-1.5">
-                <span>Folders</span>
+                <span>{t("sidebar.folders")}</span>
                 {folders.length > 0 && (
                   <span className="text-[9px] font-mono px-1 rounded bg-muted/60 text-muted-foreground">
                     {folders.length}
@@ -692,9 +701,9 @@ export function SidebarDirectoryTree({
               <SidebarMenu className="space-y-0.5">
                 {folders.length === 0 ? (
                   <div className="py-5 px-3 text-center border border-dashed border-sidebar-border/80 rounded-xl my-1 bg-muted/5">
-                    <p className="text-[11px] text-muted-foreground">No folders</p>
+                    <p className="text-[11px] text-muted-foreground">{t("sidebar.noFolders")}</p>
                     <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                      Drag items here to organize
+                      {t("sidebar.noFoldersHint")}
                     </p>
                     <Button
                       variant="outline"
@@ -703,7 +712,7 @@ export function SidebarDirectoryTree({
                       className="mt-2.5 text-[11px] h-6.5 gap-1 shadow-2xs"
                     >
                       <Plus className="size-3" />
-                      <span>New Folder</span>
+                      <span>{t("sidebar.newFolder")}</span>
                     </Button>
                   </div>
                 ) : (
@@ -741,17 +750,19 @@ export function SidebarDirectoryTree({
         <DialogContent className="max-w-xs text-xs">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">
-              {newFolderParentId ? "New Subfolder" : "New Folder"}
+              {newFolderParentId ? t("sidebar.newSubfolder") : t("sidebar.newFolder")}
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmCreate} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground font-medium">Folder Name</label>
+              <label className="text-xs text-muted-foreground font-medium">
+                {t("sidebar.folderName")}
+              </label>
               <Input
                 autoFocus
                 value={newFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="e.g. Design, Inspiration..."
+                placeholder={t("sidebar.folderNamePlaceholder")}
                 className="h-8 text-xs"
               />
             </div>
@@ -763,7 +774,7 @@ export function SidebarDirectoryTree({
                 onClick={() => setCreateDialogOpen(false)}
                 className="h-7 text-xs"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -771,7 +782,7 @@ export function SidebarDirectoryTree({
                 disabled={!newFolderName.trim()}
                 className="h-7 text-xs"
               >
-                Create
+                {t("common.create")}
               </Button>
             </DialogFooter>
           </form>
@@ -782,16 +793,20 @@ export function SidebarDirectoryTree({
       <Dialog open={renameDialogOpen} onOpenChange={setRenameDialogOpen}>
         <DialogContent className="max-w-xs text-xs">
           <DialogHeader>
-            <DialogTitle className="text-sm font-semibold">Rename Folder</DialogTitle>
+            <DialogTitle className="text-sm font-semibold">
+              {t("sidebar.renameFolder")}
+            </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleConfirmRename} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-muted-foreground font-medium">New Name</label>
+              <label className="text-xs text-muted-foreground font-medium">
+                {t("sidebar.newName")}
+              </label>
               <Input
                 autoFocus
                 value={renameFolderName}
                 onChange={(e) => setNewFolderName(e.target.value)}
-                placeholder="Enter new name..."
+                placeholder={t("sidebar.newNamePlaceholder")}
                 className="h-8 text-xs"
               />
             </div>
@@ -803,7 +818,7 @@ export function SidebarDirectoryTree({
                 onClick={() => setRenameDialogOpen(false)}
                 className="h-7 text-xs"
               >
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 type="submit"
@@ -811,7 +826,7 @@ export function SidebarDirectoryTree({
                 disabled={!renameFolderName.trim()}
                 className="h-7 text-xs"
               >
-                Save
+                {t("common.save")}
               </Button>
             </DialogFooter>
           </form>
@@ -842,12 +857,14 @@ export function SidebarDirectoryTree({
         >
           <DialogContent className="max-w-xs text-xs">
             <DialogHeader>
-              <DialogTitle className="text-sm font-semibold">删除文件夹</DialogTitle>
+              <DialogTitle className="text-sm font-semibold">
+                {t("sidebar.deleteFolderTitle")}
+              </DialogTitle>
             </DialogHeader>
             <div className="py-2 text-xs text-muted-foreground leading-relaxed">
-              确定要删除文件夹「{deleteFolderDialog.folderName}」吗？
+              {t("sidebar.deleteFolderConfirm", { name: deleteFolderDialog.folderName })}
               <p className="mt-1 text-[11px] text-muted-foreground/80">
-                此操作仅删除目录结构，其中的文件素材仍将保留在全部资产中。
+                {t("sidebar.deleteFolderHint")}
               </p>
             </div>
             <DialogFooter className="flex justify-end gap-2 pt-2">
@@ -858,7 +875,7 @@ export function SidebarDirectoryTree({
                 onClick={() => setDeleteFolderDialog(null)}
                 className="cursor-pointer text-xs"
               >
-                取消
+                {t("common.cancel")}
               </Button>
               <Button
                 type="button"
@@ -871,7 +888,7 @@ export function SidebarDirectoryTree({
                 }}
                 className="cursor-pointer text-xs"
               >
-                删除
+                {t("common.delete")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -910,6 +927,7 @@ function FolderTreeItemNode({
   onOpenContextMenu,
   depth = 0,
 }: FolderTreeItemNodeProps) {
+  const { t } = useTranslation();
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounter = useRef(0);
   const hasChildren = folder.children && folder.children.length > 0;
@@ -1003,10 +1021,12 @@ function FolderTreeItemNode({
             >
               <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
                 <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
-                <span className="truncate">放入「{folder.name}」</span>
+                <span className="truncate">
+                  {t("sidebar.dropIntoFolder", { name: folder.name })}
+                </span>
               </div>
               <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-                松开放入
+                {t("sidebar.dropToPlace")}
               </span>
             </motion.div>
           )}
@@ -1015,10 +1035,12 @@ function FolderTreeItemNode({
         <div className="pointer-events-none absolute inset-0 z-30 hidden items-center justify-between rounded-lg border-2 border-dashed border-primary bg-primary/25 px-2 shadow-sm backdrop-blur-[1px] [.file-drop-target-active_&]:!flex">
           <div className="flex items-center gap-1.5 text-primary font-bold text-xs truncate">
             <FolderOpen className="size-4 shrink-0 text-primary animate-pulse" />
-            <span className="truncate">放入「{folder.name}」</span>
+            <span className="truncate">
+              {t("sidebar.dropIntoFolder", { name: folder.name })}
+            </span>
           </div>
           <span className="text-[10px] bg-primary text-primary-foreground font-semibold px-1.5 py-0.5 rounded shadow-xs shrink-0 animate-bounce">
-            松开放入
+            {t("sidebar.dropToPlace")}
           </span>
         </div>
 
@@ -1110,6 +1132,7 @@ function FolderContextMenu({
   onRenameFolder,
   onDeleteFolder,
 }: FolderContextMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1156,7 +1179,7 @@ function FolderContextMenu({
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
           >
             <FolderPlus className="size-3.5 text-muted-foreground" />
-            <span>New Subfolder...</span>
+            <span>{t("sidebar.newSubfolderMenu")}</span>
           </button>
           <button
             type="button"
@@ -1167,7 +1190,7 @@ function FolderContextMenu({
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
           >
             <Edit2 className="size-3.5 text-muted-foreground" />
-            <span>Rename...</span>
+            <span>{t("sidebar.renameMenu")}</span>
           </button>
           <div className="my-1 h-px bg-border/60" />
           <button
@@ -1179,7 +1202,7 @@ function FolderContextMenu({
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-destructive hover:bg-destructive/10 text-left transition-colors cursor-pointer"
           >
             <Trash2 className="size-3.5 text-destructive" />
-            <span>Delete Folder</span>
+            <span>{t("sidebar.deleteFolderMenu")}</span>
           </button>
         </>
       ) : (
@@ -1192,7 +1215,7 @@ function FolderContextMenu({
           className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
         >
           <FolderPlus className="size-3.5 text-muted-foreground" />
-          <span>New Folder...</span>
+          <span>{t("sidebar.newFolderMenu")}</span>
         </button>
       )}
     </div>

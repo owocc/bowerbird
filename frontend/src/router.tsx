@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   createRootRoute,
   createRoute,
@@ -26,6 +27,7 @@ function RootLayout() {
 }
 
 function HomePage() {
+  const { t } = useTranslation();
   const [activeLibrary, setActiveLibrary] = useState<LibraryInfo | null>(null);
   const [initializing, setInitializing] = useState(true);
 
@@ -37,7 +39,7 @@ function HomePage() {
           setActiveLibrary(lib);
         }
       } catch (err) {
-        console.error("检查活动资源库失败:", err);
+        console.error("Failed to check active library:", err);
       } finally {
         setInitializing(false);
       }
@@ -48,7 +50,7 @@ function HomePage() {
   if (initializing) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-xs text-muted-foreground font-mono">
-        正在初始化 Bowerbird...
+        {t("app.initializing")}
       </div>
     );
   }

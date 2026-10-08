@@ -194,11 +194,11 @@ body[data-dragging-files="true"] *,
   -webkit-app-region: no-drag !important;
 }
 
-/* Strictly ensure search input and its vicinity cannot trigger window dragging */
+/* Strictly ensure the search input and its vicinity cannot trigger window dragging.
+   Matched by container class only: never by placeholder text, which is translated. */
 .search-input-container,
 .search-input-container *,
-input[type="search"],
-input[placeholder="Search"] {
+input[type="search"] {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
 }

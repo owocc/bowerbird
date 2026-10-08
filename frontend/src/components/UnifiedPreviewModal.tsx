@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
   TransformWrapper,
   TransformComponent,
@@ -49,6 +50,7 @@ export function UnifiedPreviewModal({
   sidebarOpen = true,
   onToggleSidebar,
 }: UnifiedPreviewModalProps) {
+  const { t } = useTranslation();
   const transformRef = useRef<ReactZoomPanPinchRef>(null);
   // Default preview scale is strictly 100% (1.0)
   const [scale, setScale] = useState<number>(1);
@@ -195,7 +197,7 @@ export function UnifiedPreviewModal({
               size="icon-xs"
               onClick={onClose}
               className="size-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
-              title="Back (Esc / Double-click)"
+              title={t("preview.backTooltip")}
             >
               <ArrowLeft className="size-4" />
             </Button>
@@ -207,7 +209,7 @@ export function UnifiedPreviewModal({
                   variant="ghost"
                   size="icon-xs"
                   onClick={handlePrev}
-                  title="Previous (←)"
+                  title={t("preview.previousTooltip")}
                   className="size-6 text-muted-foreground hover:text-foreground rounded"
                 >
                   <ChevronLeft className="size-3.5" />
@@ -221,7 +223,7 @@ export function UnifiedPreviewModal({
                   variant="ghost"
                   size="icon-xs"
                   onClick={handleNext}
-                  title="Next (→)"
+                  title={t("preview.nextTooltip")}
                   className="size-6 text-muted-foreground hover:text-foreground rounded"
                 >
                   <ChevronRight className="size-3.5" />
@@ -245,7 +247,7 @@ export function UnifiedPreviewModal({
               variant="ghost"
               size="icon-xs"
               onClick={onClose}
-              title="Close Preview (Esc)"
+              title={t("preview.closePreviewTooltip")}
               className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
             >
               <X className="size-3.5" />
@@ -265,7 +267,7 @@ export function UnifiedPreviewModal({
             variant="ghost"
             size="icon-xs"
             onClick={onClose}
-            title="退出全屏预览 (空格 / Esc)"
+            title={t("preview.exitFullscreenTooltip")}
             className="size-8 rounded-full bg-background/70 hover:bg-background text-foreground border border-border/60 shadow-lg backdrop-blur-md"
           >
             <X className="size-4" />
@@ -323,7 +325,7 @@ export function UnifiedPreviewModal({
                   {systemIconUrl && !iconLoadError ? (
                     <img
                       src={systemIconUrl}
-                      alt={activeItem.extension || "file"}
+                      alt={activeItem.extension || t("preview.fileAlt")}
                       draggable={false}
                       onError={() => setIconLoadError(true)}
                       className="size-32 object-contain pointer-events-none drop-shadow-lg"
@@ -389,7 +391,7 @@ export function UnifiedPreviewModal({
             variant="ghost"
             size="icon-xs"
             onClick={handlePrev}
-            title="上一张 (←)"
+            title={t("preview.previousTooltip")}
             className="size-7 rounded-full text-foreground hover:bg-muted"
           >
             <ChevronLeft className="size-4" />
@@ -403,7 +405,7 @@ export function UnifiedPreviewModal({
             variant="ghost"
             size="icon-xs"
             onClick={handleNext}
-            title="下一张 (→)"
+            title={t("preview.nextTooltip")}
             className="size-7 rounded-full text-foreground hover:bg-muted"
           >
             <ChevronRight className="size-4" />

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   X,
   Eye,
@@ -20,6 +21,7 @@ import { UniversalThumbnail } from "./UniversalThumbnail";
 import type { Item, Folder, Tag as TagModel } from "../../bindings/bowerbird/core/models";
 import { AddItemToFolder, RemoveItemFromFolder, AddTagToItem, RemoveTagFromItem, ToggleFavorite } from "../../bindings/bowerbird/core/service";
 import { formatBytes, formatDate, escapePathForShell } from "@/lib/formatters";
+import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { cn } from "cn";
 
 export interface ItemDetailPanelProps {
@@ -57,6 +59,7 @@ export function ItemDetailPanel({
   onFolderUpdated,
   onTagsUpdated,
 }: ItemDetailPanelProps) {
+  const { t } = useTranslation();
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -86,7 +89,7 @@ export function ItemDetailPanel({
       setShowFolderPicker(false);
       onFolderUpdated?.();
     } catch (err) {
-      console.error("添加到目录失败:", err);
+      console.error("Failed to add item to folder:", err);
     }
   };
 
@@ -97,7 +100,7 @@ export function ItemDetailPanel({
       await RemoveItemFromFolder(item.id, folderId);
       onFolderUpdated?.();
     } catch (err) {
-      console.error("从目录移出失败:", err);
+      console.error("Failed to remove item from folder:", err);
     }
   };
 
@@ -115,17 +118,17 @@ export function ItemDetailPanel({
               </div>
               <div className="min-w-0 flex-1">
                 <h4 className="font-semibold text-sm truncate">
-                  {currentFolder ? currentFolder.name : "全部资产"}
+                  {currentFolder ? currentFolder.name : t("inspector.allAssets")}
                 </h4>
                 <p className="text-[11px] text-muted-foreground">
-                  共计 {totalItemCount} 项资产
+                  {t("inspector.totalItems", { count: totalItemCount })}
                 </p>
               </div>
             </div>
 
             {totalSizeBytes > 0 && (
               <div className="flex items-center justify-between text-[11px] pt-2 border-t border-border/60 text-muted-foreground">
-                <span>占用体积</span>
+                <span>{t("inspector.storageUsed")}</span>
                 <span className="font-mono text-foreground">{formatBytes(totalSizeBytes)}</span>
               </div>
             )}
@@ -134,38 +137,38 @@ export function ItemDetailPanel({
           {/* Quick shortcuts cheat sheet */}
           <div className="space-y-2.5">
             <h5 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-              桌面快捷操作
+              {t("inspector.desktopShortcuts")}
             </h5>
             <div className="p-3.5 rounded-xl border border-border/60 bg-muted/20 space-y-2.5 text-[11px]">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">快速预览</span>
+                <span className="text-muted-foreground">{t("inspector.quickPreview")}</span>
                 <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono text-[10px]">
-                  空格 (Space)
+                  {t("inspector.shortcutSpace")}
                 </kbd>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">双击文件</span>
-                <span className="text-muted-foreground font-mono">全屏查看</span>
+                <span className="text-muted-foreground">{t("inspector.doubleClickFile")}</span>
+                <span className="text-muted-foreground font-mono">{t("inspector.viewFullscreen")}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">导入文件</span>
-                <span className="text-muted-foreground">拖拽 / 点击右上角</span>
+                <span className="text-muted-foreground">{t("inspector.importFiles")}</span>
+                <span className="text-muted-foreground">{t("inspector.dragOrClickTopRight")}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">粘贴剪贴板</span>
+                <span className="text-muted-foreground">{t("inspector.pasteClipboard")}</span>
                 <kbd className="px-1.5 py-0.5 rounded bg-muted border font-mono text-[10px]">
                   Cmd + V
                 </kbd>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">导出到访达</span>
-                <span className="text-muted-foreground">直接拖出卡片</span>
+                <span className="text-muted-foreground">{t("inspector.exportToFinder")}</span>
+                <span className="text-muted-foreground">{t("inspector.dragOutCard")}</span>
               </div>
             </div>
           </div>
 
           <div className="p-3 rounded-lg border border-border/40 bg-muted/10 text-center text-muted-foreground text-[11px] leading-relaxed">
-            点击中间任意文件即可在此处查看高分辨率缩略图与完整元数据。
+            {t("inspector.emptyHint")}
           </div>
         </div>
       </aside>
@@ -202,7 +205,7 @@ export function ItemDetailPanel({
           <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
             <div className="px-2.5 py-1 rounded-full bg-background/90 text-foreground text-[11px] font-medium flex items-center gap-1.5 shadow-md backdrop-blur-xs">
               <Eye className="size-3" />
-              <span>按空格全屏预览</span>
+              <span>{t("inspector.spaceToPreview")}</span>
             </div>
           </div>
         </div>
@@ -225,20 +228,20 @@ export function ItemDetailPanel({
               size="xs"
               onClick={onRestore}
               className="h-7 text-[11px] gap-1 text-primary hover:text-primary"
-              title="放回原处"
+              title={t("inspector.restore")}
             >
               <RotateCcw className="size-3" />
-              <span>放回原处</span>
+              <span>{t("inspector.restore")}</span>
             </Button>
             <Button
               variant="destructive"
               size="xs"
               onClick={onDelete}
               className="h-7 text-[11px] gap-1"
-              title="彻底删除文件"
+              title={t("inspector.deletePermanentlyHint")}
             >
               <Trash2 className="size-3" />
-              <span>彻底删除</span>
+              <span>{t("inspector.deletePermanently")}</span>
             </Button>
           </div>
         ) : (
@@ -248,10 +251,10 @@ export function ItemDetailPanel({
               size="xs"
               onClick={onPreview}
               className="h-7 text-[11px] px-1 gap-1"
-              title="全屏预览 (空格)"
+              title={t("inspector.previewTitle")}
             >
               <Eye className="size-3" />
-              <span>预览</span>
+              <span>{t("inspector.preview")}</span>
             </Button>
 
             <Button
@@ -259,14 +262,14 @@ export function ItemDetailPanel({
               size="xs"
               onClick={onReveal}
               className="h-7 text-[11px] px-1 gap-1"
-              title="在访达中显示"
+              title={t("inspector.revealInFinder")}
             >
               <FolderOpen className="size-3" />
-              <span>访达</span>
+              <span>{t("inspector.revealInFinder")}</span>
             </Button>
 
             <Button
-              variant={item.tags?.includes("收藏") ? "secondary" : "outline"}
+              variant={item.tags?.includes(FAVORITE_TAG) ? "secondary" : "outline"}
               size="xs"
               onClick={async () => {
                 if (onToggleFavorite) {
@@ -278,17 +281,17 @@ export function ItemDetailPanel({
               }}
               className={cn(
                 "h-7 text-[11px] px-1 gap-1",
-                item.tags?.includes("收藏") && "text-amber-500 font-medium"
+                item.tags?.includes(FAVORITE_TAG) && "text-amber-500 font-medium"
               )}
-              title="收藏素材"
+              title={t("inspector.favoriteHint")}
             >
               <Star
                 className={cn(
                   "size-3",
-                  item.tags?.includes("收藏") && "fill-amber-500"
+                  item.tags?.includes(FAVORITE_TAG) && "fill-amber-500"
                 )}
               />
-              <span>{item.tags?.includes("收藏") ? "已收藏" : "收藏"}</span>
+              <span>{item.tags?.includes(FAVORITE_TAG) ? t("inspector.favorited") : t("inspector.favorite")}</span>
             </Button>
 
             <Button
@@ -296,10 +299,10 @@ export function ItemDetailPanel({
               size="xs"
               onClick={onDelete}
               className="h-7 text-[11px] px-1 gap-1"
-              title="丢到回收站"
+              title={t("inspector.moveToTrash")}
             >
               <Trash2 className="size-3" />
-              <span>删除</span>
+              <span>{t("common.delete")}</span>
             </Button>
           </div>
         )}
@@ -309,7 +312,7 @@ export function ItemDetailPanel({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              所属目录 ({assignedFolders.length})
+              {t("inspector.foldersCount", { count: assignedFolders.length })}
             </span>
             {unassignedFolders.length > 0 && (
               <button
@@ -317,7 +320,7 @@ export function ItemDetailPanel({
                 className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
               >
                 <Plus className="size-2.5" />
-                <span>添加至目录</span>
+                <span>{t("inspector.addToFolder")}</span>
               </button>
             )}
           </div>
@@ -325,7 +328,7 @@ export function ItemDetailPanel({
           {/* Folder picker dropdown */}
           {showFolderPicker && unassignedFolders.length > 0 && (
             <div className="p-2 rounded-lg border border-border bg-card shadow-md space-y-1">
-              <div className="text-[10px] text-muted-foreground px-1 pb-1 font-medium">选择目标目录：</div>
+              <div className="text-[10px] text-muted-foreground px-1 pb-1 font-medium">{t("inspector.selectTargetFolder")}</div>
               <div className="max-h-32 overflow-y-auto space-y-0.5">
                 {unassignedFolders.map((f) => (
                   <button
@@ -344,7 +347,7 @@ export function ItemDetailPanel({
           {/* Assigned folder pills */}
           {assignedFolders.length === 0 ? (
             <p className="text-[11px] text-muted-foreground italic">
-              未分配目录 (仅在全部资产中显示)
+              {t("inspector.noFolder")}
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -358,7 +361,7 @@ export function ItemDetailPanel({
                   <span className="max-w-[120px] truncate">{f.name}</span>
                   <button
                     onClick={() => handleRemoveFromFolder(f.id)}
-                    title="从该目录移出"
+                    title={t("inspector.removeFromFolder")}
                     className="hover:text-destructive p-0.5 rounded"
                   >
                     <X className="size-2.5" />
@@ -375,7 +378,7 @@ export function ItemDetailPanel({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              所属标签 ({item.tags?.length || 0})
+              {t("inspector.tagsCount", { count: item.tags?.length || 0 })}
             </span>
             {!isTrashView && (
               <button
@@ -383,7 +386,7 @@ export function ItemDetailPanel({
                 className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
               >
                 <Plus className="size-2.5" />
-                <span>添加标签</span>
+                <span>{t("inspector.addTag")}</span>
               </button>
             )}
           </div>
@@ -406,11 +409,11 @@ export function ItemDetailPanel({
                 autoFocus
                 value={newTagText}
                 onChange={(e) => setNewTagText(e.target.value)}
-                placeholder="输入标签名称..."
+                placeholder={t("inspector.tagPlaceholder")}
                 className="flex-1 h-6 px-2 text-[11px] rounded border border-border bg-card text-foreground"
               />
               <Button type="submit" size="xs" className="h-6 px-2 text-[10px]">
-                添加
+                {t("inspector.add")}
               </Button>
             </form>
           )}
@@ -418,7 +421,7 @@ export function ItemDetailPanel({
           {/* Tag Badges */}
           {!item.tags || item.tags.length === 0 ? (
             <p className="text-[11px] text-muted-foreground italic">
-              暂无标签
+              {t("inspector.noTags")}
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -428,22 +431,22 @@ export function ItemDetailPanel({
                   variant="secondary"
                   className={cn(
                     "text-[10px] gap-1 pl-2 pr-1 py-0.5 font-normal h-5",
-                    tag === "收藏" && "border border-amber-500/40 text-amber-500 bg-amber-500/10"
+                    tag === FAVORITE_TAG && "border border-amber-500/40 text-amber-500 bg-amber-500/10"
                   )}
                 >
-                  {tag === "收藏" ? (
+                  {tag === FAVORITE_TAG ? (
                     <Star className="size-2.5 fill-amber-500" />
                   ) : (
                     <TagIcon className="size-2.5 text-muted-foreground" />
                   )}
-                  <span className="max-w-[120px] truncate">{tag}</span>
+                  <span className="max-w-[120px] truncate">{tag === FAVORITE_TAG ? t("common.favorites") : tag}</span>
                   {!isTrashView && (
                     <button
                       onClick={async () => {
                         await RemoveTagFromItem(item.id, tag);
                         onTagsUpdated?.();
                       }}
-                      title="移除标签"
+                      title={t("inspector.removeTag")}
                       className="hover:text-destructive p-0.5 rounded cursor-pointer"
                     >
                       <X className="size-2.5" />
@@ -459,37 +462,37 @@ export function ItemDetailPanel({
         {/* Basic Metadata */}
         <div className="space-y-2">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            基础属性
+            {t("inspector.basicProperties")}
           </span>
           <div className="rounded-xl border border-border/60 bg-muted/20 p-2.5 space-y-2 text-[11px]">
             {item.width > 0 && item.height > 0 && (
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">尺寸大小</span>
+                <span className="text-muted-foreground">{t("inspector.dimensions")}</span>
                 <span className="font-mono text-foreground font-medium">
                   {item.width} × {item.height} px
                 </span>
               </div>
             )}
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">文件大小</span>
+              <span className="text-muted-foreground">{t("inspector.fileSize")}</span>
               <span className="font-mono text-foreground">{formatBytes(item.size)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">格式扩展名</span>
+              <span className="text-muted-foreground">{t("inspector.extension")}</span>
               <span className="font-mono uppercase font-semibold text-foreground">
                 {item.extension}
               </span>
             </div>
             {item.mimeType && (
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">MIME 类型</span>
+                <span className="text-muted-foreground">{t("inspector.mimeType")}</span>
                 <span className="font-mono text-[10px] text-muted-foreground truncate max-w-[150px]">
                   {item.mimeType}
                 </span>
               </div>
             )}
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">导入时间</span>
+              <span className="text-muted-foreground">{t("inspector.importedAt")}</span>
               <span className="font-mono text-[10px] text-muted-foreground">
                 {formatDate(item.importedAt)}
               </span>
@@ -502,7 +505,7 @@ export function ItemDetailPanel({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                内容指纹 (SHA-256)
+                {t("inspector.contentHash")}
               </span>
               <button
                 onClick={async () => {
@@ -513,7 +516,7 @@ export function ItemDetailPanel({
                 className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
               >
                 {copiedHex ? <Check className="size-2.5 text-green-500" /> : <Copy className="size-2.5" />}
-                <span>{copiedHex ? "已复制" : "复制"}</span>
+                <span>{copiedHex ? t("inspector.copied") : t("common.copy")}</span>
               </button>
             </div>
             <div className="p-2 rounded-lg border border-border/60 bg-muted/20 font-mono text-[10px] text-muted-foreground break-all select-text">
@@ -526,7 +529,7 @@ export function ItemDetailPanel({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              物理文件路径
+              {t("inspector.physicalPath")}
             </span>
             <button
               onClick={async () => {
@@ -538,7 +541,7 @@ export function ItemDetailPanel({
               className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
             >
               {copiedPath ? <Check className="size-2.5 text-green-500" /> : <Copy className="size-2.5" />}
-              <span>{copiedPath ? "已复制" : "复制文件路径"}</span>
+              <span>{copiedPath ? t("inspector.copied") : t("inspector.copyFilePath")}</span>
             </button>
           </div>
           <div className="p-2 rounded-lg border border-border/60 bg-muted/20 font-mono text-[10px] text-muted-foreground break-all select-text max-h-24 overflow-y-auto">
