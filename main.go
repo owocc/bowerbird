@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 	"bowerbird/core"
@@ -24,6 +25,8 @@ var assets embed.FS
 func init() {
 	// Register a custom event whose associated data type is string.
 	application.RegisterEvent[string]("time")
+	// Broadcast colour mode changes to every open window.
+	application.RegisterEvent[string](core.ThemeChangedEvent)
 }
 
 func extractInternalItemID(filePath string) string {
@@ -58,6 +61,19 @@ func main() {
 	})
 
 	coreMgr.SetApp(app)
+
+	// Only macOS registers a native menu: its menu bar is global, OS-styled and
+	// fully controllable. Windows and Linux draw the menu themselves instead
+	// (frontend AppMenuButton, fed by core.GetAppMenu) so the two platforms look
+	// identical and no window ends up with two menus.
+	if runtime.GOOS == "darwin" {
+		app.Menu.SetApplicationMenu(core.BuildNativeAppMenu("Bowerbird", func(action string) {
+			if err := coreService.InvokeAppMenu(action); err != nil {
+				log.Printf("[Menu] %v", err)
+			}
+		}))
+	}
+
 	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:          "Bowerbird",
 		Width:          1280,
@@ -70,6 +86,8 @@ func main() {
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
+		// Windows and Linux get no native menu - they render the app's own ≡
+		// button from core.GetAppMenu. The zero value is ignored on macOS.
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})

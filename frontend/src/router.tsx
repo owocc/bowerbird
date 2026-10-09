@@ -12,10 +12,19 @@ import { GetActiveLibrary } from "../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../bindings/bowerbird/core/models";
 import { LibrarySetup } from "@/components/LibrarySetup";
 import { LibraryWorkspace } from "@/components/LibraryWorkspace";
+import { SettingsPage } from "@/components/SettingsPage";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { useSettingsShortcut } from "@/hooks/useSettingsShortcut";
+import { useAppShortcuts } from "@/hooks/useAppShortcuts";
 
 function RootLayout() {
+  // App-local Cmd/Ctrl+ shortcut for the settings window, active on every route.
+  useSettingsShortcut();
+  // Standard window/app shortcuts on the platforms that draw their own menu
+  // (Windows and Linux); macOS gets them from its native menu.
+  useAppShortcuts();
+
   return (
     <ThemeProvider defaultTheme="system" storageKey="bowerbird-ui-theme">
       <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
@@ -78,7 +87,14 @@ const indexRoute = createRoute({
   component: HomePage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute]);
+// Rendered in its own native window (see core.Service.OpenSettingsWindow).
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
+const routeTree = rootRoute.addChildren([indexRoute, settingsRoute]);
 
 const hashHistory = createHashHistory();
 

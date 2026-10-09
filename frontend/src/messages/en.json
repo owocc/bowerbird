@@ -2,6 +2,15 @@
   "app": {
     "initializing": "Initializing Bowerbird…"
   },
+  "appMenu": {
+    "about": "About Bowerbird",
+    "devtools": "Developer Tools",
+    "fullscreen": "Toggle Full Screen",
+    "label": "Application menu",
+    "quit": "Quit Bowerbird",
+    "reload": "Reload",
+    "settings": "Settings…"
+  },
   "common": {
     "cancel": "Cancel",
     "close": "Close",
@@ -143,6 +152,20 @@
     "fileAlt": "file",
     "nextTooltip": "Next (→)",
     "previousTooltip": "Previous (←)"
+  },
+  "settings": {
+    "appearance": {
+      "auto": "Auto",
+      "autoDescription": "Follow the system",
+      "dark": "Dark",
+      "darkDescription": "Always use the dark theme",
+      "description": "Choose how Bowerbird looks. Changes apply to every window immediately.",
+      "light": "Light",
+      "lightDescription": "Always use the light theme",
+      "title": "Colour mode"
+    },
+    "subtitle": "Application preferences",
+    "title": "Settings"
   },
   "setup": {
     "badge": "Local isolated asset library · libSQL index storage",

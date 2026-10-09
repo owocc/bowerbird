@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useTranslation, Trans } from "react-i18next";
-import { FolderPlus, FolderOpen, Folder, Sparkles, AlertCircle, ArrowRight } from "lucide-react";
+import { FolderPlus, FolderOpen, Folder, Sparkles, AlertCircle, ArrowRight, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { AppMenuButton } from "@/components/AppMenuButton";
+import { usesInAppMenuBar } from "@/lib/platform";
 import {
   CreateLibrary,
   OpenLibrary,
   SelectDirectory,
   SelectLibraryDialog,
+  OpenSettingsWindow,
 } from "../../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../../bindings/bowerbird/core/models";
 
@@ -85,8 +88,34 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
     ? `${parentDir}/${libName.trim() || "MyAssets"}${libName.endsWith(".library") ? "" : ".library"}`
     : "";
 
+  const handleOpenSettings = async () => {
+    try {
+      await OpenSettingsWindow();
+    } catch (err) {
+      console.error("Failed to open settings window:", err);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
+    <div className="relative min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
+      {/* Top-left: app menu button (Windows/Linux; it carries the settings entry) */}
+      <div className="absolute top-3 left-3">
+        <AppMenuButton className="size-8" />
+      </div>
+
+      {/* Top-right: settings entry point for macOS, whose menu is native */}
+      {!usesInAppMenuBar() && (
+        <button
+          type="button"
+          onClick={handleOpenSettings}
+          title={t("settings.title")}
+          className="absolute top-3 right-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+        >
+          <Settings className="size-4" />
+          <span>{t("settings.title")}</span>
+        </button>
+      )}
+
       <div className="w-full max-w-xl space-y-6">
         {/* Brand header */}
         <div className="text-center space-y-2">
