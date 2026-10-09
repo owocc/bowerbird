@@ -36,6 +36,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { AppMenuButton } from "@/components/AppMenuButton";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -424,7 +425,10 @@ export function SidebarDirectoryTree({
                 {/* Draggable header filler */}
                 <div className="flex-1 min-w-0 h-full" />
 
-                {/* Collapse button: all the way to the right */}
+                {/* App menu (Linux only, renders nothing elsewhere) then the
+                    collapse button: all the way to the right */}
+                <AppMenuButton align="end" />
+
                 {onToggleCollapse && (
                   <Button
                     variant="ghost"
@@ -455,6 +459,10 @@ export function SidebarDirectoryTree({
                   button on the right. flex-1 keeps a definite width so long names
                   ellipsize properly; the leftover space stays window-draggable. */}
               <div className="flex items-center flex-1 min-w-0">{librarySwitcher}</div>
+
+              {/* App menu (Linux only, renders nothing elsewhere), sitting just
+                  left of the collapse button */}
+              <AppMenuButton align="end" />
 
               {/* Collapse button: all the way to the right */}
               {onToggleCollapse && (

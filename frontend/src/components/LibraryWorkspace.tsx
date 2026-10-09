@@ -10,6 +10,7 @@ import {
   Minus,
   Plus,
   RotateCcw,
+  Settings,
   Tag as TagIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ import {
   ToggleFavorite,
   RenameItem,
   OpenWithDefaultApp,
+  OpenSettingsWindow,
   RevealInFinder,
 } from "../../bindings/bowerbird/core/service";
 import type { Item, Folder, Tag, LibraryInfo } from "../../bindings/bowerbird/core/models";
@@ -531,6 +533,15 @@ export function LibraryWorkspace({
       toast.success(t("workspace.pathCopied"));
     } catch (err) {
       console.error("Failed to copy file path:", err);
+    }
+  };
+
+  // Open the dedicated settings window (colour mode, etc.)
+  const handleOpenSettings = async () => {
+    try {
+      await OpenSettingsWindow();
+    } catch (err) {
+      console.error("Failed to open settings window:", err);
     }
   };
 
@@ -1182,6 +1193,14 @@ export function LibraryWorkspace({
                     >
                       <ArrowUpDown className="size-3" />
                       <span>{sortOrder === "desc" ? t("workspace.newest") : t("workspace.oldest")}</span>
+                    </button>
+
+                    <button
+                      onClick={handleOpenSettings}
+                      title={t("settings.title")}
+                      className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-md hover:bg-muted/50 cursor-pointer"
+                    >
+                      <Settings className="size-3.5" />
                     </button>
                   </div>
                 </div>

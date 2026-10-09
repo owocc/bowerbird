@@ -12,7 +12,9 @@ import (
 type UserData struct {
 	ActiveLibraryPath string   `json:"activeLibraryPath"`
 	RecentLibraries   []string `json:"recentLibraries"`
-	UpdatedAt         int64    `json:"updatedAt"`
+	// Theme is the persisted colour mode: "dark", "light" or "system".
+	Theme     string `json:"theme,omitempty"`
+	UpdatedAt int64  `json:"updatedAt"`
 }
 
 // UserDataStore provides thread-safe, atomic persistence for user configuration.
@@ -118,6 +120,23 @@ func (s *UserDataStore) GetRecentLibraries() []string {
 		}
 	}
 	return existing
+}
+
+// GetTheme returns the persisted colour mode (may be empty on first run).
+func (s *UserDataStore) GetTheme() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.Theme
+}
+
+// SetTheme persists the colour mode and saves atomically.
+func (s *UserDataStore) SetTheme(theme string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data.Theme = theme
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
 }
 
 // GetFilePath returns the file path of user_data.json.

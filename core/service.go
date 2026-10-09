@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -10,6 +11,10 @@ import (
 type Service struct {
 	mgr *LibraryManager
 	app *application.App
+
+	// settingsMu guards settings-window creation so rapid calls cannot spawn
+	// duplicate windows.
+	settingsMu sync.Mutex
 }
 
 func NewService(mgr *LibraryManager) *Service {

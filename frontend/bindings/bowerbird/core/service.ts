@@ -66,6 +66,14 @@ export function GetActiveLibrary(): $CancellablePromise<$models.LibraryInfo | nu
     return $Call.ByID(990194437);
 }
 
+/**
+ * GetAppMenu returns the menu model rendered by the app's own ≡ button. macOS
+ * ignores it: its menu is registered natively (see BuildNativeAppMenu).
+ */
+export function GetAppMenu(): $CancellablePromise<$models.AppMenuItem[] | null> {
+    return $Call.ByID(2328041460);
+}
+
 export function GetAssetServerPort(): $CancellablePromise<number> {
     return $Call.ByID(1298596620);
 }
@@ -88,6 +96,14 @@ export function GetRecentLibraries(): $CancellablePromise<string[] | null> {
 
 export function GetTags(): $CancellablePromise<$models.Tag[] | null> {
     return $Call.ByID(3158423089);
+}
+
+/**
+ * GetTheme returns the persisted colour mode, or an empty string when the user
+ * has never picked one (letting the frontend fall back to its local default).
+ */
+export function GetTheme(): $CancellablePromise<string> {
+    return $Call.ByID(1874542173);
 }
 
 export function GetTrashCount(): $CancellablePromise<number> {
@@ -118,6 +134,15 @@ export function ImportFromURL(rawURL: string): $CancellablePromise<$models.Item 
     return $Call.ByID(780943642, rawURL);
 }
 
+/**
+ * InvokeAppMenu executes an application-scoped menu action. Window-scoped
+ * actions (reload, fullscreen, DevTools, zoom) are not handled here: they act on
+ * one window and are executed by the webview that owns it.
+ */
+export function InvokeAppMenu(action: string): $CancellablePromise<void> {
+    return $Call.ByID(2638737248, action);
+}
+
 export function MoveItemToFolder(itemID: string, fromFolderID: string, toFolderID: string): $CancellablePromise<void> {
     return $Call.ByID(711622371, itemID, fromFolderID, toFolderID);
 }
@@ -128,6 +153,14 @@ export function MoveToTrash(id: string): $CancellablePromise<void> {
 
 export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(2189258727, libraryPath);
+}
+
+/**
+ * OpenSettingsWindow opens the settings UI in its own window. Only a single
+ * instance is created; later calls simply reveal and focus the existing one.
+ */
+export function OpenSettingsWindow(): $CancellablePromise<void> {
+    return $Call.ByID(890281569);
 }
 
 export function OpenWithDefaultApp(id: string): $CancellablePromise<void> {
@@ -180,6 +213,14 @@ export function SetItemTags(itemID: string, tags: string[] | null): $Cancellable
 
 export function SetManager(mgr: $models.LibraryManager | null): $CancellablePromise<void> {
     return $Call.ByID(3918042731, mgr);
+}
+
+/**
+ * SetTheme validates and persists the colour mode, then broadcasts the change
+ * to every open window via the application event bus.
+ */
+export function SetTheme(theme: string): $CancellablePromise<void> {
+    return $Call.ByID(3451483265, theme);
 }
 
 export function StartDrag(id: string): $CancellablePromise<void> {

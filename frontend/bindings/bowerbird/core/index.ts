@@ -7,6 +7,7 @@ export {
 };
 
 export type {
+    AppMenuItem,
     Folder,
     Item,
     LibraryInfo,
