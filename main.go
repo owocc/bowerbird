@@ -27,6 +27,9 @@ func init() {
 	application.RegisterEvent[string]("time")
 	// Broadcast colour mode changes to every open window.
 	application.RegisterEvent[string](core.ThemeChangedEvent)
+	// Broadcast library lifecycle events
+	application.RegisterEvent[*core.LibraryInfo](core.LibraryOpenedEvent)
+	application.RegisterEvent[string](core.LibraryClosedEvent)
 }
 
 func extractInternalItemID(filePath string) string {

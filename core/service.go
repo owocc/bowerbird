@@ -50,21 +50,44 @@ func (s *Service) CreateLibrary(parentDir string, libName string) (*LibraryInfo,
 	if s.mgr == nil {
 		return nil, errors.New("core manager not initialized")
 	}
-	return s.mgr.CreateLibrary(parentDir, libName)
+	info, err := s.mgr.CreateLibrary(parentDir, libName)
+	if err != nil {
+		return nil, err
+	}
+	if app := s.getApp(); app != nil {
+		app.Event.Emit(LibraryOpenedEvent, info)
+	}
+	_ = s.CloseSetupWindow()
+	return info, nil
 }
 
 func (s *Service) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	if s.mgr == nil {
 		return nil, errors.New("core manager not initialized")
 	}
-	return s.mgr.OpenLibrary(libraryPath)
+	info, err := s.mgr.OpenLibrary(libraryPath)
+	if err != nil {
+		return nil, err
+	}
+	if app := s.getApp(); app != nil {
+		app.Event.Emit(LibraryOpenedEvent, info)
+	}
+	_ = s.CloseSetupWindow()
+	return info, nil
 }
 
 func (s *Service) CloseLibrary() error {
 	if s.mgr == nil {
 		return nil
 	}
-	return s.mgr.CloseLibrary()
+	err := s.mgr.CloseLibrary()
+	if err != nil {
+		return err
+	}
+	if app := s.getApp(); app != nil {
+		app.Event.Emit(LibraryClosedEvent, "")
+	}
+	return nil
 }
 
 func (s *Service) GetItems(query string, sortOrder string) ([]Item, error) {

@@ -34,6 +34,13 @@ export function CloseLibrary(): $CancellablePromise<void> {
     return $Call.ByID(3049267163);
 }
 
+/**
+ * CloseSetupWindow destroys or closes the library setup window if currently open.
+ */
+export function CloseSetupWindow(): $CancellablePromise<void> {
+    return $Call.ByID(341736549);
+}
+
 export function CreateFolder(name: string, parentID: string): $CancellablePromise<$models.Folder | null> {
     return $Call.ByID(1778465740, name, parentID);
 }
@@ -161,6 +168,14 @@ export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.Li
  */
 export function OpenSettingsWindow(): $CancellablePromise<void> {
     return $Call.ByID(890281569);
+}
+
+/**
+ * OpenSetupWindow opens the library setup UI in its own window. Only a single
+ * instance is created; later calls simply reveal and focus the existing one.
+ */
+export function OpenSetupWindow(): $CancellablePromise<void> {
+    return $Call.ByID(2459692553);
 }
 
 export function OpenWithDefaultApp(id: string): $CancellablePromise<void> {

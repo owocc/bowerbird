@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   createRootRoute,
@@ -6,17 +6,26 @@ import {
   createRouter,
   RouterProvider,
   Outlet,
+  Navigate,
   createHashHistory,
 } from "@tanstack/react-router";
-import { GetActiveLibrary } from "../bindings/bowerbird/core/service";
-import type { LibraryInfo } from "../bindings/bowerbird/core/models";
+import { LibraryProvider, useLibrary } from "@/lib/library-context";
+import { validateWorkspaceSearch } from "@/lib/workspace-search";
 import { LibrarySetup } from "@/components/LibrarySetup";
 import { LibraryWorkspace } from "@/components/LibraryWorkspace";
 import { SettingsPage } from "@/components/SettingsPage";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { Button } from "@/components/ui/button";
+import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
+import { AppMenuButton } from "@/components/AppMenuButton";
+import { usesInAppMenuBar } from "@/lib/platform";
 import { useSettingsShortcut } from "@/hooks/useSettingsShortcut";
 import { useAppShortcuts } from "@/hooks/useAppShortcuts";
+import { useHistoryShortcuts } from "@/hooks/useHistoryShortcuts";
+import { isMacOS } from "@/lib/macos";
+import { OpenSetupWindow, OpenSettingsWindow } from "../bindings/bowerbird/core/service";
+import { FolderOpen, Settings } from "lucide-react";
 
 function RootLayout() {
   // App-local Cmd/Ctrl+ shortcut for the settings window, active on every route.
@@ -24,39 +33,93 @@ function RootLayout() {
   // Standard window/app shortcuts on the platforms that draw their own menu
   // (Windows and Linux); macOS gets them from its native menu.
   useAppShortcuts();
+  // Browser-style Back/Forward shortcuts, wired to the router history.
+  useHistoryShortcuts();
+
+  // Lets platform-specific CSS key off macOS without a build-time switch.
+  useEffect(() => {
+    if (isMacOS()) {
+      document.documentElement.setAttribute("data-macos", "");
+    }
+  }, []);
 
   return (
     <ThemeProvider defaultTheme="system" storageKey="bowerbird-ui-theme">
-      <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
-        <Outlet />
-      </div>
-      <Toaster position="bottom-right" richColors />
+      <LibraryProvider>
+        <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
+          <Outlet />
+        </div>
+        <Toaster position="bottom-right" richColors />
+      </LibraryProvider>
     </ThemeProvider>
   );
 }
 
-function HomePage() {
+/**
+ * Empty library placeholder shown in the main window when no library is active.
+ * Automatically requests the standalone Setup window to open.
+ */
+function EmptyLibraryPlaceholder() {
   const { t } = useTranslation();
-  const [activeLibrary, setActiveLibrary] = useState<LibraryInfo | null>(null);
-  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
-    async function checkLibrary() {
-      try {
-        const lib = await GetActiveLibrary();
-        if (lib) {
-          setActiveLibrary(lib);
-        }
-      } catch (err) {
-        console.error("Failed to check active library:", err);
-      } finally {
-        setInitializing(false);
-      }
-    }
-    checkLibrary();
+    // Reveal or focus the setup window
+    OpenSetupWindow().catch(console.error);
   }, []);
 
-  if (initializing) {
+  return (
+    <div className="relative min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none">
+      <div className="absolute top-0 left-0 right-0 h-(--titlebar-height) flex items-center px-3 z-10 wails-drag">
+        <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
+        <div className="flex-1 h-full" />
+      </div>
+
+      <div className="absolute top-3 left-3 z-20 wails-no-drag">
+        <AppMenuButton className="size-8" />
+      </div>
+
+      {!usesInAppMenuBar() && (
+        <button
+          type="button"
+          onClick={() => OpenSettingsWindow().catch(console.error)}
+          title={t("settings.title")}
+          className="absolute top-3 right-3 z-20 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer wails-no-drag"
+        >
+          <Settings className="size-4" />
+          <span>{t("settings.title")}</span>
+        </button>
+      )}
+
+      <div className="flex flex-col items-center gap-3 text-center max-w-sm wails-no-drag">
+        <div className="p-3.5 rounded-2xl bg-muted/60 text-muted-foreground">
+          <FolderOpen className="size-6" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">{t("app.noActiveLibrary")}</p>
+          <p className="text-xs text-muted-foreground">{t("app.openSetup")}</p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => OpenSetupWindow().catch(console.error)}
+          className="mt-2 text-xs"
+        >
+          {t("app.openSetup")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * `/` redirects straight to `/browse` with `replace`, so the root redirect
+ * is never kept in the history stack.
+ */
+function IndexRedirect() {
+  const { t } = useTranslation();
+  const { ready } = useLibrary();
+
+  if (!ready) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-xs text-muted-foreground font-mono">
         {t("app.initializing")}
@@ -64,15 +127,31 @@ function HomePage() {
     );
   }
 
-  if (!activeLibrary) {
-    return <LibrarySetup onLibraryOpened={(lib) => setActiveLibrary(lib)} />;
+  return <Navigate to="/browse" replace />;
+}
+
+function BrowsePage() {
+  const { t } = useTranslation();
+  const { library, ready, closeLibrary, notifyLibraryChanged } = useLibrary();
+
+  // Wait for the initial library probe so a reload does not flash the empty state
+  if (!ready) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-xs text-muted-foreground font-mono">
+        {t("app.initializing")}
+      </div>
+    );
+  }
+
+  if (!library) {
+    return <EmptyLibraryPlaceholder />;
   }
 
   return (
     <LibraryWorkspace
-      library={activeLibrary}
-      onLibraryClosed={() => setActiveLibrary(null)}
-      onLibraryChanged={(lib) => setActiveLibrary(lib)}
+      library={library}
+      onLibraryClosed={closeLibrary}
+      onLibraryChanged={notifyLibraryChanged}
     />
   );
 }
@@ -84,7 +163,22 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: HomePage,
+  component: IndexRedirect,
+});
+
+// Rendered in its own native window exclusively (see core.Service.OpenSetupWindow).
+// Kept detached from the main window navigation history.
+const setupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/setup",
+  component: LibrarySetup,
+});
+
+const browseRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/browse",
+  validateSearch: validateWorkspaceSearch,
+  component: BrowsePage,
 });
 
 // Rendered in its own native window (see core.Service.OpenSettingsWindow).
@@ -94,7 +188,12 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, settingsRoute]);
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  setupRoute,
+  browseRoute,
+  settingsRoute,
+]);
 
 const hashHistory = createHashHistory();
 

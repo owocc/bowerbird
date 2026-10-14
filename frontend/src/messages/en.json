@@ -1,6 +1,8 @@
 {
   "app": {
-    "initializing": "Initializing Bowerbird…"
+    "initializing": "Initializing Bowerbird…",
+    "noActiveLibrary": "No active library",
+    "openSetup": "Set up or open a library"
   },
   "appMenu": {
     "about": "About Bowerbird",
@@ -12,6 +14,7 @@
     "settings": "Settings…"
   },
   "common": {
+    "back": "Back",
     "cancel": "Cancel",
     "close": "Close",
     "confirm": "Confirm",
@@ -19,6 +22,7 @@
     "create": "Create",
     "delete": "Delete",
     "favorites": "Favorites",
+    "forward": "Forward",
     "rename": "Rename",
     "save": "Save",
     "search": "Search",

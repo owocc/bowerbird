@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { AppMenuButton } from "@/components/AppMenuButton";
+import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { usesInAppMenuBar } from "@/lib/platform";
 import {
   CreateLibrary,
@@ -12,11 +13,12 @@ import {
   SelectDirectory,
   SelectLibraryDialog,
   OpenSettingsWindow,
+  CloseSetupWindow,
 } from "../../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../../bindings/bowerbird/core/models";
 
 interface LibrarySetupProps {
-  onLibraryOpened: (lib: LibraryInfo) => void;
+  onLibraryOpened?: (lib: LibraryInfo) => void;
 }
 
 export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
@@ -25,6 +27,14 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
   const [parentDir, setParentDir] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleOpened = (lib: LibraryInfo) => {
+    if (onLibraryOpened) {
+      onLibraryOpened(lib);
+    }
+    // Setup window automatically closes when library is opened
+    CloseSetupWindow().catch(() => {});
+  };
 
   // Pick target folder for new library
   const handlePickDirectory = async () => {
@@ -56,7 +66,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
     try {
       const lib = await CreateLibrary(parentDir, libName.trim());
       if (lib) {
-        onLibraryOpened(lib);
+        handleOpened(lib);
       }
     } catch (err) {
       setError(t("setup.errors.createLibrary", { error: String(err) }));
@@ -74,7 +84,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
       if (selected) {
         const lib = await OpenLibrary(selected);
         if (lib) {
-          onLibraryOpened(lib);
+          handleOpened(lib);
         }
       }
     } catch (err) {
@@ -98,8 +108,14 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
 
   return (
     <div className="relative min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
+      {/* Top titlebar drag area */}
+      <div className="absolute top-0 left-0 right-0 h-(--titlebar-height) flex items-center px-3 z-10 wails-drag">
+        <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
+        <div className="flex-1 h-full" />
+      </div>
+
       {/* Top-left: app menu button (Windows/Linux; it carries the settings entry) */}
-      <div className="absolute top-3 left-3">
+      <div className="absolute top-3 left-3 z-20 wails-no-drag">
         <AppMenuButton className="size-8" />
       </div>
 
@@ -109,14 +125,14 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
           type="button"
           onClick={handleOpenSettings}
           title={t("settings.title")}
-          className="absolute top-3 right-3 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer"
+          className="absolute top-3 right-3 z-20 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors cursor-pointer wails-no-drag"
         >
           <Settings className="size-4" />
           <span>{t("settings.title")}</span>
         </button>
       )}
 
-      <div className="w-full max-w-xl space-y-6">
+      <div className="w-full max-w-xl space-y-6 pt-4">
         {/* Brand header */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">

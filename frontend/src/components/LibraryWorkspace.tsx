@@ -67,11 +67,20 @@ import {
   RenameItem,
   OpenWithDefaultApp,
   OpenSettingsWindow,
+  OpenSetupWindow,
   RevealInFinder,
 } from "../../bindings/bowerbird/core/service";
 import type { Item, Folder, Tag, LibraryInfo } from "../../bindings/bowerbird/core/models";
+import { HistoryNavButtons } from "@/components/HistoryNavButtons";
 import { getFileCategory } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
+import {
+  useWorkspaceSearch,
+  TRASH_FOLDER_ID,
+  type PreviewMode,
+  type WorkspaceCategory,
+} from "@/lib/workspace-search";
+import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";
 import { useFileDrop } from "@/hooks/useFileDrop";
 
 export interface LibraryWorkspaceProps {
@@ -86,33 +95,62 @@ export function LibraryWorkspace({
   onLibraryChanged,
 }: LibraryWorkspaceProps) {
   const { t } = useTranslation();
+
+  // Folder / tag / view / category / sort / tags-panel / preview live in the URL
+  // search params (see useWorkspaceSearch), so Back and Forward can step through
+  // them. The aliases below keep the rest of the component readable.
+  const ws = useWorkspaceSearch();
+  const { canGoBack, goBack } = useHistoryNavigation();
+  const activeFolderId = ws.activeFolderId;
+  const activeTag = ws.activeTag;
+  const tagsSidebarOpen = ws.tags;
+  const categoryFilter = ws.type;
+  const sortOrder = ws.sort;
+  const inlinePreviewOpen = ws.preview === "inline";
+  const fullWindowPreviewOpen = ws.preview === "full";
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [items, setItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [trashCount, setTrashCount] = useState<number>(0);
 
-  // Active navigation: activeFolderId can be a folder ID, null (All), or "__trash__" (Trash)
-  const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
-  // Active tag: null or tag name
-  const [activeTag, setActiveTag] = useState<string | null>(null);
-  const [tagsSidebarOpen, setTagsSidebarOpen] = useState(false);
-
   const [loading, setLoading] = useState(true);
 
-  // Search & Filter & Sort state
+  // Search text and thumbnail size are transient: not worth a history entry.
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [rowHeight, setRowHeight] = useState<number>(80);
 
-  // Selection & Previews State
+  // Selection is transient too; only the previewed item is addressable.
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
-  // Preview modes
-  const [inlinePreviewOpen, setInlinePreviewOpen] = useState(false);
-  const [fullWindowPreviewOpen, setFullWindowPreviewOpen] = useState(false);
+  // True when the currently open preview was pushed onto history, so closing it
+  // can simply go Back and leave Forward able to reopen it.
+  const previewPushedRef = useRef(false);
+
+  const navigateToFolder = (id: string | null) => {
+    if (id === null) ws.selectAll();
+    else if (id === TRASH_FOLDER_ID) ws.selectTrash();
+    else ws.selectFolder(id);
+  };
+
+  const openPreview = (mode: PreviewMode, itemId?: string | null) => {
+    const target = itemId ?? activeItem?.id;
+    if (!target) return;
+    previewPushedRef.current = !ws.preview;
+    ws.openPreview(mode, target);
+  };
+
+  const closePreview = () => {
+    if (previewPushedRef.current && canGoBack) {
+      previewPushedRef.current = false;
+      goBack();
+      return;
+    }
+    previewPushedRef.current = false;
+    ws.closePreview();
+  };
 
   // Dialogs
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState<{
@@ -235,15 +273,16 @@ export function LibraryWorkspace({
       window.removeEventListener("mouseup", cleanupActiveClasses);
     };
   }, []);
-  // Reset selection & reload on library path change ONLY
+  // Reset navigation + selection when the active library *changes*. Skipped on
+  // the initial mount so a page reload restores the URL state.
+  const previousLibraryPathRef = useRef(library.path);
   useEffect(() => {
-    setActiveFolderId(null);
-    setActiveTag(null);
-    setTagsSidebarOpen(false);
+    if (previousLibraryPathRef.current === library.path) return;
+    previousLibraryPathRef.current = library.path;
     setSelectedItemIds(new Set());
     setActiveItemId(null);
-    setInlinePreviewOpen(false);
-    setFullWindowPreviewOpen(false);
+    previewPushedRef.current = false;
+    ws.reset();
     refreshItems();
     refreshFolders();
     refreshTags();
@@ -318,6 +357,21 @@ export function LibraryWorkspace({
     }
     return selectedItems[0] || null;
   }, [items, activeItemId, selectedItems]);
+
+  // The preview overlay is driven by the `preview` + `item` URL params.
+  const previewActiveItem = useMemo(() => {
+    if (!ws.preview || !ws.item) return null;
+    return items.find((i) => i.id === ws.item) ?? null;
+  }, [items, ws.preview, ws.item]);
+
+  // If a stale/deep-linked preview points at an item that no longer exists once
+  // the library has loaded, drop the params instead of showing an empty overlay.
+  useEffect(() => {
+    if (!loading && ws.preview && !previewActiveItem) {
+      ws.closePreview();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, ws.preview, previewActiveItem]);
 
   // Filter items by folder, tag, and category
   const filteredItems = useMemo(() => {
@@ -605,7 +659,7 @@ export function LibraryWorkspace({
     try {
       await DeleteFolder(folderId);
       if (activeFolderId === folderId) {
-        setActiveFolderId(null);
+        navigateToFolder(null);
       }
       await handleFullRefresh();
       toast.success(t("workspace.folderDeleted"));
@@ -732,7 +786,7 @@ export function LibraryWorkspace({
     try {
       await DeleteTag(name);
       if (activeTag === name) {
-        setActiveTag(null);
+        ws.selectTag(null);
       }
       await handleFullRefresh();
     } catch (err) {
@@ -793,17 +847,18 @@ export function LibraryWorkspace({
         return;
       }
 
+      // While a preview is open, UnifiedPreviewModal owns the keyboard (Space /
+      // Esc / arrows). Handling those here too would fire closePreview() twice
+      // and walk the history back two entries.
+      if (ws.preview) return;
+
       if (e.code === "Space") {
         e.preventDefault();
         if (activeItem) {
-          setFullWindowPreviewOpen((prev) => !prev);
+          openPreview("full");
         }
       } else if (e.code === "Escape") {
-        if (fullWindowPreviewOpen) {
-          setFullWindowPreviewOpen(false);
-        } else if (inlinePreviewOpen) {
-          setInlinePreviewOpen(false);
-        } else if (contextMenu) {
+        if (contextMenu) {
           setContextMenu(null);
         } else if (selectedItemIds.size > 0) {
           setSelectedItemIds(new Set());
@@ -825,7 +880,7 @@ export function LibraryWorkspace({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeItem, fullWindowPreviewOpen, inlinePreviewOpen, contextMenu, selectedItemIds, filteredItems]);
+  }, [activeItem, ws.preview, contextMenu, selectedItemIds, filteredItems]);
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -870,16 +925,12 @@ export function LibraryWorkspace({
                   tagsCount={tags.length}
                   tagsSidebarOpen={tagsSidebarOpen}
                   onToggleTagsSidebar={() => {
-                    setTagsSidebarOpen((prev) => !prev);
+                    ws.toggleTagsPanel();
                   }}
                   onSelectFolder={(id) => {
-                    setActiveFolderId(id);
-                    setActiveTag(null);
-                    setTagsSidebarOpen(false);
+                    navigateToFolder(id);
                     setSelectedItemIds(new Set());
                     setActiveItemId(null);
-                    setInlinePreviewOpen(false);
-                    setFullWindowPreviewOpen(false);
                   }}
                   onCreateFolder={handleCreateFolder}
                   onRenameFolder={handleRenameFolder}
@@ -894,6 +945,7 @@ export function LibraryWorkspace({
                   onCloseLibrary={async () => {
                     await CloseLibrary();
                     onLibraryClosed();
+                    OpenSetupWindow().catch(console.error);
                   }}
                   onLibraryChanged={onLibraryChanged}
                   onToggleCollapse={() => setSidebarOpen(false)}
@@ -915,22 +967,18 @@ export function LibraryWorkspace({
                       tags={tags}
                       activeTag={activeTag}
                       onSelectTag={(t) => {
-                        setActiveTag(t);
                         if (t === null) {
-                          setActiveFolderId(null);
-                          setTagsSidebarOpen(false);
+                          ws.closeTagsPanel();
                         } else {
-                          setActiveFolderId(null);
+                          ws.selectTag(t);
                         }
                         setSelectedItemIds(new Set());
                         setActiveItemId(null);
-                        setInlinePreviewOpen(false);
                       }}
                       onCreateTag={handleCreateTag}
                       onDeleteTag={handleDeleteTag}
                       onClose={() => {
-                        setTagsSidebarOpen(false);
-                        setActiveTag(null);
+                        ws.closeTagsPanel();
                       }}
                     />
                   </ResizablePanel>
@@ -993,20 +1041,7 @@ export function LibraryWorkspace({
               {!isInternalDragging && dropState.status === "importing" && (
                 <DropzoneOverlay state={dropState} />
               )}
-              {/* INLINE PREVIEW MODAL (Double-click in main area) */}
-              {inlinePreviewOpen && activeItem ? (
-                <UnifiedPreviewModal
-                  open={inlinePreviewOpen}
-                  mode="inline"
-                  activeItem={activeItem}
-                  items={filteredItems}
-                  onClose={() => setInlinePreviewOpen(false)}
-                  onIndexChange={(newItem) => setActiveItemId(newItem.id)}
-                  sidebarOpen={sidebarOpen}
-                  onToggleSidebar={() => setSidebarOpen(true)}
-                />
-              ) : (
-                <>
+              <>
               <header className="w-full bg-background border-b-0 shrink-0 select-none">
                 {/* Div 1: Height matches macOS traffic lights row */}
                 <div className="h-(--titlebar-height) px-3 flex items-center justify-between">
@@ -1015,6 +1050,9 @@ export function LibraryWorkspace({
                     sidebarOpen={sidebarOpen}
                     onToggleSidebar={() => setSidebarOpen(true)}
                   >
+                    {/* Unified-toolbar history controls (browser-style Back/Forward) */}
+                    <HistoryNavButtons className="mr-1" />
+
                     <span className="font-semibold text-xs tracking-tight truncate text-foreground">
                       {activeFolderId === "__trash__"
                         ? t("workspace.trash")
@@ -1098,6 +1136,15 @@ export function LibraryWorkspace({
                       )}
                     </div>
                   </div>
+
+                  {/* Settings, folded into the unified toolbar */}
+                  <button
+                    onClick={handleOpenSettings}
+                    title={t("settings.title")}
+                    className="ml-2 inline-flex items-center justify-center size-7 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 wails-no-drag cursor-pointer"
+                  >
+                    <Settings className="size-3.5" />
+                  </button>
                 </div>
 
                 {/* Div 2: Sub-toolbar for category pills, trash actions & size slider */}
@@ -1112,7 +1159,7 @@ export function LibraryWorkspace({
                         <TagIcon className="size-2.5" />
                         <span>{activeTagLabel}</span>
                         <button
-                          onClick={() => setActiveTag(null)}
+                          onClick={() => ws.selectTag(null)}
                           className="hover:text-destructive p-0.5 rounded cursor-pointer"
                         >
                           <X className="size-2.5" />
@@ -1130,7 +1177,7 @@ export function LibraryWorkspace({
                     ].map((cat) => (
                       <button
                         key={cat.id}
-                        onClick={() => setCategoryFilter(cat.id)}
+                        onClick={() => ws.setCategory(cat.id as WorkspaceCategory)}
                         className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
                           categoryFilter === cat.id
                             ? "bg-secondary text-secondary-foreground shadow-2xs font-semibold"
@@ -1188,19 +1235,11 @@ export function LibraryWorkspace({
                     )}
 
                     <button
-                      onClick={() => setSortOrder(sortOrder === "desc" ? "asc" : "desc")}
+                      onClick={() => ws.setSort(sortOrder === "desc" ? "asc" : "desc")}
                       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-md hover:bg-muted/50 cursor-pointer"
                     >
                       <ArrowUpDown className="size-3" />
                       <span>{sortOrder === "desc" ? t("workspace.newest") : t("workspace.oldest")}</span>
-                    </button>
-
-                    <button
-                      onClick={handleOpenSettings}
-                      title={t("settings.title")}
-                      className="inline-flex items-center justify-center text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded-md hover:bg-muted/50 cursor-pointer"
-                    >
-                      <Settings className="size-3.5" />
                     </button>
                   </div>
                 </div>
@@ -1270,7 +1309,7 @@ export function LibraryWorkspace({
                     onDoubleClickItem={(item) => {
                       setActiveItemId(item.id);
                       setSelectedItemIds(new Set([item.id]));
-                      setInlinePreviewOpen(true);
+                      openPreview("inline", item.id);
                     }}
                     onDragStartItem={handleDragStart}
                     onItemContextMenu={(e, item) => {
@@ -1293,6 +1332,24 @@ export function LibraryWorkspace({
                 )}
               </div>
                 </>
+
+              {/* INLINE PREVIEW OVERLAY (Double-click in main area). Rendered as an
+                  overlay rather than a replacement so the gallery stays mounted and
+                  Back/Forward can toggle it without losing scroll position. */}
+              {inlinePreviewOpen && previewActiveItem && (
+                <UnifiedPreviewModal
+                  open={inlinePreviewOpen}
+                  mode="inline"
+                  activeItem={previewActiveItem}
+                  items={filteredItems}
+                  onClose={closePreview}
+                  onIndexChange={(newItem) => {
+                    setActiveItemId(newItem.id);
+                    ws.setPreviewItem(newItem.id);
+                  }}
+                  sidebarOpen={sidebarOpen}
+                  onToggleSidebar={() => setSidebarOpen(true)}
+                />
               )}
             </main>
           </ResizablePanel>
@@ -1336,7 +1393,7 @@ export function LibraryWorkspace({
                       setSelectedItemIds(new Set());
                       setActiveItemId(null);
                     }}
-                    onPreview={() => setFullWindowPreviewOpen(true)}
+                    onPreview={() => openPreview("full")}
                     onReveal={() => activeItem && handleReveal(undefined, activeItem.id)}
                     onDelete={() => activeItem && handleRequestDelete(activeItem)}
                     onRestore={() => activeItem && handleRestore(activeItem)}
@@ -1354,10 +1411,13 @@ export function LibraryWorkspace({
         <UnifiedPreviewModal
           open={fullWindowPreviewOpen}
           mode="full-window"
-          activeItem={activeItem}
+          activeItem={previewActiveItem ?? activeItem}
           items={filteredItems}
-          onClose={() => setFullWindowPreviewOpen(false)}
-          onIndexChange={(newItem) => setActiveItemId(newItem.id)}
+          onClose={closePreview}
+          onIndexChange={(newItem) => {
+            setActiveItemId(newItem.id);
+            ws.setPreviewItem(newItem.id);
+          }}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(true)}
         />
@@ -1372,7 +1432,7 @@ export function LibraryWorkspace({
           allFolders={folders}
           allTags={tags}
           targetItem={activeItem}
-          onPreview={() => setFullWindowPreviewOpen(true)}
+          onPreview={() => openPreview("full")}
           onRename={() => activeItem && handleOpenRename(activeItem)}
           onReveal={handleBatchReveal}
           onOpenWithDefaultApp={() => activeItem && handleOpenDefaultApp(activeItem)}
