@@ -16,7 +16,9 @@ export function HistoryNavButtons({ className }: { className?: string }) {
     "size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground";
 
   return (
-    <div className={cn("flex items-center gap-0.5 shrink-0 wails-no-drag", className)}>
+    <div
+      className={cn("flex items-center gap-0.5 shrink-0 header-interactive-container wails-no-drag", className)}
+    >
       <Button
         type="button"
         variant="ghost"

@@ -28,7 +28,7 @@ export function MainHeaderSafePrefix({
   const isMac = useIsMacOS();
 
   return (
-    <div className="flex items-center gap-2 min-w-0 wails-no-drag">
+    <div className="h-full flex items-center gap-2 min-w-0 header-interactive-container wails-no-drag">
       {!sidebarOpen && (
         <div className="flex items-center gap-1.5 shrink-0 mr-1.5">
           <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />

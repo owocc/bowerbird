@@ -11,7 +11,7 @@ export interface ZoomControlsProps {
   className?: string;
 }
 
-const PRESET_ZOOM_LEVELS = [5, 10, 25, 50, 100, 125, 150, 200, 300, 400, 800];
+const PRESET_ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200, 300, 400, 800];
 
 export function ZoomControls({
   scale,
@@ -51,11 +51,11 @@ export function ZoomControls({
   };
 
   return (
-    <div ref={containerRef} className={`relative flex items-center gap-3 ${className}`}>
-      {/* Zoom Slider (Range 5% to 800%) */}
+    <div ref={containerRef} className={`relative flex items-center gap-3 header-interactive-container wails-no-drag ${className}`}>
+      {/* Zoom Slider (Range 25% to 800%) */}
       <div className="w-32 sm:w-44">
         <Slider
-          min={5}
+          min={25}
           max={800}
           step={5}
           value={currentPercent}

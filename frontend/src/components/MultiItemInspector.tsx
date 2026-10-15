@@ -1,15 +1,14 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  FolderOpen,
-  Trash2,
-  Folder as FolderIcon,
-  Plus,
-  RotateCcw,
-} from "lucide-react";
+import { Folder as FolderIcon, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
 import type { Item, Folder } from "../../bindings/bowerbird/core/models";
 import { formatBytes, getFileCategory } from "@/lib/formatters";
 import { UniversalThumbnail } from "./UniversalThumbnail";
@@ -30,28 +29,26 @@ export function MultiItemInspector({
   selectedItems,
   allFolders,
   activeFolderId,
-  onClearSelection,
-  onBatchReveal,
-  onBatchDelete,
   onBatchAddToFolder,
   onBatchRemoveFromFolder,
-  onBatchRestore,
 }: MultiItemInspectorProps) {
   const { t } = useTranslation();
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
-  // Take up to the last 7 selected items to stack like newspapers
-  const stackedItems = selectedItems.slice(-7);
-  const totalSizeBytes = selectedItems.reduce((acc, curr) => acc + (curr.size || 0), 0);
+  // Strict FIFO sliding window of the last 6 selected items:
+  // Whoever is selected last joins the top of the stack; whoever was selected first gets pushed out once > 6.
+  const stackedItems = selectedItems.slice(-6);
+  const totalSizeBytes = selectedItems.reduce(
+    (acc, curr) => acc + (curr.size || 0),
+    0
+  );
 
-  // Group by extension
   const extensionCounts: Record<string, number> = {};
   for (const item of selectedItems) {
     const ext = (item.extension || "other").toUpperCase();
     extensionCounts[ext] = (extensionCounts[ext] || 0) + 1;
   }
 
-  // Flatten folders tree
   const flatFolderList: { id: string; name: string }[] = [];
   const collect = (list: Folder[], prefix = "") => {
     for (const f of list) {
@@ -66,12 +63,11 @@ export function MultiItemInspector({
 
   return (
     <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
-      {/* Inspector Body - Directly show info without header */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
-        {/* Newspaper-style overlapping stack preview (fixed height, adapted width maintaining aspect ratio) */}
-        <div className="relative w-full h-48 flex items-center justify-center my-1 select-none">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
+        {/* Stacked preview of the last 6 selected items in selection order */}
+        <div className="relative w-full h-44 flex items-center justify-center my-1 select-none">
           {stackedItems.map((item, idx) => {
-            const offsetFromTop = (stackedItems.length - 1) - idx;
+            const offsetFromTop = stackedItems.length - 1 - idx;
             const presets = [
               { rotate: 0, x: 0, y: 0 },
               { rotate: -4, x: -6, y: 3 },
@@ -79,11 +75,10 @@ export function MultiItemInspector({
               { rotate: -7, x: -10, y: 8 },
               { rotate: 7, x: 9, y: 11 },
               { rotate: -10, x: -13, y: 14 },
-              { rotate: 9, x: 12, y: 16 },
             ];
             const preset = presets[Math.min(offsetFromTop, presets.length - 1)];
 
-            const STACK_HEIGHT = 135;
+            const STACK_HEIGHT = 132;
             const ratio = (() => {
               if (item.width && item.height && item.width > 0 && item.height > 0) {
                 return Math.max(0.55, Math.min(2.1, item.width / item.height));
@@ -105,7 +100,7 @@ export function MultiItemInspector({
                   width: `${calculatedWidth}px`,
                   transform: `translate(${preset.x}px, ${preset.y}px) rotate(${preset.rotate}deg)`,
                 }}
-                className="absolute rounded-sm overflow-hidden border border-border/80 bg-card shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
+                className="absolute rounded-sm overflow-hidden shadow-md transition-transform hover:scale-105 cursor-grab active:cursor-grabbing"
               >
                 <UniversalThumbnail
                   item={item}
@@ -113,16 +108,17 @@ export function MultiItemInspector({
                   width={calculatedWidth}
                   draggable={true}
                   objectFit="cover"
+                  borderless={true}
                   showFormatBadge={false}
-                  className="w-full h-full border-none bg-transparent"
+                  className="w-full h-full"
                 />
               </div>
             );
           })}
         </div>
 
-        {/* Selection summary */}
-        <div className="text-center space-y-0.5 pt-1">
+        {/* Selection summary (no available actions row) */}
+        <div className="text-center space-y-0.5 pb-1">
           <p className="text-xs font-semibold text-foreground">
             {t("multiInspector.selectedCount", { count: selectedItems.length })}
           </p>
@@ -131,144 +127,107 @@ export function MultiItemInspector({
           </p>
         </div>
 
-        {/* Batch Action Buttons */}
-        {activeFolderId === "__trash__" ? (
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={onBatchRestore}
-              className="h-7 text-[11px] gap-1.5 text-primary hover:text-primary"
-              title={t("multiInspector.restore")}
-            >
-              <RotateCcw className="size-3" />
-              <span>{t("multiInspector.restoreCount", { count: selectedItems.length })}</span>
-            </Button>
-
-            <Button
-              variant="destructive"
-              size="xs"
-              onClick={onBatchDelete}
-              className="h-7 text-[11px] gap-1.5"
-              title={t("multiInspector.deletePermanently")}
-            >
-              <Trash2 className="size-3" />
-              <span>{t("multiInspector.deletePermanentlyCount", { count: selectedItems.length })}</span>
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={onBatchReveal}
-              className="h-7 text-[11px] gap-1.5"
-              title={t("multiInspector.revealInFinder")}
-            >
-              <FolderOpen className="size-3" />
-              <span>{t("multiInspector.revealInFinder")}</span>
-            </Button>
-
-            <Button
-              variant="destructive"
-              size="xs"
-              onClick={onBatchDelete}
-              className="h-7 text-[11px] gap-1.5"
-              title={t("multiInspector.moveToTrash")}
-            >
-              <Trash2 className="size-3" />
-              <span>{t("multiInspector.moveToTrashCount", { count: selectedItems.length })}</span>
-            </Button>
-          </div>
-        )}
-
-        <Separator className="bg-border/60" />
-
-        {/* Batch Folder Assignment */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-              {t("multiInspector.folders")}
-            </span>
-            {flatFolderList.length > 0 && (
-              <button
-                onClick={() => setShowFolderPicker(!showFolderPicker)}
-                className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+        {/* Accordion sections replacing cards */}
+        <Accordion
+          type="multiple"
+          defaultValue={["folders", "summary"]}
+          className="border-t border-border/50"
+        >
+          {activeFolderId !== "__trash__" && (
+            <AccordionItem value="folders">
+              <AccordionTrigger
+                action={
+                  flatFolderList.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowFolderPicker((v) => !v);
+                      }}
+                      className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
+                    >
+                      <Plus className="size-2.5" />
+                      <span>{t("multiInspector.addToFolder")}</span>
+                    </button>
+                  ) : undefined
+                }
               >
-                <Plus className="size-2.5" />
-                <span>{t("multiInspector.addToFolder")}</span>
-              </button>
-            )}
-          </div>
+                {t("multiInspector.folders")}
+              </AccordionTrigger>
+              <AccordionContent className="space-y-2">
+                {showFolderPicker && flatFolderList.length > 0 && (
+                  <div className="py-1 border-b border-border/50 space-y-0.5 max-h-36 overflow-y-auto">
+                    {flatFolderList.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => {
+                          onBatchAddToFolder(f.id);
+                          setShowFolderPicker(false);
+                        }}
+                        className="w-full text-left px-1.5 py-1 rounded text-[11px] hover:bg-muted flex items-center gap-1.5 truncate cursor-pointer"
+                      >
+                        <FolderIcon className="size-3 text-muted-foreground shrink-0" />
+                        <span className="truncate">{f.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
 
-          {/* Folder dropdown picker */}
-          {showFolderPicker && flatFolderList.length > 0 && (
-            <div className="p-2 rounded-lg border border-border bg-card shadow-md space-y-1">
-              <div className="text-[10px] text-muted-foreground px-1 pb-1 font-medium">
-                {t("multiInspector.addItemsTo", { count: selectedItems.length })}
-              </div>
-              <div className="max-h-36 overflow-y-auto space-y-0.5">
-                {flatFolderList.map((f) => (
-                  <button
-                    key={f.id}
-                    onClick={() => {
-                      onBatchAddToFolder(f.id);
-                      setShowFolderPicker(false);
-                    }}
-                    className="w-full text-left px-2 py-1 rounded text-[11px] hover:bg-muted flex items-center gap-1.5 truncate"
+                {activeFolderId && onBatchRemoveFromFolder && (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => onBatchRemoveFromFolder(activeFolderId)}
+                    className="w-full h-7 text-[11px] text-destructive hover:bg-destructive/10 border-destructive/30 cursor-pointer"
                   >
-                    <FolderIcon className="size-3 text-muted-foreground shrink-0" />
-                    <span className="truncate">{f.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+                    <span>{t("multiInspector.removeFromCurrentFolder")}</span>
+                  </Button>
+                )}
+              </AccordionContent>
+            </AccordionItem>
           )}
 
-          {activeFolderId && onBatchRemoveFromFolder && (
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => onBatchRemoveFromFolder(activeFolderId)}
-              className="w-full h-7 text-[11px] text-destructive hover:bg-destructive/10 border-destructive/30"
-            >
-              <span>{t("multiInspector.removeFromCurrentFolder")}</span>
-            </Button>
-          )}
-        </div>
-
-        <Separator className="bg-border/60" />
-
-        {/* Combined Metadata Summary */}
-        <div className="space-y-2">
-          <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-            {t("multiInspector.summary")}
-          </span>
-          <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-2 text-[11px]">
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t("multiInspector.count")}</span>
-              <span className="font-mono font-medium">{selectedItems.length}</span>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t("multiInspector.totalSize")}</span>
-              <span className="font-mono font-semibold text-foreground">
-                {formatBytes(totalSizeBytes)}
-              </span>
-            </div>
-
-            <div className="pt-1.5 border-t border-border/40">
-              <div className="text-[10px] text-muted-foreground mb-1">{t("multiInspector.formats")}</div>
-              <div className="flex flex-wrap gap-1">
-                {Object.entries(extensionCounts).map(([ext, count]) => (
-                  <Badge key={ext} variant="secondary" className="text-[9px] font-mono h-4.5 px-1.5">
-                    {ext}: {count}
-                  </Badge>
-                ))}
+          <AccordionItem value="summary">
+            <AccordionTrigger>{t("multiInspector.summary")}</AccordionTrigger>
+            <AccordionContent className="space-y-2 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">
+                  {t("multiInspector.count")}
+                </span>
+                <span className="font-mono font-medium">
+                  {selectedItems.length}
+                </span>
               </div>
-            </div>
-          </div>
-        </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">
+                  {t("multiInspector.totalSize")}
+                </span>
+                <span className="font-mono font-medium">
+                  {formatBytes(totalSizeBytes)}
+                </span>
+              </div>
+
+              <div className="pt-1 space-y-1">
+                <span className="text-muted-foreground text-[10px]">
+                  {t("multiInspector.formats")}
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {Object.entries(extensionCounts).map(([ext, count]) => (
+                    <Badge
+                      key={ext}
+                      variant="secondary"
+                      className="text-[10px] font-mono px-1.5 py-0 h-4.5 font-normal"
+                    >
+                      {ext} × {count}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </aside>
   );

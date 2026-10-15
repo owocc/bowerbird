@@ -4,32 +4,40 @@ import type { SearchSchemaInput } from "@tanstack/react-router";
 
 /**
  * Typed query-parameter model for the `/browse` route.
- *
- * The workspace used to keep all of this in local `useState`; moving it into the
- * URL is what makes the browser/webview Back and Forward buttons able to step
- * through folders, tags, filters and previews (see `useHistoryNavigation`).
- *
- * Deliberately *not* here: the search text, thumbnail row height, sidebar
- * collapse state and multi-selection. Those are transient and would either
- * flood the history or carry no navigational meaning.
  */
 
 export type WorkspaceView = "all" | "trash";
-export type WorkspaceCategory = "all" | "image" | "video" | "document" | "archive" | "other";
+export type WorkspaceCategory =
+  | "all"
+  | "image"
+  | "video"
+  | "audio"
+  | "document"
+  | "archive"
+  | "other";
 export type WorkspaceSort = "desc" | "asc";
 export type PreviewMode = "inline" | "full";
+export type WorkspaceOrientation = "all" | "landscape" | "portrait" | "square";
 
 export interface WorkspaceSearch {
   /** `all` = every asset, `trash` = the recycle bin. */
   view: WorkspaceView;
-  /** Folder id, when a virtual folder is selected. */
+  /** Folder id, when a virtual folder is selected from the sidebar. */
   folder?: string;
-  /** Tag name, when a tag is selected. Folders and tags are mutually exclusive. */
+  /** Tag name, when a tag is selected from the tags sidebar. */
   tag?: string;
   type: WorkspaceCategory;
   sort: WorkspaceSort;
   /** Whether the secondary tags sidebar is open. */
   tags: boolean;
+  /** Active color filter hex (e.g. "#EF4444") */
+  color?: string;
+  /** Active folder filter from the top filter bar ("__uncategorized__" or folder ID) */
+  filterFolder?: string;
+  /** Active tag filter from the top filter bar ("__untagged__" or tag name) */
+  filterTag?: string;
+  /** Active aspect orientation filter */
+  orientation: WorkspaceOrientation;
   /** Active preview overlay, if any. */
   preview?: PreviewMode;
   /** Item shown by the preview overlay. */
@@ -42,15 +50,24 @@ export const WORKSPACE_SEARCH_DEFAULTS = {
   type: "all",
   sort: "desc",
   tags: false,
+  orientation: "all",
 } as const satisfies Partial<WorkspaceSearch>;
 
 const CATEGORIES: WorkspaceCategory[] = [
   "all",
   "image",
   "video",
+  "audio",
   "document",
   "archive",
   "other",
+];
+
+const ORIENTATIONS: WorkspaceOrientation[] = [
+  "all",
+  "landscape",
+  "portrait",
+  "square",
 ];
 
 function asNonEmptyString(value: unknown): string | undefined {
@@ -61,19 +78,11 @@ function asBool(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
 }
 
-/**
- * Input type for the validator. The `SearchSchemaInput` brand tells the router
- * that every field here is *input*-optional even though `WorkspaceSearch` has
- * required fields, so `navigate({ to: "/browse" })` needs no `search` argument.
- */
 export type WorkspaceSearchInput = Partial<WorkspaceSearch> & SearchSchemaInput;
 
-/**
- * Validates + coerces raw search input. Never throws: unknown/dead values fall
- * back to the defaults so a hand-edited or stale URL can only ever produce a
- * valid workspace state.
- */
-export function validateWorkspaceSearch(raw: WorkspaceSearchInput): WorkspaceSearch {
+export function validateWorkspaceSearch(
+  raw: WorkspaceSearchInput
+): WorkspaceSearch {
   return {
     view: raw.view === "trash" ? "trash" : "all",
     type: CATEGORIES.includes(raw.type as WorkspaceCategory)
@@ -83,54 +92,48 @@ export function validateWorkspaceSearch(raw: WorkspaceSearchInput): WorkspaceSea
     tags: asBool(raw.tags),
     folder: asNonEmptyString(raw.folder),
     tag: asNonEmptyString(raw.tag),
-    preview: raw.preview === "inline" || raw.preview === "full" ? raw.preview : undefined,
+    color: asNonEmptyString(raw.color),
+    filterFolder: asNonEmptyString(raw.filterFolder),
+    filterTag: asNonEmptyString(raw.filterTag),
+    orientation: ORIENTATIONS.includes(raw.orientation as WorkspaceOrientation)
+      ? (raw.orientation as WorkspaceOrientation)
+      : "all",
+    preview:
+      raw.preview === "inline" || raw.preview === "full"
+        ? raw.preview
+        : undefined,
     item: asNonEmptyString(raw.item),
   };
 }
 
-/** The `activeFolderId` sentinel the workspace/sidebar still understand for Trash. */
 export const TRASH_FOLDER_ID = "__trash__";
 
 export interface WorkspaceSearchApi extends WorkspaceSearch {
-  /** `null` (All), a folder id, or `__trash__`. Mirrors the old component state. */
   activeFolderId: string | null;
-  /** Active tag name, or `null`. Always `null` when a folder or the trash is active. */
   activeTag: string | null;
   isTrash: boolean;
 
   selectAll: () => void;
   selectTrash: () => void;
   selectFolder: (folderId: string) => void;
-  /** `null` clears the tag (returns to All). */
   selectTag: (tag: string | null) => void;
   setCategory: (type: WorkspaceCategory) => void;
   setSort: (sort: WorkspaceSort) => void;
+  setColorFilter: (color: string | null) => void;
+  setFolderFilter: (folderId: string | null) => void;
+  setTagFilter: (tag: string | null) => void;
+  setOrientationFilter: (orientation: WorkspaceOrientation) => void;
+  clearAllFilters: () => void;
   setTagsPanel: (open: boolean) => void;
   toggleTagsPanel: () => void;
-  /** Closes the tags sidebar and returns to All (clears any active tag). */
   closeTagsPanel: () => void;
 
-  /** Opens a preview. Pushes a history entry unless one is already open. */
   openPreview: (mode: PreviewMode, itemId: string) => void;
-  /** Advances the preview target without adding a history entry. */
   setPreviewItem: (itemId: string) => void;
-  /** Strips the preview params in place (`replace`). */
   closePreview: () => void;
-  /**
-   * Returns to a clean `/browse` (every param at its default). Used when the
-   * active library changes; `replace` so the switch does not stack history.
-   */
   reset: () => void;
 }
 
-/**
- * Reads the `/browse` search params and returns navigation helpers.
- *
- * Every write goes through the functional `search` updater: passing a plain
- * object to `navigate({ search })` would *replace* the whole search, silently
- * dropping every other param (router-core resolves `typeof search === "function"
- * ? search(prev) : search`).
- */
 export function useWorkspaceSearch(): WorkspaceSearchApi {
   const search = useSearch({ from: "/browse" });
   const navigate = useNavigate();
@@ -145,7 +148,8 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
           for (const key of Object.keys(merged)) {
             const value = merged[key];
             const isDefault =
-              value === (WORKSPACE_SEARCH_DEFAULTS as Record<string, unknown>)[key];
+              value ===
+              (WORKSPACE_SEARCH_DEFAULTS as Record<string, unknown>)[key];
             if (value === undefined || value === null || isDefault) {
               delete merged[key];
             }
@@ -196,18 +200,43 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         item: undefined,
       }),
     selectTag: (tag) =>
-      patch({ view: "all", tag: tag ?? undefined, folder: undefined, preview: undefined, item: undefined }),
+      patch({
+        view: "all",
+        tag: tag ?? undefined,
+        folder: undefined,
+        preview: undefined,
+        item: undefined,
+      }),
     setCategory: (type) => patch({ type }),
     setSort: (sort) => patch({ sort }),
+    setColorFilter: (color) => patch({ color: color ?? undefined }),
+    setFolderFilter: (folderId) => patch({ filterFolder: folderId ?? undefined }),
+    setTagFilter: (tag) => patch({ filterTag: tag ?? undefined }),
+    setOrientationFilter: (orientation) => patch({ orientation }),
+    clearAllFilters: () =>
+      patch({
+        type: "all",
+        color: undefined,
+        filterFolder: undefined,
+        filterTag: undefined,
+        orientation: "all",
+      }),
     setTagsPanel: (open) => patch({ tags: open }),
     toggleTagsPanel: () => patch({ tags: !search.tags }),
     closeTagsPanel: () =>
-      patch({ tags: false, tag: undefined, folder: undefined, preview: undefined, item: undefined }),
+      patch({
+        tags: false,
+        tag: undefined,
+        folder: undefined,
+        preview: undefined,
+        item: undefined,
+      }),
 
     openPreview: (mode, itemId) =>
       patch({ preview: mode, item: itemId }, { replace: previewOpen }),
     setPreviewItem: (itemId) => patch({ item: itemId }, { replace: true }),
-    closePreview: () => patch({ preview: undefined, item: undefined }, { replace: true }),
+    closePreview: () =>
+      patch({ preview: undefined, item: undefined }, { replace: true }),
     reset: () =>
       patch(
         {
@@ -217,6 +246,10 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
           type: undefined,
           sort: undefined,
           tags: false,
+          color: undefined,
+          filterFolder: undefined,
+          filterTag: undefined,
+          orientation: "all",
           preview: undefined,
           item: undefined,
         },

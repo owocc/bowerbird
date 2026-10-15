@@ -1,6 +1,9 @@
 package core_test
 
 import (
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
@@ -223,4 +226,71 @@ func TestRecycleBinAndFoldersAndTags(t *testing.T) {
 	}
 
 	_ = libInfo
+}
+
+func TestImagePaletteAndMetadataExtraction(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+	mgr := core.NewLibraryManager()
+	t.Cleanup(func() { _ = mgr.CloseLibrary() })
+
+	if _, err := mgr.CreateLibrary(tempDir, "ColorTestLib"); err != nil {
+		t.Fatalf("CreateLibrary failed: %v", err)
+	}
+
+	// Generate a 160x90 (16:9 landscape) PNG with a dominant red region and secondary blue region
+	img := image.NewRGBA(image.Rect(0, 0, 160, 90))
+	for y := range 90 {
+		for x := range 160 {
+			if x < 120 {
+				img.SetRGBA(x, y, color.RGBA{R: 239, G: 68, B: 68, A: 255})
+			} else {
+				img.SetRGBA(x, y, color.RGBA{R: 59, G: 130, B: 246, A: 255})
+			}
+		}
+	}
+	imgPath := filepath.Join(tempDir, "palette_test.png")
+	f, err := os.Create(imgPath)
+	if err != nil {
+		t.Fatalf("failed to create test PNG: %v", err)
+	}
+	if err := png.Encode(f, img); err != nil {
+		_ = f.Close()
+		t.Fatalf("failed to encode test PNG: %v", err)
+	}
+	_ = f.Close()
+
+	items, err := mgr.ImportFiles([]string{imgPath})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("ImportFiles failed: %v, len=%d", err, len(items))
+	}
+
+	imported := items[0]
+	if imported.DominantColor == "" {
+		t.Errorf("Expected non-empty DominantColor")
+	}
+	if len(imported.Palette) < 2 {
+		t.Errorf("Expected at least 2 colors in Palette, got %v", imported.Palette)
+	}
+	if imported.Meta == nil {
+		t.Fatalf("Expected non-nil ImageMeta")
+	}
+	if imported.Meta.Orientation != "landscape" {
+		t.Errorf("Expected orientation=landscape, got %s", imported.Meta.Orientation)
+	}
+	if imported.Meta.AspectRatio != "16:9" {
+		t.Errorf("Expected aspectRatio=16:9, got %s", imported.Meta.AspectRatio)
+	}
+
+	// Verify persistence through GetItems and GetItem
+	fetched, err := mgr.GetItem(imported.ID)
+	if err != nil || fetched == nil {
+		t.Fatalf("GetItem failed: %v", err)
+	}
+	if fetched.DominantColor != imported.DominantColor {
+		t.Errorf("GetItem DominantColor mismatch: got %s, want %s", fetched.DominantColor, imported.DominantColor)
+	}
+	if fetched.Meta == nil || fetched.Meta.AspectRatio != "16:9" {
+		t.Errorf("GetItem Meta was not persisted properly: %+v", fetched.Meta)
+	}
 }

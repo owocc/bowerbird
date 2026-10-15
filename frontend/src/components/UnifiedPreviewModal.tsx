@@ -1,28 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  TransformWrapper,
-  TransformComponent,
-  MiniMap,
-  type ReactZoomPanPinchRef,
-} from "react-zoom-pan-pinch";
-import {
   ArrowLeft,
   X,
   ChevronLeft,
   ChevronRight,
-  FileImage,
-  FileVideo,
-  FileAudio,
-  FileText,
-  FileArchive,
-  File,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ZoomControls } from "@/components/ZoomControls";
 import type { Item } from "../../bindings/bowerbird/core/models";
-import { getFileCategory, formatBytes } from "@/lib/formatters";
 import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
+import {
+  previewRegistry,
+  type PreviewZoomController,
+} from "@/plugins/preview/registry";
 
 export interface UnifiedPreviewModalProps {
   open: boolean;
@@ -34,11 +25,13 @@ export interface UnifiedPreviewModalProps {
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
 }
+
 /**
- * Unified Preview Component shared by both:
- * 1. Double-click inline preview in main
+ * Unified Preview Host powered by PreviewPluginRegistry.
+ * Supports:
+ * 1. Double-click inline preview in main column
  * 2. Space key full-window QuickLook modal
- * Zero feedback loops, smooth trackpad zoom, shared core viewer.
+ * Delegates actual rendering & zoom/pan/media controls to the resolved PreviewPlugin.
  */
 export function UnifiedPreviewModal({
   open,
@@ -51,47 +44,36 @@ export function UnifiedPreviewModal({
   onToggleSidebar,
 }: UnifiedPreviewModalProps) {
   const { t } = useTranslation();
-  const transformRef = useRef<ReactZoomPanPinchRef>(null);
-  // Default preview scale is strictly 100% (1.0)
+  const controllerRef = useRef<PreviewZoomController | null>(null);
   const [scale, setScale] = useState<number>(1);
-  const [iconLoadError, setIconLoadError] = useState(false);
-  // Filter to image items for slideshow pagination
-  const imageItems = items.filter(
-    (i) =>
-      i.hasThumbnail ||
-      ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico"].includes(
-        i.extension.toLowerCase()
-      )
-  );
 
   const activeId = activeItem?.id;
-  const currentIndex = activeId ? imageItems.findIndex((i) => i.id === activeId) : -1;
+  const currentIndex = activeId ? items.findIndex((i) => i.id === activeId) : -1;
 
-  // Switch to previous image
+  // Switch to previous item in the current filtered list
   const handlePrev = useCallback(() => {
     if (currentIndex > 0) {
-      onIndexChange?.(imageItems[currentIndex - 1]);
-    } else if (imageItems.length > 1) {
-      onIndexChange?.(imageItems[imageItems.length - 1]);
+      onIndexChange?.(items[currentIndex - 1]);
+    } else if (items.length > 1) {
+      onIndexChange?.(items[items.length - 1]);
     }
-  }, [currentIndex, imageItems, onIndexChange]);
+  }, [currentIndex, items, onIndexChange]);
 
-  // Switch to next image
+  // Switch to next item in the current filtered list
   const handleNext = useCallback(() => {
-    if (currentIndex < imageItems.length - 1) {
-      onIndexChange?.(imageItems[currentIndex + 1]);
-    } else if (imageItems.length > 1) {
-      onIndexChange?.(imageItems[0]);
+    if (currentIndex < items.length - 1) {
+      onIndexChange?.(items[currentIndex + 1]);
+    } else if (items.length > 1) {
+      onIndexChange?.(items[0]);
     }
-  }, [currentIndex, imageItems, onIndexChange]);
+  }, [currentIndex, items, onIndexChange]);
 
-  // Reset zoom whenever image changes
+  // Reset scale when item changes
   useEffect(() => {
     if (!open) return;
     setScale(1);
-    transformRef.current?.resetTransform();
-    setIconLoadError(false);
   }, [activeId, open]);
+
   // Keyboard navigation
   useEffect(() => {
     if (!open) return;
@@ -108,8 +90,7 @@ export function UnifiedPreviewModal({
         handleNext();
       } else if (e.key === "0") {
         e.preventDefault();
-        transformRef.current?.resetTransform();
-        setScale(1);
+        controllerRef.current?.zoomToFit();
       }
     };
 
@@ -117,56 +98,30 @@ export function UnifiedPreviewModal({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, handlePrev, handleNext, onClose]);
 
-  // Transform scale updates from wheel/trackpad:
-  // ONLY updates UI scale state — NEVER calls setTransform to prevent infinite flicker loops!
-  const handleTransform = useCallback(
-    (_ref: unknown, state: { scale: number }) => {
-      setScale(state.scale);
-    },
-    []
-  );
-
-  // Manual zoom from Slider / Dropdown menu only
   const handleManualScaleChange = useCallback((newScale: number) => {
-    setScale(newScale);
-    if (transformRef.current) {
-      const state = transformRef.current.state;
-      transformRef.current.setTransform(state.positionX, state.positionY, newScale, 0);
+    if (controllerRef.current) {
+      controllerRef.current.setScale(newScale);
+    } else {
+      setScale(newScale);
     }
   }, []);
 
   const handleActualSize = useCallback(() => {
-    if (transformRef.current) {
-      const state = transformRef.current.state;
-      transformRef.current.setTransform(state.positionX, state.positionY, 1.0, 150);
-      setScale(1.0);
-    }
+    controllerRef.current?.actualSize();
   }, []);
 
   const handleZoomToFit = useCallback(() => {
-    transformRef.current?.resetTransform();
-    setScale(1.0);
+    controllerRef.current?.zoomToFit();
   }, []);
 
-  // ALL HOOKS CALLED UNCONDITIONALLY ABOVE
   if (!open || !activeItem) {
     return null;
   }
 
-  const category = getFileCategory(activeItem.extension);
-  const isImage = category === "image";
-  const imageSrc = activeItem.originalUrl || activeItem.thumbnailUrl;
-  const serverOrigin = activeItem.originalUrl
-    ? activeItem.originalUrl.replace(/\/asset\/item\/.*$/, "")
-    : activeItem.thumbnailUrl
-    ? activeItem.thumbnailUrl.replace(/\/asset\/item\/.*$/, "")
-    : "";
-  const systemIconUrl =
-    serverOrigin && activeItem.extension
-      ? `${serverOrigin}/asset/icon/${encodeURIComponent(activeItem.extension)}?path=${encodeURIComponent(activeItem.filePath || "")}`
-      : "";
-
+  const plugin = previewRegistry.resolve(activeItem);
+  const PluginViewport = plugin.Viewport;
   const isInline = mode === "inline";
+
   return (
     <div
       role="dialog"
@@ -177,17 +132,8 @@ export function UnifiedPreviewModal({
           : "fixed inset-0 z-50 flex flex-col bg-background/95 text-foreground backdrop-blur-2xl select-none wails-no-drag animate-in fade-in duration-100 overflow-hidden"
       }
     >
-      {/* 
-        ========================================================================
-        MODE 1: INLINE HEADER (Double-click preview inside main column)
-        - Left: Return button (icon only) + Turn-page pagination (no filename, no type badge)
-        - Center: ZoomControls (Slider + Dropdown)
-        - Right: Close button (icon only)
-        ========================================================================
-      */}
       {isInline ? (
-        <header className="h-(--titlebar-height) border-b-0 px-3 flex items-center justify-between gap-4 shrink-0 bg-background/95 z-20 wails-drag">
-          {/* Left: Shared safe prefix + Back button + Turn-page pagination */}
+        <header className="h-(--titlebar-height) border-b-0 px-3 flex items-center justify-between gap-4 shrink-0 bg-background/95 z-20 wails-no-drag">
           <MainHeaderSafePrefix
             sidebarOpen={sidebarOpen}
             onToggleSidebar={onToggleSidebar}
@@ -196,27 +142,26 @@ export function UnifiedPreviewModal({
               variant="ghost"
               size="icon-xs"
               onClick={onClose}
-              className="size-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0"
+              className="size-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0 wails-no-drag"
               title={t("preview.backTooltip")}
             >
               <ArrowLeft className="size-4" />
             </Button>
 
-            {/* Pagination right next to back button */}
-            {imageItems.length > 1 && (
-              <div className="flex items-center gap-1 pl-1.5 border-l border-border/60">
+            {items.length > 1 && (
+              <div className="flex items-center gap-1 pl-1.5 border-l border-border/60 header-interactive-container wails-no-drag">
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   onClick={handlePrev}
                   title={t("preview.previousTooltip")}
-                  className="size-6 text-muted-foreground hover:text-foreground rounded"
+                  className="size-6 text-muted-foreground hover:text-foreground rounded wails-no-drag"
                 >
                   <ChevronLeft className="size-3.5" />
                 </Button>
 
                 <span className="text-[11px] text-muted-foreground font-mono min-w-10 text-center select-none">
-                  {currentIndex >= 0 ? currentIndex + 1 : 1} / {imageItems.length}
+                  {currentIndex >= 0 ? currentIndex + 1 : 1} / {items.length}
                 </span>
 
                 <Button
@@ -224,7 +169,7 @@ export function UnifiedPreviewModal({
                   size="icon-xs"
                   onClick={handleNext}
                   title={t("preview.nextTooltip")}
-                  className="size-6 text-muted-foreground hover:text-foreground rounded"
+                  className="size-6 text-muted-foreground hover:text-foreground rounded wails-no-drag"
                 >
                   <ChevronRight className="size-3.5" />
                 </Button>
@@ -232,161 +177,58 @@ export function UnifiedPreviewModal({
             )}
           </MainHeaderSafePrefix>
 
-          {/* Center: ZoomControls slider & dropdown */}
-          <ZoomControls
-            scale={scale}
-            onScaleChange={handleManualScaleChange}
-            onActualSize={handleActualSize}
-            onZoomToFit={handleZoomToFit}
-            className="max-w-xs flex-1 justify-center wails-no-drag"
-          />
+          <div className="flex-1 h-full min-w-4 wails-drag" />
 
-          {/* Right: Close button */}
-          <div className="flex items-center wails-no-drag">
+          {plugin.supportsZoom && (
+            <ZoomControls
+              scale={scale}
+              onScaleChange={handleManualScaleChange}
+              onActualSize={handleActualSize}
+              onZoomToFit={handleZoomToFit}
+              className="max-w-xs justify-center header-interactive-container wails-no-drag"
+            />
+          )}
+
+          <div className="flex-1 h-full min-w-4 wails-drag" />
+
+          <div className="flex items-center header-interactive-container wails-no-drag">
             <Button
               variant="ghost"
               size="icon-xs"
               onClick={onClose}
               title={t("preview.closePreviewTooltip")}
-              className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted"
+              className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted wails-no-drag"
             >
               <X className="size-3.5" />
             </Button>
           </div>
         </header>
       ) : (
-        /* 
-          ========================================================================
-          MODE 2: FULL-WINDOW POPUP (Space key preview)
-          - NO header!
-          - Top-right floating close button (icon only)
-          ========================================================================
-        */
-        <div className="absolute top-4 right-4 z-40">
+        <div className="absolute top-4 right-4 z-40 header-interactive-container wails-no-drag">
           <Button
             variant="ghost"
             size="icon-xs"
             onClick={onClose}
             title={t("preview.exitFullscreenTooltip")}
-            className="size-8 rounded-full bg-background/70 hover:bg-background text-foreground border border-border/60 shadow-lg backdrop-blur-md"
+            className="size-8 rounded-full bg-background/70 hover:bg-background text-foreground border border-border/60 shadow-lg backdrop-blur-md wails-no-drag"
           >
             <X className="size-4" />
           </Button>
         </div>
       )}
 
-      {/* 
-        ========================================================================
-        SHARED CENTERED IMAGE VIEWPORT:
-        Strictly centered, gentle wheel zoom (step 0.02), minimap when scale > 125%
-        ========================================================================
-      */}
       <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center">
-
-        <TransformWrapper
-          ref={transformRef}
-          initialScale={1}
-          minScale={0.05}
-          maxScale={8}
-          centerOnInit={true}
-          centerZoomedOut={true}
-          // Gentle wheel step (0.02) to prevent trackpad sudden zoom jumps
-          wheel={{
-            step: 0.02,
-            wheelDisabled: false,
-            touchPadDisabled: false,
-          }}
-          pinch={{
-            step: 0.5,
-            disabled: false,
-          }}
-          panning={{ disabled: false, velocityDisabled: false }}
-          doubleClick={{ disabled: false, step: 0.5 }}
-          onTransform={handleTransform}
-        >
-          <TransformComponent
-            wrapperClass="!w-full !h-full flex items-center justify-center cursor-grab active:cursor-grabbing"
-            contentClass="!w-full !h-full flex items-center justify-center"
-          >
-            <div className="w-full h-full flex items-center justify-center p-4">
-              {isImage || activeItem.hasThumbnail ? (
-                <img
-                  src={imageSrc}
-                  alt={activeItem.name}
-                  draggable={false}
-                  style={{
-                    maxWidth: "calc(100% - 2rem)",
-                    maxHeight: "calc(100% - 2rem)",
-                  }}
-                  className="object-contain drop-shadow-xl select-none"
-                />
-              ) : (
-                <div className="p-10 rounded-3xl border border-border/80 bg-card/90 flex flex-col items-center gap-4 text-muted-foreground shadow-xl select-none max-w-sm">
-                  {systemIconUrl && !iconLoadError ? (
-                    <img
-                      src={systemIconUrl}
-                      alt={activeItem.extension || t("preview.fileAlt")}
-                      draggable={false}
-                      onError={() => setIconLoadError(true)}
-                      className="size-32 object-contain pointer-events-none drop-shadow-lg"
-                    />
-                  ) : (
-                    <div className="relative size-24 rounded-sm flex items-center justify-center bg-muted/60 border border-border/80 shadow-xs">
-                      <PreviewCategoryIcon category={category} className="size-12 stroke-[1.5] text-foreground/80" />
-                    </div>
-                  )}
-                  <div className="text-center space-y-1">
-                    <p className="text-sm text-foreground font-semibold truncate max-w-xs" title={activeItem.filename || activeItem.name}>
-                      {activeItem.filename || activeItem.name}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground font-mono">
-                      {formatBytes(activeItem.size)}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </TransformComponent>
-
-          {/* 
-            ====================================================================
-            MINIMAP: "缩放大于125%出现", allows visual pan navigation
-            ====================================================================
-          */}
-          {/* 
-            ====================================================================
-            MINIMAP: Operable visual pan navigation (scale > 125%)
-            ====================================================================
-          */}
-          {scale > 1.25 && (
-            <MiniMap
-              width={120}
-              height={120}
-              className="absolute bottom-4 right-4 z-30 rounded-xs overflow-hidden shadow-2xl border border-border/80 bg-card/95 backdrop-blur-md select-none transition-all animate-in fade-in zoom-in-95 duration-150"
-              borderColor="var(--primary)"
-              previewStyle={{
-                backgroundColor: "oklch(var(--primary) / 0.18)",
-                border: "2px solid var(--primary)",
-                borderRadius: "2px",
-              }}
-            >
-              <img
-                src={imageSrc}
-                alt={activeItem.name}
-                className="w-full h-full object-contain pointer-events-none select-none"
-              />
-            </MiniMap>
-          )}
-        </TransformWrapper>
+        <PluginViewport
+          item={activeItem}
+          mode={mode}
+          scale={scale}
+          onScaleChange={setScale}
+          controllerRef={controllerRef}
+        />
       </div>
 
-      {/* 
-        ========================================================================
-        MODE 2: SLIDESHOW NAVIGATION CAPSULE (Floating bottom center in full-window)
-        ========================================================================
-      */}
-      {!isInline && imageItems.length > 1 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-background/85 hover:bg-background/95 backdrop-blur-md px-3 py-1 rounded-full border border-border/80 shadow-2xl transition-all">
+      {!isInline && items.length > 1 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-background/85 hover:bg-background/95 backdrop-blur-md px-3 py-1 rounded-full border border-border/80 shadow-2xl transition-all header-interactive-container wails-no-drag">
           <Button
             variant="ghost"
             size="icon-xs"
@@ -398,7 +240,7 @@ export function UnifiedPreviewModal({
           </Button>
 
           <span className="text-xs font-mono font-medium text-foreground px-2 min-w-14 text-center select-none">
-            {currentIndex >= 0 ? currentIndex + 1 : 1} / {imageItems.length}
+            {currentIndex >= 0 ? currentIndex + 1 : 1} / {items.length}
           </span>
 
           <Button
@@ -414,21 +256,4 @@ export function UnifiedPreviewModal({
       )}
     </div>
   );
-}
-
-function PreviewCategoryIcon({ category, className }: { category: string; className?: string }) {
-  switch (category) {
-    case "image":
-      return <FileImage className={className} />;
-    case "video":
-      return <FileVideo className={className} />;
-    case "audio":
-      return <FileAudio className={className} />;
-    case "document":
-      return <FileText className={className} />;
-    case "archive":
-      return <FileArchive className={className} />;
-    default:
-      return <File className={className} />;
-  }
 }

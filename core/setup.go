@@ -45,9 +45,8 @@ func (s *Service) OpenSetupWindow() error {
 		MinHeight:        520,
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 54,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
+			Backdrop: application.MacBackdropTranslucent,
+			TitleBar: application.MacTitleBarHiddenInset,
 		},
 	})
 	return nil

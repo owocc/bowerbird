@@ -1,114 +1,121 @@
-# Welcome to Your New Wails3 Project!
+# Bowerbird — Local Asset & Design Library Manager
 
-Congratulations on generating your Wails3 application! This README will guide you through the next steps to get your project up and running.
+Bowerbird is a cross-platform desktop digital asset manager built with **Wails v3 (Go)** and **React 19 + TypeScript + Tailwind CSS v4**. Every imported asset is stored in an isolated content-addressed directory (`items/<SHA-256>/`) indexed by SQLite and backed by per-item `metadata.json` manifests.
 
-## Getting Started
+---
 
-1. Navigate to your project directory in the terminal.
+## Core Features
 
-2. To run your application in development mode, use the following command:
+1. **Content-Addressed Deduplication & Isolated Storage**
+   - SHA-256 content hashing ensures zero duplicate imports.
+   - Dual-storage model: fast relational queries via `index.db` (SQLite) + portable per-item `metadata.json` and `thumbnail.jpg`.
+2. **Automatic Color Palette & Extended Metadata Extraction**
+   - On import (and automatically in the background for existing libraries), Bowerbird extracts the **dominant color**, a **6-color perceptual palette**, color model, alpha channel presence, aspect ratio, orientation (`landscape` / `portrait` / `square`), resolution (megapixels), and JPEG EXIF camera/capture metadata.
+3. **Pluggable File Preview Architecture (`PreviewPluginRegistry`)**
+   - Built-in preview plugins for **Images** (with damped trackpad pinch-to-zoom, 2-finger pan, and >125% minimap), **Video**, **Audio**, **Documents/Code** (PDF & syntax text preview), and **System Icon Fallback**.
+   - Supports both inline workspace preview (`Double-click`) and full-window QuickLook (`Space`).
+4. **Multi-Dimensional Filtering Bar**
+   - Unified dropdown filters for **File Type**, **Color Swatches** (perceptual ΔE matching against preset and library palette colors), **Tags**, **Virtual Folders**, and **Orientation**.
+5. **Precision Trackpad & Canvas Ergonomics**
+   - Two-finger trackpad pinch-to-zoom directly resizes the main justified gallery layout.
+   - Full-canvas rubber-band marquee selection works across any whitespace (padding, row gaps, trailing space) with automatic edge scrolling.
+   - Selection order is preserved as a strict FIFO queue; multi-selection preview stacks the **last 6 selected items** in exact selection order.
+   - Streamlined right inspector using collapsible **Accordion** sections and borderless adaptive previews.
 
-   ```
-   wails3 dev
-   ```
-
-   This will start your application and enable hot-reloading for both frontend and backend changes.
-
-3. To build your application for production, use:
-
-   ```
-   wails3 build
-   ```
-
-   This will create a production-ready executable in the `build` directory.
-
-## Exploring Wails3 Features
-
-Now that you have your project set up, it's time to explore the features that Wails3 offers:
-
-1. **Check out the examples**: The best way to learn is by example. Visit the `examples` directory in the `v3/examples` directory to see various sample applications.
-
-2. **Run an example**: To run any of the examples, navigate to the example's directory and use:
-
-   ```
-   go run .
-   ```
-
-   Note: Some examples may be under development during the alpha phase.
-
-3. **Explore the documentation**: Visit the [Wails3 documentation](https://v3.wails.io/) for in-depth guides and API references.
-
-4. **Join the community**: Have questions or want to share your progress? Join the [Wails Discord](https://discord.gg/JDdSxwjhGf) or visit the [Wails discussions on GitHub](https://github.com/wailsapp/wails/discussions).
+---
 
 ## Project Structure
 
-Take a moment to familiarize yourself with your project structure:
+```text
+├── main.go                           # Wails v3 application entry & native OS file drop routing
+├── core/                             # Go backend package
+│   ├── models.go                     # Domain models (Item, ImageMeta, Folder, Tag, LibraryInfo)
+│   ├── library.go                    # SQLite indexing, import pipeline, folder/tag/trash CRUD
+│   ├── color_extractor.go            # Perceptual color palette quantizer & EXIF/image metadata parser
+│   ├── asset_server.go               # Local HTTP streaming server for originals, thumbnails & system icons
+│   ├── service.go                    # Wails RPC service bindings
+│   └── drag_*.go                     # Platform-specific native OS drag-out & debug tracing
+└── frontend/                         # React 19 + Vite + Tailwind v4 frontend
+    └── src/
+        ├── plugins/preview/          # Pluggable file preview system
+        │   ├── types.ts              # PreviewPlugin, PreviewViewportProps, PreviewInspectorProps
+        │   ├── registry.ts           # PreviewPluginRegistry singleton & plugin resolution
+        │   └── builtin/              # Built-in plugins (image, video, audio, document, fallback)
+        ├── components/
+        │   ├── LibraryWorkspace.tsx  # Main 3-column resizable workspace
+        │   ├── FilterBar.tsx         # Multi-dimensional filter dropdowns (Type, Color, Tag, Folder, Orientation)
+        │   ├── JustifiedGallery.tsx  # Pixel-perfect justified layout & full-canvas marquee selection
+        │   ├── ItemDetailPanel.tsx   # Borderless adaptive preview, color swatches & Accordion metadata
+        │   ├── MultiItemInspector.tsx# Last-6 FIFO stacked preview & batch organization
+        │   ├── UnifiedPreviewModal.tsx # Plugin-driven inline & full-window preview host
+        │   └── ui/accordion.tsx      # Collapsible inspector accordion primitive
+        ├── hooks/
+        │   ├── useTrackpadZoom.ts    # Trackpad pinch-to-zoom hook for the main gallery
+        │   ├── useFileDrop.ts        # Drag-and-drop import state & progress events
+        │   └── useHistoryNavigation.ts # Router-backed Back/Forward navigation
+        └── lib/
+            └── workspace-search.ts   # URL search schema for navigation & filter state
+```
 
-- `frontend/`: Contains your frontend code (HTML, CSS, JavaScript/TypeScript)
-- `main.go`: The entry point of your Go backend
-- `app.go`: Define your application structure and methods here
-- `wails.json`: Configuration file for your Wails project
+---
 
-## Native drag & drop out of the window
+## Preview Plugin Architecture
 
-Dragging an asset to another application is platform specific, because an HTML5
-drag from the webview only publishes text formats (`text/plain`,
-`text/uri-list`). Targets that expect real files - Explorer, terminals, Figma,
-Photoshop - therefore see a text/URL drop, which is why a browser navigates to
-the `file://` URI and reports `about:blank#blocked`.
+All file previews—both in the main/fullscreen modal (`UnifiedPreviewModal`) and the right inspector (`ItemDetailPanel`)—are resolved through `previewRegistry` (`frontend/src/plugins/preview/registry.ts`).
 
-- **Windows** (`core/drag_windows.go`): `frontend/src/lib/drag-out.ts` cancels the
-  webview drag and calls `Service.StartDragItems` with the dragged item ids. The
-  Go side builds a shell data object from the item files (`SHCreateDataObject` →
-  `CF_HDROP`, `FileGroupDescriptorW`, `FileContents`) and runs `DoDragDrop` with a
-  minimal `IDropSource`. Only `DROPEFFECT_COPY` is offered, so no drop can move or
-  delete a library file.
-- **No drag image is attached**, on purpose. `IDragSourceHelper` wants a bitmap
-  plus `SHDRAGIMAGE.crColorKey`, the colour the ghost treats as its background,
-  and Windows draws that key *on top of* the alpha channel: the ghost came out
-  with the asset's own colours cut out of it (black with a zero key). A preview
-  that damages the asset it previews is worse than no preview, so the drag lets
-  Windows draw its own default feedback and never hands OLE a bitmap at all.
-- Because the native drag re-enters the window as an *external* file drag
-  (CF_HDROP), the webview has to be told that the gesture is ours for its whole
-  lifetime: `frontend/src/lib/drag-state.ts` holds that flag, and the import
-  affordances (sidebar root) and folder drop targets read it so an in-app drag is
-  never mistaken for an import.
-- On Windows an in-app drop is therefore resolved by the native drop path
-  (`WindowFilesDropped` in `main.go`), the same one macOS has always used.
-- **macOS** (`core/drag_darwin.go`): the webview drag session is left alone and
-  its pasteboard is rewritten into `public.file-url` / `NSFilenamesPboardType`.
-- **Linux**: not implemented; the webview's `text/uri-list` drag is what it is.
+### Built-in Plugins
 
-## Drag & drop tracing
+| Plugin ID | Priority | Handled Formats | Capabilities |
+| :--- | :--- | :--- | :--- |
+| `builtin.image` | `100` | `png, jpg, jpeg, webp, gif, bmp, svg, ico, tiff, avif` | Damped trackpad zoom (`25%`–`800%`), 2-finger pan when zoomed in, interactive MiniMap (`>125%`), borderless inspector preview |
+| `builtin.video` | `90` | `mp4, mov, webm, mkv, avi, m4v` | Streaming HTML5 video player in modal & compact player in inspector |
+| `builtin.audio` | `85` | `mp3, wav, flac, aac, ogg, m4a, opus` | Audio player with artwork/icon header and native playback controls |
+| `builtin.document` | `70` | `pdf, txt, md, json, yaml, xml, csv, js, ts, go, py, rs, css, html, sql` | Embedded PDF viewer and live text/code preview |
+| `builtin.fallback` | `0` | `*` (catch-all fallback) | Native OS file icon rendering via `/asset/icon/<ext>` |
 
-A broken drop target cannot be reproduced from the UI alone, so every step of
-the pipeline is traced:
+### Registering a Custom Preview Plugin
 
-- `frontend/src/lib/drag-trace.ts` — document-level listeners that dump the exact
-  payload offered at `dragstart` (formats, file paths, URIs), inbound
-  `dragenter`/`drop` payloads, and the `dropEffect` reported at `dragend`
-  (`none` means nothing accepted the drop).
-- `core/drag_debug.go` — trace sink, `core.LogDragTrace` plus the
-  `Service.LogDragTrace` RPC the frontend forwards to.
-- `main.go` — native drops delivered by Wails (`WindowFilesDropped`) and the
-  import/move branch each drop takes.
-- `core/drag_windows.go` — `start-drag` (paths handed to OLE) and
-  `drag-out-finished` (`effect=0x1` copy, `0x0` means no target accepted).
+```tsx
+import { previewRegistry } from "@/plugins/preview/registry";
 
-Lines are appended to `drag-debug.log` in the app data directory
-(`%APPDATA%\bowerbird\drag-debug.log` on Windows,
-`~/Library/Application Support/bowerbird/drag-debug.log` on macOS), which is the
-only sink visible in production Windows builds (`-H windowsgui` hides stdout).
-The path is also printed at startup and shown live in `wails3 dev`. Set
-`BOWERBIRD_USER_DATA_DIR` to relocate the app data directory - the Go tests do,
-so a test run never touches the real user profile.
+previewRegistry.register({
+  id: "custom.model3d",
+  name: "3D Model Viewer",
+  priority: 95,
+  extensions: ["glb", "gltf", "obj"],
+  supportsZoom: false,
+  Viewport: ({ item }) => <My3DCanvas src={item.originalUrl} />,
+  InspectorPreview: ({ item, onOpenPreview }) => (
+    <div onDoubleClick={onOpenPreview}>3D Preview: {item.filename}</div>
+  ),
+});
+```
 
-## Next Steps
+---
 
-1. Modify the frontend in the `frontend/` directory to create your desired UI.
-2. Add backend functionality in `main.go`.
-3. Use `wails3 dev` to see your changes in real-time.
-4. When ready, build your application with `wails3 build`.
+## Native Drag & Drop Out of the Window
 
-Happy coding with Wails3! If you encounter any issues or have questions, don't hesitate to consult the documentation or reach out to the Wails community.
+Dragging an asset to another application is platform-specific because an HTML5 drag from the webview only publishes text formats (`text/plain`, `text/uri-list`):
+
+- **Windows** (`core/drag_windows.go`): `frontend/src/lib/drag-out.ts` cancels the webview drag and calls `Service.StartDragItems` with the dragged item IDs. The Go side builds a shell data object (`SHCreateDataObject` → `CF_HDROP`) and runs `DoDragDrop` with `DROPEFFECT_COPY`.
+- **macOS** (`core/drag_darwin.go`): The webview drag session is preserved and its pasteboard is rewritten into `public.file-url` / `NSFilenamesPboardType`.
+- **In-App Drop Visuals**: Both the sidebar and main workspace use a non-intrusive `10%` opacity mask with a dashed border (`bg-foreground/10 border-dashed`) without obscuring folder names or shifting layout.
+
+### Drag & Drop Tracing
+
+Every step of the drag-and-drop pipeline is logged to `drag-debug.log` in the user data directory (`%APPDATA%\bowerbird\drag-debug.log` on Windows, `~/Library/Application Support/bowerbird/drag-debug.log` on macOS). Set `BOWERBIRD_USER_DATA_DIR` to override the directory during tests.
+
+---
+
+## Development & Verification
+
+```bash
+# Run Go backend unit & integration tests
+go test ./...
+
+# Typecheck & build frontend bundle
+cd frontend && npm run build
+
+# Run in Wails3 development mode
+wails3 dev
+```

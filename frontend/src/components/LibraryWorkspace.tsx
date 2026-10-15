@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { motion, AnimatePresence } from "motion/react";
 import {
   Search,
   ArrowUpDown,
@@ -37,8 +36,17 @@ import { JustifiedGallery } from "@/components/JustifiedGallery";
 import { ItemDetailPanel } from "@/components/ItemDetailPanel";
 import { MultiItemInspector } from "@/components/MultiItemInspector";
 import { UnifiedPreviewModal } from "@/components/UnifiedPreviewModal";
-import { CustomContextMenu, type ContextMenuPosition } from "@/components/CustomContextMenu";
+import {
+  CustomContextMenu,
+  type ContextMenuPosition,
+} from "@/components/CustomContextMenu";
 import { DropzoneOverlay } from "@/components/DropzoneOverlay";
+import {
+  FilterBar,
+  itemMatchesColorFilter,
+  UNCATEGORIZED_FOLDER_FILTER,
+  UNTAGGED_TAG_FILTER,
+} from "@/components/FilterBar";
 import { toast } from "sonner";
 import {
   GetItems,
@@ -70,7 +78,12 @@ import {
   OpenSetupWindow,
   RevealInFinder,
 } from "../../bindings/bowerbird/core/service";
-import type { Item, Folder, Tag, LibraryInfo } from "../../bindings/bowerbird/core/models";
+import type {
+  Item,
+  Folder,
+  Tag,
+  LibraryInfo,
+} from "../../bindings/bowerbird/core/models";
 import { HistoryNavButtons } from "@/components/HistoryNavButtons";
 import { getFileCategory } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
@@ -79,10 +92,10 @@ import {
   useWorkspaceSearch,
   TRASH_FOLDER_ID,
   type PreviewMode,
-  type WorkspaceCategory,
 } from "@/lib/workspace-search";
 import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";
 import { useFileDrop } from "@/hooks/useFileDrop";
+import { useTrackpadZoom } from "@/hooks/useTrackpadZoom";
 
 export interface LibraryWorkspaceProps {
   library: LibraryInfo;
@@ -97,9 +110,6 @@ export function LibraryWorkspace({
 }: LibraryWorkspaceProps) {
   const { t } = useTranslation();
 
-  // Folder / tag / view / category / sort / tags-panel / preview live in the URL
-  // search params (see useWorkspaceSearch), so Back and Forward can step through
-  // them. The aliases below keep the rest of the component readable.
   const ws = useWorkspaceSearch();
   const { canGoBack, goBack } = useHistoryNavigation();
   const activeFolderId = ws.activeFolderId;
@@ -107,6 +117,10 @@ export function LibraryWorkspace({
   const tagsSidebarOpen = ws.tags;
   const categoryFilter = ws.type;
   const sortOrder = ws.sort;
+  const colorFilter = ws.color ?? null;
+  const folderFilter = ws.filterFolder ?? null;
+  const tagFilter = ws.filterTag ?? null;
+  const orientationFilter = ws.orientation;
   const inlinePreviewOpen = ws.preview === "inline";
   const fullWindowPreviewOpen = ws.preview === "full";
 
@@ -118,16 +132,25 @@ export function LibraryWorkspace({
 
   const [loading, setLoading] = useState(true);
 
-  // Search text and thumbnail size are transient: not worth a history entry.
   const [searchQuery, setSearchQuery] = useState("");
   const [rowHeight, setRowHeight] = useState<number>(80);
 
-  // Selection is transient too; only the previewed item is addressable.
-  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  // Ordered selection queue: earliest selected at index 0, most recently selected at the end.
+  const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
+  const selectedItemIds = useMemo(() => new Set(selectedOrder), [selectedOrder]);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
-  // True when the currently open preview was pushed onto history, so closing it
-  // can simply go Back and leave Forward able to reopen it.
+  const galleryViewportRef = useRef<HTMLDivElement>(null);
+
+  // Enable trackpad 2-finger pinch zoom on the main gallery viewport
+  useTrackpadZoom({
+    containerRef: galleryViewportRef,
+    min: 60,
+    max: 240,
+    enabled: !inlinePreviewOpen && !fullWindowPreviewOpen,
+    onChange: setRowHeight,
+  });
+
   const previewPushedRef = useRef(false);
 
   const navigateToFolder = (id: string | null) => {
@@ -167,7 +190,6 @@ export function LibraryWorkspace({
     newName: string;
   } | null>(null);
 
-  // Custom Context Menu State
   const [contextMenu, setContextMenu] = useState<{
     position: ContextMenuPosition;
     isItemContext: boolean;
@@ -175,7 +197,6 @@ export function LibraryWorkspace({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Disable native browser context menu globally
   useEffect(() => {
     const disableContextMenu = (e: MouseEvent) => {
       e.preventDefault();
@@ -184,7 +205,6 @@ export function LibraryWorkspace({
     return () => window.removeEventListener("contextmenu", disableContextMenu);
   }, []);
 
-  // Load items from database (either regular items or trash items)
   const refreshItems = useCallback(async () => {
     try {
       if (activeFolderId === "__trash__") {
@@ -201,7 +221,6 @@ export function LibraryWorkspace({
     }
   }, [activeFolderId, searchQuery, sortOrder]);
 
-  // Load folders from database
   const refreshFolders = useCallback(async () => {
     try {
       const data = await GetFolders();
@@ -211,7 +230,6 @@ export function LibraryWorkspace({
     }
   }, []);
 
-  // Load tags from database
   const refreshTags = useCallback(async () => {
     try {
       const data = await GetTags();
@@ -221,7 +239,6 @@ export function LibraryWorkspace({
     }
   }, []);
 
-  // Load trash count
   const refreshTrashCount = useCallback(async () => {
     try {
       const count = await GetTrashCount();
@@ -231,12 +248,15 @@ export function LibraryWorkspace({
     }
   }, []);
 
-  // Full refresh helper
   const handleFullRefresh = useCallback(async () => {
-    await Promise.all([refreshItems(), refreshFolders(), refreshTags(), refreshTrashCount()]);
+    await Promise.all([
+      refreshItems(),
+      refreshFolders(),
+      refreshTags(),
+      refreshTrashCount(),
+    ]);
   }, [refreshItems, refreshFolders, refreshTags, refreshTrashCount]);
 
-  // Initial & search/sort reload
   useEffect(() => {
     refreshItems();
   }, [refreshItems]);
@@ -253,7 +273,6 @@ export function LibraryWorkspace({
     refreshTrashCount();
   }, [refreshTrashCount]);
 
-  // Track whether an internal in-app drag is currently active
   const [isInternalDragging, setIsInternalDragging] = useState(false);
 
   useEffect(() => {
@@ -273,13 +292,12 @@ export function LibraryWorkspace({
       window.removeEventListener("mouseup", cleanupActiveClasses);
     };
   }, []);
-  // Reset navigation + selection when the active library *changes*. Skipped on
-  // the initial mount so a page reload restores the URL state.
+
   const previousLibraryPathRef = useRef(library.path);
   useEffect(() => {
     if (previousLibraryPathRef.current === library.path) return;
     previousLibraryPathRef.current = library.path;
-    setSelectedItemIds(new Set());
+    setSelectedOrder([]);
     setActiveItemId(null);
     previewPushedRef.current = false;
     ws.reset();
@@ -295,7 +313,6 @@ export function LibraryWorkspace({
     activeFolderIdRef.current = activeFolderId;
   }, [activeFolderId]);
 
-  // File drop hook for MAIN WORKSPACE (recursive flat import into current folder or all)
   const { state: dropState, importFileList, dragHandlers } = useFileDrop({
     onRefresh: async (newlyImportedIds?: string[]) => {
       const targetFolderId = activeFolderIdRef.current;
@@ -317,7 +334,6 @@ export function LibraryWorkspace({
     },
   });
 
-  // Global paste handler (Cmd+V)
   useEffect(() => {
     const handlePaste = async (e: ClipboardEvent) => {
       if (!e.clipboardData) return;
@@ -344,28 +360,39 @@ export function LibraryWorkspace({
     return () => window.removeEventListener("paste", handlePaste);
   }, [importFileList]);
 
-  // Selected items array
-  const selectedItems = useMemo(() => {
-    return items.filter((i) => selectedItemIds.has(i.id));
-  }, [items, selectedItemIds]);
+  // Fast lookup map for O(1) resolution of selectedOrder -> Item[]
+  const itemsById = useMemo(() => {
+    const map = new Map<string, Item>();
+    for (const it of items) {
+      map.set(it.id, it);
+    }
+    return map;
+  }, [items]);
 
-  // Active item for single inspector & preview
+  // Selected items strictly ordered by selection sequence (FIFO)
+  const selectedItems = useMemo(() => {
+    const result: Item[] = [];
+    for (const id of selectedOrder) {
+      const found = itemsById.get(id);
+      if (found) result.push(found);
+    }
+    return result;
+  }, [selectedOrder, itemsById]);
+
+  // Active item for single inspector & preview (defaults to the most recently selected item)
   const activeItem = useMemo(() => {
     if (activeItemId) {
-      const found = items.find((i) => i.id === activeItemId);
+      const found = itemsById.get(activeItemId);
       if (found) return found;
     }
-    return selectedItems[0] || null;
-  }, [items, activeItemId, selectedItems]);
+    return selectedItems[selectedItems.length - 1] || null;
+  }, [itemsById, activeItemId, selectedItems]);
 
-  // The preview overlay is driven by the `preview` + `item` URL params.
   const previewActiveItem = useMemo(() => {
     if (!ws.preview || !ws.item) return null;
-    return items.find((i) => i.id === ws.item) ?? null;
-  }, [items, ws.preview, ws.item]);
+    return itemsById.get(ws.item) ?? null;
+  }, [itemsById, ws.preview, ws.item]);
 
-  // If a stale/deep-linked preview points at an item that no longer exists once
-  // the library has loaded, drop the params instead of showing an empty overlay.
   useEffect(() => {
     if (!loading && ws.preview && !previewActiveItem) {
       ws.closePreview();
@@ -373,11 +400,11 @@ export function LibraryWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, ws.preview, previewActiveItem]);
 
-  // Filter items by folder, tag, and category
+  // Multi-dimensional filtering: sidebar folder/tag + FilterBar (type, color, tag, folder, orientation)
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      // In Trash view, items are already fetched from GetTrashItems
       if (activeFolderId !== "__trash__") {
+        // Sidebar folder selection
         if (activeFolderId !== null) {
           const itemFolders = item.folders || [];
           if (!itemFolders.includes(activeFolderId)) {
@@ -385,6 +412,7 @@ export function LibraryWorkspace({
           }
         }
 
+        // Sidebar tag selection
         if (activeTag !== null) {
           const itemTags = item.tags || [];
           if (!itemTags.includes(activeTag)) {
@@ -393,24 +421,75 @@ export function LibraryWorkspace({
         }
       }
 
+      // 1. Category / Type filter
       if (categoryFilter !== "all") {
         if (getFileCategory(item.extension) !== categoryFilter) {
           return false;
         }
       }
 
+      // 2. Folder dropdown filter
+      if (folderFilter) {
+        const itemFolders = item.folders || [];
+        if (folderFilter === UNCATEGORIZED_FOLDER_FILTER) {
+          if (itemFolders.length > 0) return false;
+        } else if (!itemFolders.includes(folderFilter)) {
+          return false;
+        }
+      }
+
+      // 3. Tag dropdown filter
+      if (tagFilter) {
+        const itemTags = item.tags || [];
+        if (tagFilter === UNTAGGED_TAG_FILTER) {
+          if (itemTags.length > 0) return false;
+        } else if (!itemTags.includes(tagFilter)) {
+          return false;
+        }
+      }
+
+      // 4. Orientation filter
+      if (orientationFilter !== "all") {
+        const orient =
+          item.meta?.orientation ||
+          (item.width > 0 && item.height > 0
+            ? Math.abs(item.width / item.height - 1) <= 0.05
+              ? "square"
+              : item.width > item.height
+              ? "landscape"
+              : "portrait"
+            : "");
+        if (orient !== orientationFilter) {
+          return false;
+        }
+      }
+
+      // 5. Color filter
+      if (colorFilter) {
+        if (!itemMatchesColorFilter(item, colorFilter)) {
+          return false;
+        }
+      }
+
       return true;
     });
-  }, [items, activeFolderId, activeTag, categoryFilter]);
+  }, [
+    items,
+    activeFolderId,
+    activeTag,
+    categoryFilter,
+    folderFilter,
+    tagFilter,
+    orientationFilter,
+    colorFilter,
+  ]);
 
   // Native OS & In-App Drag Start
   const handleDragStart = (e: React.DragEvent, item: Item) => {
     setIsInternalDragging(true);
     setInternalDragActive(true);
     const isMulti = selectedItemIds.has(item.id) && selectedItemIds.size > 1;
-    const targetItems = isMulti
-      ? items.filter((i) => selectedItemIds.has(i.id))
-      : [item];
+    const targetItems = isMulti ? selectedItems : [item];
 
     const rawPaths = targetItems
       .map((i) => i.filePath || (i.itemPath ? `${i.itemPath}/${i.filename}` : ""))
@@ -418,7 +497,8 @@ export function LibraryWorkspace({
 
     const fileUrls = targetItems
       .map((i) => {
-        const raw = i.filePath || (i.itemPath ? `${i.itemPath}/${i.filename}` : "");
+        const raw =
+          i.filePath || (i.itemPath ? `${i.itemPath}/${i.filename}` : "");
         let u = i.fileUrl;
         if (!u && raw) {
           u = encodeURI(`file://${raw.startsWith("/") ? "" : "/"}${raw}`);
@@ -431,12 +511,21 @@ export function LibraryWorkspace({
 
     const itemIds = targetItems.map((i) => i.id);
     e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
-    e.dataTransfer.setData("application/x-bowerbird-item-ids", JSON.stringify(itemIds));
+    e.dataTransfer.setData(
+      "application/x-bowerbird-item-ids",
+      JSON.stringify(itemIds)
+    );
     e.dataTransfer.setData("application/x-bowerbird-item-id", item.id);
-    e.dataTransfer.setData("application/x-bowerbird-active-folder", activeFolderId || "");
+    e.dataTransfer.setData(
+      "application/x-bowerbird-active-folder",
+      activeFolderId || ""
+    );
     if (rawPaths.length > 0) {
       e.dataTransfer.setData("text/plain", rawPaths.join("\n"));
-      e.dataTransfer.setData("application/x-bowerbird-file-paths", JSON.stringify(rawPaths));
+      e.dataTransfer.setData(
+        "application/x-bowerbird-file-paths",
+        JSON.stringify(rawPaths)
+      );
     }
 
     if (fileUrls.length > 0) {
@@ -451,13 +540,12 @@ export function LibraryWorkspace({
     e.dataTransfer.effectAllowed = "copyMove";
   };
 
-  // Delete Request Handler (checks multi-folder reference condition)
+  // Delete Request Handler
   const handleRequestDelete = (targetItem?: Item, targetList?: Item[]) => {
     const targets = targetList || (targetItem ? [targetItem] : selectedItems);
     if (targets.length === 0) return;
 
     if (activeFolderId === "__trash__") {
-      // In Trash -> Confirm Permanent Delete
       setDeleteConfirmDialog({
         isOpen: true,
         item: targets[0] || null,
@@ -467,7 +555,6 @@ export function LibraryWorkspace({
       return;
     }
 
-    // In a folder view: check if any item is referenced in multiple folders
     if (activeFolderId && activeFolderId !== "__trash__") {
       const multiRef = targets.some((it) => (it.folders || []).length > 1);
       if (multiRef) {
@@ -481,17 +568,13 @@ export function LibraryWorkspace({
       }
     }
 
-    // Otherwise, directly move to Trash
     (async () => {
       try {
         const ids = targets.map((i) => i.id);
+        const removeSet = new Set(ids);
         await BatchMoveToTrash(ids);
-        setSelectedItemIds((prev) => {
-          const next = new Set(prev);
-          ids.forEach((id) => next.delete(id));
-          return next;
-        });
-        if (activeItemId && ids.includes(activeItemId)) {
+        setSelectedOrder((prev) => prev.filter((id) => !removeSet.has(id)));
+        if (activeItemId && removeSet.has(activeItemId)) {
           setActiveItemId(null);
         }
         await handleFullRefresh();
@@ -501,19 +584,15 @@ export function LibraryWorkspace({
     })();
   };
 
-  // Restore handler
   const handleRestore = async (targetItem?: Item) => {
     const targets = targetItem ? [targetItem] : selectedItems;
     if (targets.length === 0) return;
     try {
       const ids = targets.map((i) => i.id);
+      const removeSet = new Set(ids);
       await BatchRestoreFromTrash(ids);
-      setSelectedItemIds((prev) => {
-        const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
-        return next;
-      });
-      if (activeItemId && ids.includes(activeItemId)) {
+      setSelectedOrder((prev) => prev.filter((id) => !removeSet.has(id)));
+      if (activeItemId && removeSet.has(activeItemId)) {
         setActiveItemId(null);
       }
       await handleFullRefresh();
@@ -522,11 +601,10 @@ export function LibraryWorkspace({
     }
   };
 
-  // Empty Trash handler
   const handleEmptyTrash = async () => {
     try {
       await EmptyTrash();
-      setSelectedItemIds(new Set());
+      setSelectedOrder([]);
       setActiveItemId(null);
       await handleFullRefresh();
     } catch (err) {
@@ -534,7 +612,6 @@ export function LibraryWorkspace({
     }
   };
 
-  // Rename handler
   const handleOpenRename = (targetItem?: Item) => {
     const item = targetItem || activeItem;
     if (!item) return;
@@ -545,8 +622,10 @@ export function LibraryWorkspace({
     });
   };
 
-  // Reveal in Finder
-  const handleReveal = async (e: React.MouseEvent | undefined, id: string) => {
+  const handleReveal = async (
+    e: React.MouseEvent | undefined,
+    id: string
+  ) => {
     e?.stopPropagation();
     try {
       await RevealInFinder(id);
@@ -565,7 +644,6 @@ export function LibraryWorkspace({
     }
   };
 
-  // Open with Default Application
   const handleOpenDefaultApp = async (targetItem?: Item) => {
     const item = targetItem || activeItem;
     if (!item) return;
@@ -576,12 +654,13 @@ export function LibraryWorkspace({
     }
   };
 
-  // Copy plain file path
   const handleCopyPath = async (targetItem?: Item) => {
     const item = targetItem || activeItem;
     if (!item) return;
     try {
-      const plainPath = item.filePath || (item.itemPath ? `${item.itemPath}/${item.filename}` : item.shellPath);
+      const plainPath =
+        item.filePath ||
+        (item.itemPath ? `${item.itemPath}/${item.filename}` : item.shellPath);
       await navigator.clipboard.writeText(plainPath);
       toast.success(t("workspace.pathCopied"));
     } catch (err) {
@@ -589,7 +668,6 @@ export function LibraryWorkspace({
     }
   };
 
-  // Open the dedicated settings window (colour mode, etc.)
   const handleOpenSettings = async () => {
     try {
       await OpenSettingsWindow();
@@ -598,23 +676,23 @@ export function LibraryWorkspace({
     }
   };
 
-  // Toggle Favorite
   const handleToggleFavorite = async (targetItem?: Item) => {
     const item = targetItem || activeItem;
     if (!item) return;
     try {
       const nowFav = await ToggleFavorite(item.id);
       await handleFullRefresh();
-      toast.success(nowFav ? t("workspace.favoriteAdded") : t("workspace.favoriteRemoved"));
+      toast.success(
+        nowFav ? t("workspace.favoriteAdded") : t("workspace.favoriteRemoved")
+      );
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
     }
   };
 
-  // Batch Add to folder
   const handleBatchAddToFolder = async (folderId: string) => {
     try {
-      for (const id of selectedItemIds) {
+      for (const id of selectedOrder) {
         await AddItemToFolder(id, folderId);
       }
       await handleFullRefresh();
@@ -623,19 +701,17 @@ export function LibraryWorkspace({
     }
   };
 
-  // Batch Remove from folder
   const handleBatchRemoveFromFolder = async (folderId: string) => {
     try {
-      for (const id of selectedItemIds) {
+      for (const id of selectedOrder) {
         await RemoveItemFromFolder(id, folderId);
       }
       await handleFullRefresh();
     } catch (err) {
-      console.error("Failed to remove items from folder:", err);
+      console.error("Failed to remove items to folder:", err);
     }
   };
 
-  // Folder CRUD handlers
   const handleCreateFolder = async (name: string, parentId?: string) => {
     try {
       await CreateFolder(name, parentId || "");
@@ -668,7 +744,6 @@ export function LibraryWorkspace({
     }
   };
 
-  // Sidebar drag = MOVE item to folder
   const handleMoveItemToFolder = async (
     itemId: string,
     fromFolderId: string,
@@ -683,20 +758,63 @@ export function LibraryWorkspace({
     }
   };
 
-  // Sidebar drop = FOLDER-ONLY recursive import
-  const handleDropFolderImport = async (e: React.DragEvent, targetFolderId = "") => {
+  const readEntryRecursively = async (
+    entry: FileSystemEntry,
+    parentId = ""
+  ) => {
+    if (entry.isDirectory) {
+      const dirEntry = entry as FileSystemDirectoryEntry;
+      const createdFolder = await CreateFolder(dirEntry.name, parentId);
+      const targetId = createdFolder?.id || "";
+      const dirReader = dirEntry.createReader();
+      const readEntries = async (): Promise<FileSystemEntry[]> => {
+        const { promise, resolve } = Promise.withResolvers<FileSystemEntry[]>();
+        dirReader.readEntries((entries) => resolve(entries || []));
+        return promise;
+      };
+      let batch: FileSystemEntry[] = [];
+      do {
+        batch = await readEntries();
+        for (const child of batch) {
+          await readEntryRecursively(child, targetId);
+        }
+      } while (batch.length > 0);
+    } else if (entry.isFile) {
+      const fileEntry = entry as FileSystemFileEntry;
+      const fileResolver = Promise.withResolvers<File>();
+      fileEntry.file(fileResolver.resolve);
+      const file = await fileResolver.promise;
+      const reader = new FileReader();
+      const dataResolver = Promise.withResolvers<string>();
+      reader.onload = () => dataResolver.resolve(String(reader.result || ""));
+      reader.readAsDataURL(file);
+      const base64Data = await dataResolver.promise;
+      const imported = await ImportFromBase64(file.name, base64Data);
+      if (imported && parentId) {
+        await AddItemToFolder(imported.id, parentId);
+      }
+    }
+  };
+
+  const handleDropFolderImport = async (
+    e: React.DragEvent,
+    targetFolderId = ""
+  ) => {
     e.preventDefault();
     e.stopPropagation();
 
     const folderPaths: string[] = [];
-    const folderEntries: any[] = [];
+    const folderEntries: FileSystemEntry[] = [];
 
     if (e.dataTransfer.items && e.dataTransfer.items.length > 0) {
       for (let i = 0; i < e.dataTransfer.items.length; i++) {
         const item = e.dataTransfer.items[i];
         if (item.kind === "file") {
           const file = item.getAsFile();
-          const diskPath = (file as any)?.path;
+          const diskPath =
+            file && "path" in file && typeof file.path === "string"
+              ? file.path
+              : "";
           const entry = item.webkitGetAsEntry?.();
           if (diskPath) {
             folderPaths.push(diskPath);
@@ -710,7 +828,8 @@ export function LibraryWorkspace({
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
         const f = e.dataTransfer.files[i];
-        const diskPath = (f as any)?.path;
+        const diskPath =
+          "path" in f && typeof f.path === "string" ? f.path : "";
         if (diskPath && !folderPaths.includes(diskPath)) {
           folderPaths.push(diskPath);
         }
@@ -719,13 +838,19 @@ export function LibraryWorkspace({
 
     if (folderPaths.length > 0) {
       try {
-        const imported = await ImportFoldersRecursively(folderPaths, targetFolderId);
+        const imported = await ImportFoldersRecursively(
+          folderPaths,
+          targetFolderId
+        );
         if (imported && imported.length > 0) {
           await handleFullRefresh();
           return;
         }
       } catch (err) {
-        console.warn("ImportFoldersRecursively failed, fallback to entry reading:", err);
+        console.warn(
+          "ImportFoldersRecursively failed, fallback to entry reading:",
+          err
+        );
       }
     }
 
@@ -738,37 +863,6 @@ export function LibraryWorkspace({
     }
 
     console.warn("Sidebar import accepts folders only");
-  };
-
-  const readEntryRecursively = async (entry: any, parentId = "") => {
-    if (entry.isDirectory) {
-      const createdFolder = await CreateFolder(entry.name, parentId);
-      const targetId = createdFolder?.id || "";
-      const dirReader = entry.createReader();
-      const readEntries = async (): Promise<any[]> => {
-        return new Promise((resolve) => {
-          dirReader.readEntries((entries: any[]) => resolve(entries || []));
-        });
-      };
-      let batch: any[] = [];
-      do {
-        batch = await readEntries();
-        for (const child of batch) {
-          await readEntryRecursively(child, targetId);
-        }
-      } while (batch.length > 0);
-    } else if (entry.isFile) {
-      const file: File = await new Promise((resolve) => entry.file(resolve));
-      const reader = new FileReader();
-      const base64Data = await new Promise<string>((resolve) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
-      const imported = await ImportFromBase64(file.name, base64Data);
-      if (imported && parentId) {
-        await AddItemToFolder(imported.id, parentId);
-      }
-    }
   };
 
   // Tag Handlers
@@ -811,7 +905,6 @@ export function LibraryWorkspace({
     }
   };
 
-  // Find active folder metadata
   const findFolderById = (list: Folder[], id: string): Folder | null => {
     for (const f of list) {
       if (f.id === id) return f;
@@ -823,17 +916,18 @@ export function LibraryWorkspace({
     return null;
   };
 
-  const currentFolder = activeFolderId && activeFolderId !== "__trash__"
-    ? findFolderById(folders, activeFolderId)
-    : null;
-  const activeTagLabel = activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
-  const totalSizeBytes = filteredItems.reduce((acc, curr) => acc + (curr.size || 0), 0);
+  const currentFolder =
+    activeFolderId && activeFolderId !== "__trash__"
+      ? findFolderById(folders, activeFolderId)
+      : null;
+  const activeTagLabel =
+    activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
+  const totalSizeBytes = filteredItems.reduce(
+    (acc, curr) => acc + (curr.size || 0),
+    0
+  );
 
-  // Global Keyboard shortcuts:
-  // - Space: Full-window popup preview
-  // - Esc: Close previews, close context menu, clear selection
-  // - Cmd+A: Select all
-  // - Delete / Backspace: Delete selected
+  // Global Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -846,9 +940,6 @@ export function LibraryWorkspace({
         return;
       }
 
-      // While a preview is open, UnifiedPreviewModal owns the keyboard (Space /
-      // Esc / arrows). Handling those here too would fire closePreview() twice
-      // and walk the history back two entries.
       if (ws.preview) return;
 
       if (e.code === "Space") {
@@ -859,18 +950,18 @@ export function LibraryWorkspace({
       } else if (e.code === "Escape") {
         if (contextMenu) {
           setContextMenu(null);
-        } else if (selectedItemIds.size > 0) {
-          setSelectedItemIds(new Set());
+        } else if (selectedOrder.length > 0) {
+          setSelectedOrder([]);
           setActiveItemId(null);
         }
       } else if ((e.metaKey || e.ctrlKey) && e.code === "KeyA") {
         e.preventDefault();
-        setSelectedItemIds(new Set(filteredItems.map((i) => i.id)));
+        setSelectedOrder(filteredItems.map((i) => i.id));
         if (filteredItems.length > 0) {
-          setActiveItemId(filteredItems[0].id);
+          setActiveItemId(filteredItems[filteredItems.length - 1].id);
         }
       } else if (e.code === "Backspace" || e.code === "Delete") {
-        if (selectedItemIds.size > 0) {
+        if (selectedOrder.length > 0) {
           e.preventDefault();
           handleRequestDelete();
         }
@@ -879,12 +970,11 @@ export function LibraryWorkspace({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeItem, ws.preview, contextMenu, selectedItemIds, filteredItems]);
+  }, [activeItem, ws.preview, contextMenu, selectedOrder, filteredItems]);
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
       <div className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag">
-        {/* Hidden File Input for Native File Dialog fallback */}
         <input
           ref={fileInputRef}
           type="file"
@@ -898,16 +988,12 @@ export function LibraryWorkspace({
           }}
         />
 
-        {/* RESIZABLE LAYOUT: SIDEBAR + TAGS SIDEBAR + MAIN GALLERY WORKSPACE */}
         <ResizablePanelGroup
           orientation="horizontal"
           className="h-full w-full select-none overflow-hidden"
         >
           {sidebarOpen && (
             <>
-              {/* Sidebar panel owns the pixel floor (220px) and a relative cap: max 40%
-                  of the group, so it can be dragged far wider than the old 400px.
-                  No CSS max-width here — it would clip the 40% cap back to 400px. */}
               <ResizablePanel
                 id="sidebar-panel"
                 defaultSize={220}
@@ -928,7 +1014,7 @@ export function LibraryWorkspace({
                   }}
                   onSelectFolder={(id) => {
                     navigateToFolder(id);
-                    setSelectedItemIds(new Set());
+                    setSelectedOrder([]);
                     setActiveItemId(null);
                   }}
                   onCreateFolder={handleCreateFolder}
@@ -952,7 +1038,6 @@ export function LibraryWorkspace({
               </ResizablePanel>
               <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
 
-              {/* SECONDARY SIDEBAR: TAGS TAXONOMY */}
               {tagsSidebarOpen && (
                 <>
                   <ResizablePanel
@@ -965,13 +1050,13 @@ export function LibraryWorkspace({
                     <TagsSidebar
                       tags={tags}
                       activeTag={activeTag}
-                      onSelectTag={(t) => {
-                        if (t === null) {
+                      onSelectTag={(tg) => {
+                        if (tg === null) {
                           ws.closeTagsPanel();
                         } else {
-                          ws.selectTag(t);
+                          ws.selectTag(tg);
                         }
-                        setSelectedItemIds(new Set());
+                        setSelectedOrder([]);
                         setActiveItemId(null);
                       }}
                       onCreateTag={handleCreateTag}
@@ -1004,55 +1089,26 @@ export function LibraryWorkspace({
                   }
                 : dragHandlers)}
             >
-              {/* Semi-transparent stroked motion overlay for main area dropzone */}
-              <AnimatePresence>
-                {dropState.status === "dragging-over" && !isInternalDragging && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.99 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.99 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute inset-0 z-50 pointer-events-none border-4 border-dashed border-primary bg-background/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center select-none shadow-2xl"
-                  >
-                    <div className="size-16 rounded-2xl bg-primary/15 text-primary flex items-center justify-center mb-3 shadow-md animate-bounce">
-                      <Upload className="size-8 text-primary" />
-                    </div>
-                    <h3 className="text-xl font-bold tracking-tight text-foreground">
-                      {currentFolder
-                        ? t("workspace.dropToFolder", { folder: currentFolder.name })
-                        : t("workspace.dropToAll")}
-                    </h3>
-                    <p className="text-xs text-muted-foreground mt-1 max-w-sm leading-relaxed">
-                      {currentFolder
-                        ? t("workspace.dropSubtitleFolder", { folder: currentFolder.name })
-                        : t("workspace.dropSubtitleAll")}
-                    </p>
-                    <div className="flex gap-2 mt-3 text-[11px] text-muted-foreground font-mono">
-                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">{t("workspace.dedupe")}</span>
-                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">{t("workspace.autoIndex")}</span>
-                      <span className="px-2.5 py-1 rounded-md bg-muted/70 border border-border/80 font-medium">{t("workspace.generateThumbnails")}</span>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {/* Pure 10% opacity mask + dashed border for main area dropzone (NO inner text/icons) */}
+              {dropState.status === "dragging-over" && !isInternalDragging && (
+                <div className="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-primary/80 bg-foreground/10 rounded-[inherit]" />
+              )}
 
-              {/* Encapsulated Drag & Drop Progress Modal only for external drops */}
               {!isInternalDragging && dropState.status === "importing" && (
                 <DropzoneOverlay state={dropState} />
               )}
-              <>
-              <header className="w-full bg-background border-b-0 shrink-0 select-none">
-                {/* Div 1: Height matches macOS traffic lights row */}
-                <div className="h-(--titlebar-height) px-3 flex items-center justify-between">
-                  {/* Left: Shared safe prefix + Title + Preview height zoom slider */}
+
+              <header className="w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag">
+                {/* Row 1: Titlebar height row — parent is strictly wails-no-drag; ONLY the middle spacer is wails-drag */}
+                <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-no-drag">
+                  {/* Left operable container: full height, strictly header-interactive-container + wails-no-drag */}
                   <MainHeaderSafePrefix
                     sidebarOpen={sidebarOpen}
                     onToggleSidebar={() => setSidebarOpen(true)}
                   >
-                    {/* Unified-toolbar history controls (browser-style Back/Forward) */}
                     <HistoryNavButtons className="mr-1" />
 
-                    <span className="font-semibold text-xs tracking-tight truncate text-foreground">
+                    <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
                       {activeFolderId === "__trash__"
                         ? t("workspace.trash")
                         : activeTag
@@ -1062,48 +1118,30 @@ export function LibraryWorkspace({
                         : t("workspace.all")}
                     </span>
 
-                    {/* Thumbnail row height zoom slider: [-] [slider] [+] */}
-                    <div
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                      className="flex items-center gap-0.5 ml-2 p-1 -m-1 wails-no-drag slider-control-container select-none"
-                    >
+                    {/* Thumbnail row height zoom slider: [-] [slider] [+] (matches ZoomControls structure) */}
+                    <div className="relative flex items-center gap-1 ml-2 header-interactive-container wails-no-drag slider-control-container select-none">
                       <button
                         type="button"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRowHeight((h) => Math.max(60, h - 10));
-                        }}
+                        onClick={() => setRowHeight((h) => Math.max(60, h - 10))}
                         className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
                         title={t("workspace.zoomOut")}
                       >
                         <Minus className="size-3 wails-no-drag pointer-events-none" />
                       </button>
-                      <div
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        className="w-16 wails-no-drag py-1"
-                      >
+                      <div className="w-20 py-1 wails-no-drag">
                         <Slider
                           min={60}
-                          max={200}
+                          max={240}
                           step={5}
                           value={rowHeight}
-                          onValueChange={(val) => setRowHeight(Array.isArray(val) ? val[0] : val)}
-                          className="wails-no-drag"
+                          onValueChange={(val) =>
+                            setRowHeight(Array.isArray(val) ? val[0] : val)
+                          }
                         />
                       </div>
                       <button
                         type="button"
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRowHeight((h) => Math.min(200, h + 10));
-                        }}
+                        onClick={() => setRowHeight((h) => Math.min(240, h + 10))}
                         className="size-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors wails-no-drag cursor-pointer"
                         title={t("workspace.zoomIn")}
                       >
@@ -1115,49 +1153,52 @@ export function LibraryWorkspace({
                   {/* Center: Window draggable filler */}
                   <div className="flex-1 h-full min-w-4 wails-drag" />
 
-                  {/* Search Input */}
-                  <div className="w-[150px] shrink-0 p-1 -m-1 wails-no-drag search-input-container">
-                    <div className="relative wails-no-drag">
-                      <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                      <Input
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder={t("common.search")}
-                        className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background wails-no-drag"
-                      />
-                      {searchQuery && (
-                        <button
-                          onClick={() => setSearchQuery("")}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground wails-no-drag cursor-pointer"
-                        >
-                          <X className="size-3" />
-                        </button>
-                      )}
+                  {/* Right operable container: Search + Settings wrapped in header-interactive-container */}
+                  <div className="h-full flex items-center gap-2 shrink-0 header-interactive-container wails-no-drag">
+                    <div className="w-[160px] shrink-0 p-1 -m-1 wails-no-drag search-input-container">
+                      <div className="relative wails-no-drag">
+                        <Search className="size-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        <Input
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder={t("common.search")}
+                          className="pl-8 pr-7 h-7 text-xs bg-muted/40 border-border/60 rounded-lg focus-visible:bg-background wails-no-drag"
+                        />
+                        {searchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setSearchQuery("")}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground wails-no-drag cursor-pointer"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Settings, folded into the unified toolbar */}
-                  <button
-                    onClick={handleOpenSettings}
-                    title={t("settings.title")}
-                    className="ml-2 inline-flex items-center justify-center size-7 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 wails-no-drag cursor-pointer"
-                  >
-                    <Settings className="size-3.5" />
-                  </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenSettings}
+                      title={t("settings.title")}
+                      className="inline-flex items-center justify-center size-7 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 wails-no-drag cursor-pointer"
+                    >
+                      <Settings className="size-3.5" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Div 2: Sub-toolbar for category pills, trash actions & size slider */}
-                <div className="h-9 px-3 flex items-center justify-between text-xs wails-no-drag">
-                  {/* Left: Category pills or active tag pill */}
-                  <div className="flex items-center gap-1">
+                {/* Row 2: Multi-dimensional FilterBar dropdowns & Sort controls */}
+                <div className="h-9 px-3 flex items-center justify-between gap-2 text-xs header-interactive-container wails-no-drag">
+                  <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                     {activeTag && (
                       <Badge
                         variant="secondary"
-                        className="text-[11px] gap-1 pl-2 pr-1 h-5 mr-1 font-normal bg-primary/10 text-primary border-primary/20"
+                        className="text-[11px] gap-1 pl-2 pr-1 h-6 font-normal bg-primary/10 text-primary border-primary/20"
                       >
                         <TagIcon className="size-2.5" />
                         <span>{activeTagLabel}</span>
                         <button
+                          type="button"
                           onClick={() => ws.selectTag(null)}
                           className="hover:text-destructive p-0.5 rounded cursor-pointer"
                         >
@@ -1166,33 +1207,29 @@ export function LibraryWorkspace({
                       </Badge>
                     )}
 
-                    {[
-                      { id: "all", labelKey: "workspace.categories.all" },
-                      { id: "image", labelKey: "workspace.categories.images" },
-                      { id: "video", labelKey: "workspace.categories.videos" },
-                      { id: "document", labelKey: "workspace.categories.docs" },
-                      { id: "archive", labelKey: "workspace.categories.archives" },
-                      { id: "other", labelKey: "workspace.categories.other" },
-                    ].map((cat) => (
-                      <button
-                        key={cat.id}
-                        onClick={() => ws.setCategory(cat.id as WorkspaceCategory)}
-                        className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
-                          categoryFilter === cat.id
-                            ? "bg-secondary text-secondary-foreground shadow-2xs font-semibold"
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                        }`}
-                      >
-                        {t(cat.labelKey)}
-                      </button>
-                    ))}
+                    <FilterBar
+                      items={items}
+                      folders={folders}
+                      tags={tags}
+                      categoryFilter={categoryFilter}
+                      colorFilter={colorFilter}
+                      folderFilter={folderFilter}
+                      tagFilter={tagFilter}
+                      orientationFilter={orientationFilter}
+                      onCategoryChange={(cat) => ws.setCategory(cat)}
+                      onColorChange={(c) => ws.setColorFilter(c)}
+                      onFolderChange={(f) => ws.setFolderFilter(f)}
+                      onTagChange={(tg) => ws.setTagFilter(tg)}
+                      onOrientationChange={(o) => ws.setOrientationFilter(o)}
+                      onClearAll={() => ws.clearAllFilters()}
+                    />
                   </div>
 
                   {/* Right controls: Trash action buttons or sort toggle */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     {activeFolderId === "__trash__" ? (
                       <>
-                        {selectedItemIds.size > 0 ? (
+                        {selectedOrder.length > 0 ? (
                           <div className="flex items-center gap-1.5">
                             <Button
                               variant="outline"
@@ -1201,7 +1238,11 @@ export function LibraryWorkspace({
                               className="h-6.5 text-[11px] gap-1 text-primary hover:text-primary cursor-pointer"
                             >
                               <RotateCcw className="size-3" />
-                              <span>{t("workspace.restoreCount", { count: selectedItemIds.size })}</span>
+                              <span>
+                                {t("workspace.restoreCount", {
+                                  count: selectedOrder.length,
+                                })}
+                              </span>
                             </Button>
                             <Button
                               variant="destructive"
@@ -1210,7 +1251,11 @@ export function LibraryWorkspace({
                               className="h-6.5 text-[11px] gap-1 cursor-pointer"
                             >
                               <Trash2 className="size-3" />
-                              <span>{t("workspace.deletePermanentlyCount", { count: selectedItemIds.size })}</span>
+                              <span>
+                                {t("workspace.deletePermanentlyCount", {
+                                  count: selectedOrder.length,
+                                })}
+                              </span>
                             </Button>
                           </div>
                         ) : filteredItems.length > 0 ? (
@@ -1234,30 +1279,42 @@ export function LibraryWorkspace({
                     )}
 
                     <button
-                      onClick={() => ws.setSort(sortOrder === "desc" ? "asc" : "desc")}
+                      type="button"
+                      onClick={() =>
+                        ws.setSort(sortOrder === "desc" ? "asc" : "desc")
+                      }
                       className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-2 py-0.5 rounded-md hover:bg-muted/50 cursor-pointer"
                     >
                       <ArrowUpDown className="size-3" />
-                      <span>{sortOrder === "desc" ? t("workspace.newest") : t("workspace.oldest")}</span>
+                      <span>
+                        {sortOrder === "desc"
+                          ? t("workspace.newest")
+                          : t("workspace.oldest")}
+                      </span>
                     </button>
                   </div>
                 </div>
               </header>
 
-              {/* Center Main Scrollable Area with Justified Gallery */}
-              <div className="flex-1 overflow-y-auto p-4 wails-no-drag">
+              {/* Center Main Scrollable Area with Justified Gallery & Trackpad Zoom */}
+              <div
+                ref={galleryViewportRef}
+                className="flex-1 overflow-y-auto p-4 flex flex-col wails-no-drag"
+              >
                 {loading ? (
-                  <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                  <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">
                     {t("workspace.loadingIndex")}
                   </div>
                 ) : filteredItems.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
+                  <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
                     {activeFolderId === "__trash__" ? (
                       <>
                         <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                           <Trash2 className="size-6 text-muted-foreground" />
                         </div>
-                        <h3 className="font-semibold text-sm mb-1">{t("workspace.trashEmptyTitle")}</h3>
+                        <h3 className="font-semibold text-sm mb-1">
+                          {t("workspace.trashEmptyTitle")}
+                        </h3>
                         <p className="text-xs text-muted-foreground">
                           {t("workspace.trashEmptyDesc")}
                         </p>
@@ -1267,7 +1324,9 @@ export function LibraryWorkspace({
                         <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                           <TagIcon className="size-6 text-muted-foreground" />
                         </div>
-                        <h3 className="font-semibold text-sm mb-1">{t("workspace.tagEmptyTitle", { tag: activeTagLabel })}</h3>
+                        <h3 className="font-semibold text-sm mb-1">
+                          {t("workspace.tagEmptyTitle", { tag: activeTagLabel })}
+                        </h3>
                         <p className="text-xs text-muted-foreground">
                           {t("workspace.tagEmptyDesc")}
                         </p>
@@ -1277,7 +1336,9 @@ export function LibraryWorkspace({
                         <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                           <Upload className="size-6 text-muted-foreground" />
                         </div>
-                        <h3 className="font-semibold text-sm mb-1">{t("workspace.noFilesTitle")}</h3>
+                        <h3 className="font-semibold text-sm mb-1">
+                          {t("workspace.noFilesTitle")}
+                        </h3>
                         <p className="text-xs text-muted-foreground mb-4">
                           {t("workspace.noFilesDesc")}
                         </p>
@@ -1295,25 +1356,34 @@ export function LibraryWorkspace({
                 ) : (
                   <JustifiedGallery
                     items={filteredItems}
-                    selectedItemIds={selectedItemIds}
+                    selectedOrder={selectedOrder}
+                    keyboardNavEnabled={
+                      !inlinePreviewOpen &&
+                      !fullWindowPreviewOpen &&
+                      !contextMenu &&
+                      !deleteConfirmDialog &&
+                      !renameDialog
+                    }
                     targetRowHeight={rowHeight}
-                    onSelectionChange={(newSet, lastItem) => {
-                      setSelectedItemIds(newSet);
+                    onSelectionChange={(nextOrder, lastItem) => {
+                      setSelectedOrder(nextOrder);
                       if (lastItem) {
                         setActiveItemId(lastItem.id);
-                      } else if (newSet.size === 0) {
+                      } else if (nextOrder.length === 0) {
                         setActiveItemId(null);
+                      } else {
+                        setActiveItemId(nextOrder[nextOrder.length - 1]);
                       }
                     }}
                     onDoubleClickItem={(item) => {
                       setActiveItemId(item.id);
-                      setSelectedItemIds(new Set([item.id]));
+                      setSelectedOrder([item.id]);
                       openPreview("inline", item.id);
                     }}
                     onDragStartItem={handleDragStart}
                     onItemContextMenu={(e, item) => {
                       if (!selectedItemIds.has(item.id)) {
-                        setSelectedItemIds(new Set([item.id]));
+                        setSelectedOrder([item.id]);
                         setActiveItemId(item.id);
                       }
                       setContextMenu({
@@ -1330,11 +1400,7 @@ export function LibraryWorkspace({
                   />
                 )}
               </div>
-                </>
 
-              {/* INLINE PREVIEW OVERLAY (Double-click in main area). Rendered as an
-                  overlay rather than a replacement so the gallery stays mounted and
-                  Back/Forward can toggle it without losing scroll position. */}
               {inlinePreviewOpen && previewActiveItem && (
                 <UnifiedPreviewModal
                   open={inlinePreviewOpen}
@@ -1370,11 +1436,13 @@ export function LibraryWorkspace({
                     allFolders={folders}
                     activeFolderId={activeFolderId}
                     onClearSelection={() => {
-                      setSelectedItemIds(new Set());
+                      setSelectedOrder([]);
                       setActiveItemId(null);
                     }}
                     onBatchReveal={handleBatchReveal}
-                    onBatchDelete={() => handleRequestDelete(undefined, selectedItems)}
+                    onBatchDelete={() =>
+                      handleRequestDelete(undefined, selectedItems)
+                    }
                     onBatchRestore={() => handleRestore()}
                     onBatchAddToFolder={handleBatchAddToFolder}
                     onBatchRemoveFromFolder={handleBatchRemoveFromFolder}
@@ -1388,15 +1456,23 @@ export function LibraryWorkspace({
                     totalItemCount={filteredItems.length}
                     totalSizeBytes={totalSizeBytes}
                     isTrashView={activeFolderId === "__trash__"}
+                    activeColorFilter={colorFilter}
+                    onSelectColorFilter={(hex) => ws.setColorFilter(hex)}
                     onClose={() => {
-                      setSelectedItemIds(new Set());
+                      setSelectedOrder([]);
                       setActiveItemId(null);
                     }}
                     onPreview={() => openPreview("full")}
-                    onReveal={() => activeItem && handleReveal(undefined, activeItem.id)}
-                    onDelete={() => activeItem && handleRequestDelete(activeItem)}
+                    onReveal={() =>
+                      activeItem && handleReveal(undefined, activeItem.id)
+                    }
+                    onDelete={() =>
+                      activeItem && handleRequestDelete(activeItem)
+                    }
                     onRestore={() => activeItem && handleRestore(activeItem)}
-                    onToggleFavorite={() => activeItem && handleToggleFavorite(activeItem)}
+                    onToggleFavorite={() =>
+                      activeItem && handleToggleFavorite(activeItem)
+                    }
                     onFolderUpdated={handleFullRefresh}
                     onTagsUpdated={handleFullRefresh}
                   />
@@ -1425,7 +1501,7 @@ export function LibraryWorkspace({
         <CustomContextMenu
           position={contextMenu?.position || null}
           onClose={() => setContextMenu(null)}
-          selectedCount={selectedItemIds.size}
+          selectedCount={selectedOrder.length}
           isItemContext={contextMenu?.isItemContext || false}
           activeFolderId={activeFolderId}
           allFolders={folders}
@@ -1434,9 +1510,13 @@ export function LibraryWorkspace({
           onPreview={() => openPreview("full")}
           onRename={() => activeItem && handleOpenRename(activeItem)}
           onReveal={handleBatchReveal}
-          onOpenWithDefaultApp={() => activeItem && handleOpenDefaultApp(activeItem)}
+          onOpenWithDefaultApp={() =>
+            activeItem && handleOpenDefaultApp(activeItem)
+          }
           onCopyPath={() => activeItem && handleCopyPath(activeItem)}
-          onToggleFavorite={() => activeItem && handleToggleFavorite(activeItem)}
+          onToggleFavorite={() =>
+            activeItem && handleToggleFavorite(activeItem)
+          }
           onDelete={() => handleRequestDelete()}
           onRestore={() => handleRestore()}
           onAddToFolder={handleBatchAddToFolder}
@@ -1444,13 +1524,17 @@ export function LibraryWorkspace({
             if (activeFolderId) handleBatchRemoveFromFolder(activeFolderId);
           }}
           onAddTag={(tag) => activeItem && handleAddTagToItem(activeItem.id, tag)}
-          onRemoveTag={(tag) => activeItem && handleRemoveTagFromItem(activeItem.id, tag)}
+          onRemoveTag={(tag) =>
+            activeItem && handleRemoveTagFromItem(activeItem.id, tag)
+          }
           onSelectAll={() => {
-            setSelectedItemIds(new Set(filteredItems.map((i) => i.id)));
-            if (filteredItems.length > 0) setActiveItemId(filteredItems[0].id);
+            setSelectedOrder(filteredItems.map((i) => i.id));
+            if (filteredItems.length > 0) {
+              setActiveItemId(filteredItems[filteredItems.length - 1].id);
+            }
           }}
           onClearSelection={() => {
-            setSelectedItemIds(new Set());
+            setSelectedOrder([]);
             setActiveItemId(null);
           }}
           onImportFiles={() => fileInputRef.current?.click()}
@@ -1466,7 +1550,9 @@ export function LibraryWorkspace({
             <DialogContent className="max-w-sm text-xs">
               <DialogHeader>
                 <DialogTitle className="text-sm font-semibold">
-                  {deleteConfirmDialog.type === "permanent" ? t("workspace.deletePermanentlyTitle") : t("workspace.deleteTitle")}
+                  {deleteConfirmDialog.type === "permanent"
+                    ? t("workspace.deletePermanentlyTitle")
+                    : t("workspace.deleteTitle")}
                 </DialogTitle>
               </DialogHeader>
               <div className="py-2 text-muted-foreground text-xs leading-relaxed">
@@ -1477,9 +1563,7 @@ export function LibraryWorkspace({
                     })}
                   </p>
                 ) : (
-                  <p>
-                    {t("workspace.deleteMultiFolderMessage")}
-                  </p>
+                  <p>{t("workspace.deleteMultiFolderMessage")}</p>
                 )}
               </div>
               <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
@@ -1501,7 +1585,7 @@ export function LibraryWorkspace({
                         await PermanentDeleteItem(it.id);
                       }
                       setDeleteConfirmDialog(null);
-                      setSelectedItemIds(new Set());
+                      setSelectedOrder([]);
                       setActiveItemId(null);
                       await handleFullRefresh();
                     }}
@@ -1521,7 +1605,7 @@ export function LibraryWorkspace({
                           }
                         }
                         setDeleteConfirmDialog(null);
-                        setSelectedItemIds(new Set());
+                        setSelectedOrder([]);
                         setActiveItemId(null);
                         await handleFullRefresh();
                       }}
@@ -1536,7 +1620,7 @@ export function LibraryWorkspace({
                         const ids = deleteConfirmDialog.items.map((i) => i.id);
                         await BatchMoveToTrash(ids);
                         setDeleteConfirmDialog(null);
-                        setSelectedItemIds(new Set());
+                        setSelectedOrder([]);
                         setActiveItemId(null);
                         await handleFullRefresh();
                       }}
@@ -1558,14 +1642,19 @@ export function LibraryWorkspace({
           >
             <DialogContent className="max-w-sm text-xs">
               <DialogHeader>
-                <DialogTitle className="text-sm font-semibold">{t("workspace.renameTitle")}</DialogTitle>
+                <DialogTitle className="text-sm font-semibold">
+                  {t("workspace.renameTitle")}
+                </DialogTitle>
               </DialogHeader>
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
                   if (!renameDialog.newName.trim() || !renameDialog.item) return;
                   try {
-                    await RenameItem(renameDialog.item.id, renameDialog.newName.trim());
+                    await RenameItem(
+                      renameDialog.item.id,
+                      renameDialog.newName.trim()
+                    );
                     setRenameDialog(null);
                     await handleFullRefresh();
                   } catch (err) {
@@ -1575,7 +1664,9 @@ export function LibraryWorkspace({
                 className="space-y-4 pt-2"
               >
                 <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground font-medium">{t("workspace.newFileName")}</label>
+                  <label className="text-xs text-muted-foreground font-medium">
+                    {t("workspace.newFileName")}
+                  </label>
                   <Input
                     autoFocus
                     value={renameDialog.newName}

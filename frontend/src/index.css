@@ -135,6 +135,7 @@
   body {
     @apply bg-background text-foreground;
     overflow-x: hidden;
+    overscroll-behavior: none;
     --wails-draggable: no-drag;
     -webkit-app-region: no-drag;
   }
@@ -163,16 +164,23 @@
   }
 }
 
-/* Window drag handle classes: only applied to specific titlebar areas */
-.wails-drag {
-  --wails-draggable: drag;
-  -webkit-app-region: drag;
+/* Window drag handle classes: only applied to dedicated empty spacer divs */
+header {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 .wails-no-drag,
-.wails-no-drag * {
+.wails-no-drag *:not(.wails-drag),
+.header-interactive-container,
+.header-interactive-container *:not(.wails-drag) {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+}
+
+.wails-drag {
+  --wails-draggable: drag !important;
+  -webkit-app-region: drag !important;
 }
 
 /* Strictly ensure slider controls, +/- buttons and their vicinity cannot trigger window dragging */

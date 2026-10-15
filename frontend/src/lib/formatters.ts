@@ -24,10 +24,10 @@ export function getFileCategory(ext: string): "image" | "video" | "audio" | "doc
   if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "tiff", "ico"].includes(e)) {
     return "image";
   }
-  if (["mp4", "mov", "mkv", "avi", "webm"].includes(e)) {
+  if (["mp4", "mov", "mkv", "avi", "webm", "m4v"].includes(e)) {
     return "video";
   }
-  if (["mp3", "wav", "flac", "aac", "ogg", "m4a"].includes(e)) {
+  if (["mp3", "wav", "flac", "aac", "ogg", "m4a", "opus"].includes(e)) {
     return "audio";
   }
   if (["pdf", "txt", "md", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "json", "js", "ts", "go", "py"].includes(e)) {

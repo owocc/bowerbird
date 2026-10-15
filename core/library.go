@@ -245,6 +245,9 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 		_ = m.userData.SetActiveLibraryPath(libraryPath)
 	}
 
+	// Backfill dominant color, palette, and extended metadata for legacy image items
+	go m.backfillImageMetadata(libraryPath)
+
 	return m.activeLib, nil
 }
 
@@ -333,7 +336,11 @@ func (m *LibraryManager) initSchema(db *sql.DB) error {
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN in_trash INTEGER DEFAULT 0")
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN trashed_at INTEGER DEFAULT 0")
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN trashed_folders TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN dominant_color TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN palette TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN meta_json TEXT DEFAULT ''")
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_items_in_trash ON items(in_trash)")
+	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_items_dominant_color ON items(dominant_color)")
 	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS tags (
 		name TEXT PRIMARY KEY,
 		created_at INTEGER NOT NULL,
@@ -354,7 +361,7 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 		return []Item{}, nil
 	}
 
-	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0) FROM items WHERE (in_trash = 0 OR in_trash IS NULL)"
+	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE (in_trash = 0 OR in_trash IS NULL)"
 	var args []any
 
 	trimmed := strings.TrimSpace(query)
@@ -394,6 +401,8 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 		var hasThumbInt int
 		var inTrashInt int
 		var trashedAtInt int64
+		var paletteStr string
+		var metaJSONStr string
 		if err := rows.Scan(
 			&item.ID,
 			&item.Hex,
@@ -410,13 +419,26 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 			&item.ImportedAt,
 			&inTrashInt,
 			&trashedAtInt,
+			&item.DominantColor,
+			&paletteStr,
+			&metaJSONStr,
 		); err != nil {
 			continue
 		}
 		item.InTrash = inTrashInt == 1
 		item.TrashedAt = trashedAtInt
-
 		item.HasThumbnail = hasThumbInt == 1
+		if paletteStr != "" {
+			item.Palette = strings.Split(paletteStr, ",")
+		} else {
+			item.Palette = []string{}
+		}
+		if metaJSONStr != "" {
+			var meta ImageMeta
+			if json.Unmarshal([]byte(metaJSONStr), &meta) == nil {
+				item.Meta = &meta
+			}
+		}
 		if tagsStr != "" {
 			item.Tags = strings.Split(tagsStr, ",")
 		} else {
@@ -430,7 +452,6 @@ func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error
 		m.populateItemPaths(&item, active.Path, port)
 		items = append(items, item)
 	}
-
 	if items == nil {
 		items = []Item{}
 	}
@@ -449,12 +470,14 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 		return nil, errors.New("no active library")
 	}
 
-	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0) FROM items WHERE id = ? OR hex = ?", id, id)
+	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE id = ? OR hex = ?", id, id)
 	var item Item
 	var tagsStr string
 	var hasThumbInt int
 	var inTrashInt int
 	var trashedAtInt int64
+	var paletteStr string
+	var metaJSONStr string
 	if err := row.Scan(
 		&item.ID,
 		&item.Hex,
@@ -471,13 +494,26 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 		&item.ImportedAt,
 		&inTrashInt,
 		&trashedAtInt,
+		&item.DominantColor,
+		&paletteStr,
+		&metaJSONStr,
 	); err != nil {
 		return nil, err
 	}
 	item.InTrash = inTrashInt == 1
 	item.TrashedAt = trashedAtInt
-
 	item.HasThumbnail = hasThumbInt == 1
+	if paletteStr != "" {
+		item.Palette = strings.Split(paletteStr, ",")
+	} else {
+		item.Palette = []string{}
+	}
+	if metaJSONStr != "" {
+		var meta ImageMeta
+		if json.Unmarshal([]byte(metaJSONStr), &meta) == nil {
+			item.Meta = &meta
+		}
+	}
 	if tagsStr != "" {
 		item.Tags = strings.Split(tagsStr, ",")
 	} else {
@@ -654,39 +690,45 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	nameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 	mimeType := DetectMimeType(destPath, ext)
 
-	width, height, hasThumbnail := m.processImageThumbnail(destPath, itemDir, ext)
+	width, height, hasThumbnail, dominantColor, palette, imgMeta := m.processImageThumbnail(destPath, itemDir, ext)
 
 	item := Item{
-		ID:           itemID,
-		Hex:          contentHex,
-		Name:         nameWithoutExt,
-		Extension:    ext,
-		Filename:     originalFilename,
-		Size:         size,
-		MimeType:     mimeType,
-		Width:        width,
-		Height:       height,
-		HasThumbnail: hasThumbnail,
-		Tags:         []string{},
-		CreatedAt:    createdAt,
-		ImportedAt:   now,
+		ID:            itemID,
+		Hex:           contentHex,
+		Name:          nameWithoutExt,
+		Extension:     ext,
+		Filename:      originalFilename,
+		Size:          size,
+		MimeType:      mimeType,
+		Width:         width,
+		Height:        height,
+		HasThumbnail:  hasThumbnail,
+		DominantColor: dominantColor,
+		Palette:       palette,
+		Meta:          imgMeta,
+		Tags:          []string{},
+		CreatedAt:     createdAt,
+		ImportedAt:    now,
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
 	metaBytes, _ := json.MarshalIndent(ItemMetadata{
-		ID:           item.ID,
-		Hex:          item.Hex,
-		Name:         item.Name,
-		Extension:    item.Extension,
-		Filename:     item.Filename,
-		Size:         item.Size,
-		MimeType:     item.MimeType,
-		Width:        item.Width,
-		Height:       item.Height,
-		HasThumbnail: item.HasThumbnail,
-		Tags:         item.Tags,
-		CreatedAt:    item.CreatedAt,
-		ImportedAt:   item.ImportedAt,
+		ID:            item.ID,
+		Hex:           item.Hex,
+		Name:          item.Name,
+		Extension:     item.Extension,
+		Filename:      item.Filename,
+		Size:          item.Size,
+		MimeType:      item.MimeType,
+		Width:         item.Width,
+		Height:        item.Height,
+		HasThumbnail:  item.HasThumbnail,
+		DominantColor: item.DominantColor,
+		Palette:       item.Palette,
+		Meta:          item.Meta,
+		Tags:          item.Tags,
+		CreatedAt:     item.CreatedAt,
+		ImportedAt:    item.ImportedAt,
 	}, "", "  ")
 	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
 
@@ -694,9 +736,15 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	if hasThumbnail {
 		hasThumbInt = 1
 	}
+	paletteStr := strings.Join(palette, ",")
+	metaJSONBytes, _ := json.Marshal(imgMeta)
+	metaJSONStr := ""
+	if imgMeta != nil {
+		metaJSONStr = string(metaJSONBytes)
+	}
 	_, err = db.Exec(
-		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			hex = excluded.hex,
 			name = excluded.name,
@@ -706,14 +754,16 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 			mime_type = excluded.mime_type,
 			width = excluded.width,
 			height = excluded.height,
-			has_thumbnail = excluded.has_thumbnail`,
+			has_thumbnail = excluded.has_thumbnail,
+			dominant_color = excluded.dominant_color,
+			palette = excluded.palette,
+			meta_json = excluded.meta_json`,
 		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
-		item.Width, item.Height, hasThumbInt, "", item.CreatedAt, item.ImportedAt,
+		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr, "", item.CreatedAt, item.ImportedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert item into SQLite: %w", err)
 	}
-
 	return &item, nil
 }
 
@@ -767,39 +817,45 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	nameWithoutExt := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
 	mimeType := DetectMimeType(destPath, ext)
 
-	width, height, hasThumbnail := m.processImageThumbnail(destPath, itemDir, ext)
+	width, height, hasThumbnail, dominantColor, palette, imgMeta := m.processImageThumbnail(destPath, itemDir, ext)
 
 	item := Item{
-		ID:           itemID,
-		Hex:          contentHex,
-		Name:         nameWithoutExt,
-		Extension:    ext,
-		Filename:     cleanFilename,
-		Size:         int64(len(data)),
-		MimeType:     mimeType,
-		Width:        width,
-		Height:       height,
-		HasThumbnail: hasThumbnail,
-		Tags:         []string{},
-		CreatedAt:    now,
-		ImportedAt:   now,
+		ID:            itemID,
+		Hex:           contentHex,
+		Name:          nameWithoutExt,
+		Extension:     ext,
+		Filename:      cleanFilename,
+		Size:          int64(len(data)),
+		MimeType:      mimeType,
+		Width:         width,
+		Height:        height,
+		HasThumbnail:  hasThumbnail,
+		DominantColor: dominantColor,
+		Palette:       palette,
+		Meta:          imgMeta,
+		Tags:          []string{},
+		CreatedAt:     now,
+		ImportedAt:    now,
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
 	metaBytes, _ := json.MarshalIndent(ItemMetadata{
-		ID:           item.ID,
-		Hex:          item.Hex,
-		Name:         item.Name,
-		Extension:    item.Extension,
-		Filename:     item.Filename,
-		Size:         item.Size,
-		MimeType:     item.MimeType,
-		Width:        item.Width,
-		Height:       item.Height,
-		HasThumbnail: item.HasThumbnail,
-		Tags:         item.Tags,
-		CreatedAt:    item.CreatedAt,
-		ImportedAt:   item.ImportedAt,
+		ID:            item.ID,
+		Hex:           item.Hex,
+		Name:          item.Name,
+		Extension:     item.Extension,
+		Filename:      item.Filename,
+		Size:          item.Size,
+		MimeType:      item.MimeType,
+		Width:         item.Width,
+		Height:        item.Height,
+		HasThumbnail:  item.HasThumbnail,
+		DominantColor: item.DominantColor,
+		Palette:       item.Palette,
+		Meta:          item.Meta,
+		Tags:          item.Tags,
+		CreatedAt:     item.CreatedAt,
+		ImportedAt:    item.ImportedAt,
 	}, "", "  ")
 	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
 
@@ -807,9 +863,15 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	if hasThumbnail {
 		hasThumbInt = 1
 	}
+	paletteStr := strings.Join(palette, ",")
+	metaJSONBytes, _ := json.Marshal(imgMeta)
+	metaJSONStr := ""
+	if imgMeta != nil {
+		metaJSONStr = string(metaJSONBytes)
+	}
 	_, err = db.Exec(
-		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			hex = excluded.hex,
 			name = excluded.name,
@@ -819,14 +881,16 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 			mime_type = excluded.mime_type,
 			width = excluded.width,
 			height = excluded.height,
-			has_thumbnail = excluded.has_thumbnail`,
+			has_thumbnail = excluded.has_thumbnail,
+			dominant_color = excluded.dominant_color,
+			palette = excluded.palette,
+			meta_json = excluded.meta_json`,
 		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
-		item.Width, item.Height, hasThumbInt, "", item.CreatedAt, item.ImportedAt,
+		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr, "", item.CreatedAt, item.ImportedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
-
 	return &item, nil
 }
 
@@ -896,27 +960,27 @@ func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
 	return m.ImportFromBase64(filename, b64)
 }
 
-func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string, ext string) (int, int, bool) {
+func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string, ext string) (int, int, bool, string, []string, *ImageMeta) {
 	if !IsImageExtension(ext) {
-		return 0, 0, false
+		return 0, 0, false, "", []string{}, nil
 	}
 
 	file, err := os.Open(imagePath)
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, false, "", []string{}, nil
 	}
 	defer file.Close()
 
 	img, _, err := image.Decode(file)
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, false, "", []string{}, nil
 	}
 
 	bounds := img.Bounds()
 	origW := bounds.Dx()
 	origH := bounds.Dy()
 	if origW == 0 || origH == 0 {
-		return 0, 0, false
+		return 0, 0, false, "", []string{}, nil
 	}
 
 	maxEdge := 480
@@ -942,17 +1006,117 @@ func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string,
 	thumb := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
 	draw.BiLinear.Scale(thumb, thumb.Bounds(), img, bounds, draw.Over, nil)
 
+	dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, thumb, origW, origH, ext, imagePath)
+
 	thumbFile, err := os.Create(filepath.Join(itemDir, "thumbnail.jpg"))
 	if err != nil {
-		return origW, origH, false
+		return origW, origH, false, dominantColor, palette, imgMeta
 	}
 	defer thumbFile.Close()
 
 	if err := jpeg.Encode(thumbFile, thumb, &jpeg.Options{Quality: 82}); err != nil {
-		return origW, origH, false
+		return origW, origH, false, dominantColor, palette, imgMeta
 	}
 
-	return origW, origH, true
+	return origW, origH, true, dominantColor, palette, imgMeta
+}
+
+// backfillImageMetadata populates dominant_color, palette, and meta_json for existing image items
+// that were imported before extended metadata extraction was introduced.
+func (m *LibraryManager) backfillImageMetadata(libPath string) {
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	m.mu.RUnlock()
+	if db == nil || active == nil || active.Path != libPath {
+		return
+	}
+
+	rows, err := db.Query("SELECT id, filename, extension FROM items WHERE COALESCE(dominant_color, '') = ''")
+	if err != nil {
+		return
+	}
+	type pendingItem struct {
+		id       string
+		filename string
+		ext      string
+	}
+	var list []pendingItem
+	for rows.Next() {
+		var p pendingItem
+		if rows.Scan(&p.id, &p.filename, &p.ext) == nil && IsImageExtension(p.ext) {
+			list = append(list, p)
+		}
+	}
+	rows.Close()
+
+	if len(list) == 0 {
+		return
+	}
+
+	updatedCount := 0
+	for _, p := range list {
+		m.mu.RLock()
+		currLib := m.activeLib
+		currDB := m.db
+		m.mu.RUnlock()
+		if currDB == nil || currLib == nil || currLib.Path != libPath {
+			return
+		}
+
+		itemDir := filepath.Join(libPath, "items", p.id)
+		origPath := filepath.Join(itemDir, p.filename)
+		f, err := os.Open(origPath)
+		if err != nil {
+			continue
+		}
+		img, _, decErr := image.Decode(f)
+		_ = f.Close()
+		if decErr != nil {
+			continue
+		}
+		bounds := img.Bounds()
+		origW := bounds.Dx()
+		origH := bounds.Dy()
+		if origW <= 0 || origH <= 0 {
+			continue
+		}
+
+		sampleW := min(origW, 128)
+		sampleH := min(origH, 128)
+		sample := image.NewRGBA(image.Rect(0, 0, sampleW, sampleH))
+		draw.BiLinear.Scale(sample, sample.Bounds(), img, bounds, draw.Over, nil)
+
+		dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, sample, origW, origH, p.ext, origPath)
+		if dominantColor == "" {
+			continue
+		}
+		paletteStr := strings.Join(palette, ",")
+		metaBytes, _ := json.Marshal(imgMeta)
+		_, err = currDB.Exec(
+			"UPDATE items SET dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?",
+			dominantColor, paletteStr, string(metaBytes), p.id,
+		)
+		if err == nil {
+			updatedCount++
+			metaPath := filepath.Join(itemDir, "metadata.json")
+			if raw, rErr := os.ReadFile(metaPath); rErr == nil {
+				var meta ItemMetadata
+				if json.Unmarshal(raw, &meta) == nil {
+					meta.DominantColor = dominantColor
+					meta.Palette = palette
+					meta.Meta = imgMeta
+					if out, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+						_ = os.WriteFile(metaPath, out, 0644)
+					}
+				}
+			}
+		}
+	}
+
+	if updatedCount > 0 && m.app != nil {
+		m.app.Event.Emit("library-items-updated", updatedCount)
+	}
 }
 
 // DeleteItem removes the item folder from disk and its row from SQLite.
@@ -1531,7 +1695,7 @@ func (m *LibraryManager) GetTrashItems(query string, sortOrder string) ([]Item, 
 		return []Item{}, nil
 	}
 
-	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, '') FROM items WHERE in_trash = 1"
+	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, ''), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE in_trash = 1"
 	var args []any
 
 	trimmed := strings.TrimSpace(query)
@@ -1561,6 +1725,8 @@ func (m *LibraryManager) GetTrashItems(query string, sortOrder string) ([]Item, 
 		var inTrashInt int
 		var trashedAtInt int64
 		var trashedFoldersStr string
+		var paletteStr string
+		var metaJSONStr string
 		if err := rows.Scan(
 			&item.ID,
 			&item.Hex,
@@ -1578,6 +1744,9 @@ func (m *LibraryManager) GetTrashItems(query string, sortOrder string) ([]Item, 
 			&inTrashInt,
 			&trashedAtInt,
 			&trashedFoldersStr,
+			&item.DominantColor,
+			&paletteStr,
+			&metaJSONStr,
 		); err != nil {
 			continue
 		}
@@ -1585,6 +1754,17 @@ func (m *LibraryManager) GetTrashItems(query string, sortOrder string) ([]Item, 
 		item.HasThumbnail = hasThumbInt == 1
 		item.InTrash = inTrashInt == 1
 		item.TrashedAt = trashedAtInt
+		if paletteStr != "" {
+			item.Palette = strings.Split(paletteStr, ",")
+		} else {
+			item.Palette = []string{}
+		}
+		if metaJSONStr != "" {
+			var meta ImageMeta
+			if json.Unmarshal([]byte(metaJSONStr), &meta) == nil {
+				item.Meta = &meta
+			}
+		}
 		if tagsStr != "" {
 			item.Tags = strings.Split(tagsStr, ",")
 		} else {

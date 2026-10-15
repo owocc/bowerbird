@@ -9,6 +9,7 @@ export {
 export type {
     AppMenuItem,
     Folder,
+    ImageMeta,
     Item,
     LibraryInfo,
     LibraryManager,

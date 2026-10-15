@@ -5,10 +5,13 @@ import { getFileCategory } from "@/lib/formatters";
 
 export interface JustifiedGalleryProps {
   items: Item[];
-  selectedItemIds: Set<string>;
+  /** Ordered list of selected item IDs (earliest selected first, most recently selected last) */
+  selectedOrder: string[];
+  /** Whether keyboard arrow navigation is active (disabled when a preview modal or menu is open) */
+  keyboardNavEnabled?: boolean;
   targetRowHeight?: number;
   gap?: number;
-  onSelectionChange: (ids: Set<string>, lastItem?: Item) => void;
+  onSelectionChange: (orderedIds: string[], lastItem?: Item) => void;
   onDoubleClickItem: (item: Item) => void;
   onDragStartItem: (e: React.DragEvent, item: Item) => void;
   onItemContextMenu: (e: React.MouseEvent, item: Item) => void;
@@ -31,15 +34,12 @@ interface MarqueeBox {
   startY: number;
   currentX: number;
   currentY: number;
-  startClientX: number;
-  startClientY: number;
-  currentClientX: number;
-  currentClientY: number;
 }
 
 export function JustifiedGallery({
   items,
-  selectedItemIds,
+  selectedOrder,
+  keyboardNavEnabled = true,
   targetRowHeight = 80,
   gap = 12,
   onSelectionChange,
@@ -53,27 +53,30 @@ export function JustifiedGallery({
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
   const [lastClickedItemId, setLastClickedItemId] = useState<string | null>(null);
 
-  // Rubbery-band (marquee) selection internals. Everything the mouse handlers need
-  // lives in refs so the listeners can stay attached for the whole session instead
-  // of being re-registered on every mousemove.
+  const selectedSet = useMemo(() => new Set(selectedOrder), [selectedOrder]);
+
+  // Marquee selection state in refs so listeners stay stable across frames
   const marqueeRef = useRef<MarqueeBox | null>(null);
-  const cardBoxesRef = useRef<{ id: string; left: number; right: number; top: number; bottom: number }[]>([]);
-  const pendingPointRef = useRef<{ x: number; y: number; clientX: number; clientY: number } | null>(null);
+  // Card boxes in content-relative coordinates (relative to containerRef top-left)
+  const cardBoxesRef = useRef<
+    { id: string; left: number; right: number; top: number; bottom: number }[]
+  >([]);
+  const pendingClientRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const frameRef = useRef<number | null>(null);
   const selectionKeyRef = useRef("");
-  const baseSelectionRef = useRef<Set<string>>(new Set());
+  const baseOrderRef = useRef<string[]>([]);
+  const currentOrderRef = useRef<string[]>(selectedOrder);
   const gestureAdditiveRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressOriginRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const longPressArmedRef = useRef(false);
   const suppressClickRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
-  const selectedIdsRef = useRef(selectedItemIds);
   const onSelectionChangeRef = useRef(onSelectionChange);
 
   useEffect(() => {
-    selectedIdsRef.current = selectedItemIds;
-  }, [selectedItemIds]);
+    currentOrderRef.current = selectedOrder;
+  }, [selectedOrder]);
 
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange;
@@ -98,7 +101,6 @@ export function JustifiedGallery({
     return () => observer.disconnect();
   }, []);
 
-
   // Compute justified rows layout with pixel-perfect row filling
   const rows = useMemo(() => {
     if (!items || items.length === 0) return [];
@@ -114,8 +116,14 @@ export function JustifiedGallery({
       const category = getFileCategory(item.extension);
       const isImage = category === "image";
 
-      if (!isImage || !item.width || !item.height || item.width <= 0 || item.height <= 0) {
-        return 1.0; // Non-image is strictly square (1:1 aspect ratio)
+      if (
+        !isImage ||
+        !item.width ||
+        !item.height ||
+        item.width <= 0 ||
+        item.height <= 0
+      ) {
+        return 1.0;
       }
 
       const rawRatio = item.width / item.height;
@@ -133,14 +141,14 @@ export function JustifiedGallery({
       const availableWidth = Math.max(100, containerWidth - gapsTotal);
       const projectedHeight = availableWidth / currentRatiosSum;
 
-      // When row is full enough to achieve the target height
       if (projectedHeight <= targetRowHeight * 1.25) {
         const finalHeight = Math.round(projectedHeight);
-        const widths = currentRow.map((entry) => Math.floor(finalHeight * entry.ratio));
+        const widths = currentRow.map((entry) =>
+          Math.floor(finalHeight * entry.ratio)
+        );
         const currentTotal = widths.reduce((a, b) => a + b, 0);
         const diff = availableWidth - currentTotal;
 
-        // Distribute remainder pixel by pixel across items to fill row completely
         for (let k = 0; k < diff; k++) {
           widths[k % widths.length] += 1;
         }
@@ -157,16 +165,16 @@ export function JustifiedGallery({
       }
     }
 
-    // Handle incomplete trailing row
     if (currentRow.length > 0) {
       const gapsTotal = (currentRow.length - 1) * gap;
       const availableWidth = Math.max(100, containerWidth - gapsTotal);
       const projectedHeight = availableWidth / currentRatiosSum;
 
       if (projectedHeight <= targetRowHeight * 1.35) {
-        // Comfortably fills the row
         const finalHeight = Math.round(projectedHeight);
-        const widths = currentRow.map((entry) => Math.floor(finalHeight * entry.ratio));
+        const widths = currentRow.map((entry) =>
+          Math.floor(finalHeight * entry.ratio)
+        );
         const currentTotal = widths.reduce((a, b) => a + b, 0);
         const diff = availableWidth - currentTotal;
         for (let k = 0; k < diff; k++) {
@@ -180,7 +188,6 @@ export function JustifiedGallery({
         }));
         computedRows.push({ items: layoutItems, height: finalHeight });
       } else {
-        // Keep target height for a sparse trailing row
         const finalHeight = targetRowHeight;
         const layoutItems: LayoutItem[] = currentRow.map((entry) => ({
           item: entry.item,
@@ -194,65 +201,235 @@ export function JustifiedGallery({
     return computedRows;
   }, [items, containerWidth, targetRowHeight, gap]);
 
-  // Handle single / Cmd / Shift card selection
+  // Handle single / Cmd / Shift card selection preserving FIFO selection order
   const handleCardClick = (e: React.MouseEvent, item: Item) => {
     e.stopPropagation();
 
-    // The selection was just made by a long-press marquee: keep it.
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       return;
     }
 
     if (e.metaKey || e.ctrlKey) {
-      // Toggle selection of this item
-      const newSelection = new Set(selectedItemIds);
-      if (newSelection.has(item.id)) {
-        newSelection.delete(item.id);
-      } else {
-        newSelection.add(item.id);
-      }
+      const exists = selectedSet.has(item.id);
+      const nextOrder = exists
+        ? selectedOrder.filter((id) => id !== item.id)
+        : [...selectedOrder, item.id];
       setLastClickedItemId(item.id);
-      onSelectionChange(newSelection, item);
+      onSelectionChange(nextOrder, exists ? undefined : item);
     } else if (e.shiftKey && lastClickedItemId) {
-      // Range selection
       const fromIdx = items.findIndex((i) => i.id === lastClickedItemId);
       const toIdx = items.findIndex((i) => i.id === item.id);
       if (fromIdx !== -1 && toIdx !== -1) {
-        const start = Math.min(fromIdx, toIdx);
-        const end = Math.max(fromIdx, toIdx);
-        const rangeSet = new Set(selectedItemIds);
-        for (let i = start; i <= end; i++) {
-          rangeSet.add(items[i].id);
+        const step = fromIdx <= toIdx ? 1 : -1;
+        const nextOrder = [...selectedOrder];
+        const existing = new Set(nextOrder);
+        for (let i = fromIdx; step > 0 ? i <= toIdx : i >= toIdx; i += step) {
+          const id = items[i].id;
+          if (!existing.has(id)) {
+            existing.add(id);
+            nextOrder.push(id);
+          }
         }
-        onSelectionChange(rangeSet, item);
+        onSelectionChange(nextOrder, item);
       }
     } else {
-      // Normal single selection
       setLastClickedItemId(item.id);
-      onSelectionChange(new Set([item.id]), item);
+      onSelectionChange([item.id], item);
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Rubbery-band selection
-  // - the gesture may start anywhere in the main canvas, including the scroll
-  //   padding; a press that lands on a card keeps its native drag (move / export)
-  //   and only switches to a marquee after a one second long press
-  // - the box is clamped to the visible canvas, so it can never run off to the
-  //   left or grow endlessly to the right
-  // ---------------------------------------------------------------------------
-  const canvasBounds = useCallback(() => {
+  // Precompute 2D spatial lookup (row index, item index in row, horizontal center X)
+  // so ArrowUp / ArrowDown can jump to the visually aligned card in the adjacent row,
+  // while ArrowLeft / ArrowRight step sequentially across items.
+  const layoutIndex = useMemo(() => {
+    const byId = new Map<
+      string,
+      { flatIdx: number; rowIdx: number; colIdx: number; centerX: number }
+    >();
+    const rowCenters: { item: Item; flatIdx: number; centerX: number }[][] = [];
+    let flatIdx = 0;
+
+    for (let r = 0; r < rows.length; r++) {
+      const row = rows[r];
+      let xCursor = 0;
+      const centers: { item: Item; flatIdx: number; centerX: number }[] = [];
+      for (let c = 0; c < row.items.length; c++) {
+        const entry = row.items[c];
+        const centerX = xCursor + entry.width / 2;
+        byId.set(entry.item.id, {
+          flatIdx,
+          rowIdx: r,
+          colIdx: c,
+          centerX,
+        });
+        centers.push({ item: entry.item, flatIdx, centerX });
+        xCursor += entry.width + gap;
+        flatIdx++;
+      }
+      rowCenters.push(centers);
+    }
+
+    return { byId, rowCenters };
+  }, [rows, gap]);
+
+  // Remember the horizontal anchor X across consecutive ArrowUp / ArrowDown presses
+  // so navigating through rows with varying card widths doesn't drift horizontally.
+  const verticalAnchorXRef = useRef<number | null>(null);
+
+  // Reset vertical anchor X whenever user clicks a card
+  useEffect(() => {
+    verticalAnchorXRef.current = null;
+  }, [lastClickedItemId]);
+
+  // 2D Arrow-key navigation (ArrowLeft, ArrowRight, ArrowUp, ArrowDown)
+  useEffect(() => {
+    if (!keyboardNavEnabled || items.length === 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Do not hijack when modifier keys for browser history (Alt/Cmd/Ctrl + Arrow) are pressed
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable ||
+          target.closest("[role='menu'], [role='dialog'], [data-slot='slider']"))
+      ) {
+        return;
+      }
+
+      const { code } = e;
+      if (
+        code !== "ArrowLeft" &&
+        code !== "ArrowRight" &&
+        code !== "ArrowUp" &&
+        code !== "ArrowDown"
+      ) {
+        return;
+      }
+
+      e.preventDefault();
+
+      const currentOrder = currentOrderRef.current;
+      const activeId =
+        currentOrder.length > 0
+          ? currentOrder[currentOrder.length - 1]
+          : lastClickedItemId;
+      const currentPos = activeId ? layoutIndex.byId.get(activeId) : undefined;
+
+      let nextItem: Item | undefined;
+
+      if (!currentPos) {
+        // Nothing currently selected: pick first item (or last item for ArrowLeft/ArrowUp)
+        nextItem =
+          code === "ArrowLeft" || code === "ArrowUp"
+            ? items[items.length - 1]
+            : items[0];
+        verticalAnchorXRef.current = null;
+      } else if (code === "ArrowLeft") {
+        verticalAnchorXRef.current = null;
+        const nextFlat = Math.max(0, currentPos.flatIdx - 1);
+        nextItem = items[nextFlat];
+      } else if (code === "ArrowRight") {
+        verticalAnchorXRef.current = null;
+        const nextFlat = Math.min(items.length - 1, currentPos.flatIdx + 1);
+        nextItem = items[nextFlat];
+      } else {
+        // ArrowUp or ArrowDown: find card with closest horizontal centerX in target row
+        const targetRowIdx =
+          code === "ArrowUp" ? currentPos.rowIdx - 1 : currentPos.rowIdx + 1;
+        if (targetRowIdx < 0 || targetRowIdx >= layoutIndex.rowCenters.length) {
+          // Already on top/bottom row: keep current selection and ensure it is scrolled into view
+          nextItem = items[currentPos.flatIdx];
+        } else {
+          const anchorX = verticalAnchorXRef.current ?? currentPos.centerX;
+          verticalAnchorXRef.current = anchorX;
+          const targetRow = layoutIndex.rowCenters[targetRowIdx];
+          let best = targetRow[0];
+          let bestDist = Math.abs(best.centerX - anchorX);
+          for (let i = 1; i < targetRow.length; i++) {
+            const candidate = targetRow[i];
+            const dist = Math.abs(candidate.centerX - anchorX);
+            if (dist < bestDist) {
+              best = candidate;
+              bestDist = dist;
+            }
+          }
+          nextItem = best.item;
+        }
+      }
+
+      if (!nextItem) return;
+
+      if (e.shiftKey) {
+        // Shift + Arrow: extend or move selection in FIFO order
+        const anchorId =
+          lastClickedItemId ??
+          (currentOrder.length > 0 ? currentOrder[0] : nextItem.id);
+        if (!lastClickedItemId) {
+          setLastClickedItemId(anchorId);
+        }
+        const nextPos = layoutIndex.byId.get(nextItem.id);
+        const anchorPos = layoutIndex.byId.get(anchorId);
+        if (nextPos && anchorPos) {
+          const step = anchorPos.flatIdx <= nextPos.flatIdx ? 1 : -1;
+          const rangeOrder: string[] = [];
+          for (
+            let i = anchorPos.flatIdx;
+            step > 0 ? i <= nextPos.flatIdx : i >= nextPos.flatIdx;
+            i += step
+          ) {
+            rangeOrder.push(items[i].id);
+          }
+          currentOrderRef.current = rangeOrder;
+          onSelectionChangeRef.current(rangeOrder, nextItem);
+        } else if (!currentOrder.includes(nextItem.id)) {
+          const nextOrder = [...currentOrder, nextItem.id];
+          currentOrderRef.current = nextOrder;
+          onSelectionChangeRef.current(nextOrder, nextItem);
+        }
+      } else {
+        setLastClickedItemId(nextItem.id);
+        const nextOrder = [nextItem.id];
+        currentOrderRef.current = nextOrder;
+        onSelectionChangeRef.current(nextOrder, nextItem);
+      }
+
+      // Scroll the newly active card smoothly into the visible viewport if needed
+      const container = containerRef.current;
+      if (container) {
+        const cardEl = container.querySelector<HTMLElement>(
+          `[data-asset-id="${CSS.escape(nextItem.id)}"]`
+        );
+        cardEl?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [keyboardNavEnabled, items, layoutIndex, lastClickedItemId]);
+
+  // Convert viewport client coordinates to containerRef-relative coordinates
+  // so marquee works identically anywhere in the scroll viewport (including padding & blank space below rows)
+  const clientToContainerPoint = useCallback((clientX: number, clientY: number) => {
     const container = containerRef.current;
-    if (!container) return null;
-    const box = container.getBoundingClientRect();
-    const host = container.parentElement?.getBoundingClientRect();
+    const host = container?.parentElement;
+    if (!container || !host) return null;
+
+    const hostRect = host.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+
+    // Clamp to visible scroll host viewport
+    const clampedClientX = Math.max(hostRect.left, Math.min(hostRect.right, clientX));
+    const clampedClientY = Math.max(hostRect.top, Math.min(hostRect.bottom, clientY));
+
     return {
-      box,
-      left: Math.max(box.left, host?.left ?? box.left),
-      right: Math.min(box.right, host?.right ?? box.right),
-      top: Math.max(box.top, host?.top ?? box.top),
-      bottom: Math.min(box.bottom, host?.bottom ?? box.bottom),
+      x: clampedClientX - containerRect.left,
+      y: clampedClientY - containerRect.top,
     };
   }, []);
 
@@ -265,24 +442,21 @@ export function JustifiedGallery({
 
   const endMarquee = useCallback(() => {
     cancelLongPress();
-    // Hand the pointer back so the app behaves normally again.
     const host = containerRef.current?.parentElement;
     const pointerId = activePointerIdRef.current;
     if (host && pointerId !== null) {
       try {
         if (host.hasPointerCapture(pointerId)) host.releasePointerCapture(pointerId);
       } catch {
-        /* pointer already gone */
+        /* pointer already released */
       }
     }
     activePointerIdRef.current = null;
     longPressOriginRef.current = null;
-    // A marquee born from a long press owns the gesture: swallow the click that
-    // would otherwise reset the selection to the card underneath the cursor.
     if (longPressArmedRef.current) suppressClickRef.current = true;
     longPressArmedRef.current = false;
     gestureAdditiveRef.current = false;
-    pendingPointRef.current = null;
+    pendingClientRef.current = null;
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
@@ -294,10 +468,12 @@ export function JustifiedGallery({
   const beginMarquee = useCallback(
     (clientX: number, clientY: number) => {
       const container = containerRef.current;
-      const bounds = canvasBounds();
-      if (!container || !bounds) return;
+      const pt = clientToContainerPoint(clientX, clientY);
+      if (!container || !pt) return;
 
-      // Cache the card boxes once per gesture: the layout cannot change mid-drag.
+      const containerRect = container.getBoundingClientRect();
+
+      // Cache card boxes in container-relative coordinates so scrolling during marquee stays accurate
       cardBoxesRef.current = Array.from(
         container.querySelectorAll<HTMLElement>("[data-asset-id]")
       )
@@ -305,36 +481,28 @@ export function JustifiedGallery({
           const r = el.getBoundingClientRect();
           return {
             id: el.dataset.assetId ?? "",
-            left: r.left,
-            right: r.right,
-            top: r.top,
-            bottom: r.bottom,
+            left: r.left - containerRect.left,
+            right: r.right - containerRect.left,
+            top: r.top - containerRect.top,
+            bottom: r.bottom - containerRect.top,
           };
         })
         .filter((card) => card.id);
 
-      const cx = Math.min(Math.max(clientX, bounds.left), bounds.right);
-      const cy = Math.min(Math.max(clientY, bounds.top), bounds.bottom);
       const box: MarqueeBox = {
-        startX: cx - bounds.box.left,
-        startY: cy - bounds.box.top,
-        currentX: cx - bounds.box.left,
-        currentY: cy - bounds.box.top,
-        startClientX: cx,
-        startClientY: cy,
-        currentClientX: cx,
-        currentClientY: cy,
+        startX: pt.x,
+        startY: pt.y,
+        currentX: pt.x,
+        currentY: pt.y,
       };
-      // Capture the pointer: without this a release that happens outside the
-      // window (or after the browser tried to start a file drag) never reaches us
-      // and the marquee would stay stuck on screen.
+
       const pointerId = activePointerIdRef.current;
-      const host = containerRef.current?.parentElement;
+      const host = container.parentElement;
       if (pointerId !== null && host) {
         try {
           if (!host.hasPointerCapture(pointerId)) host.setPointerCapture(pointerId);
         } catch {
-          /* capture unavailable — the buttons check below still recovers */
+          /* ignore */
         }
       }
 
@@ -342,49 +510,50 @@ export function JustifiedGallery({
       marqueeRef.current = box;
       setMarquee(box);
     },
-    [canvasBounds]
+    [clientToContainerPoint]
   );
 
   const queueMarqueeMove = useCallback(
     (clientX: number, clientY: number, additive: boolean) => {
-      const bounds = canvasBounds();
-      if (!bounds) return;
+      pendingClientRef.current = { clientX, clientY };
 
-      const cx = Math.min(Math.max(clientX, bounds.left), bounds.right);
-      const cy = Math.min(Math.max(clientY, bounds.top), bounds.bottom);
-      pendingPointRef.current = {
-        x: cx - bounds.box.left,
-        y: cy - bounds.box.top,
-        clientX: cx,
-        clientY: cy,
-      };
-
-      // Coalesce mousemove bursts into one paint per frame.
       if (frameRef.current !== null) return;
       frameRef.current = requestAnimationFrame(() => {
         frameRef.current = null;
-        const point = pendingPointRef.current;
+        const rawPt = pendingClientRef.current;
         const current = marqueeRef.current;
-        if (!point || !current) return;
+        const host = containerRef.current?.parentElement;
+        if (!rawPt || !current || !host) return;
+
+        // Auto-scroll when dragging near the top or bottom edge of the scroll host
+        const hostRect = host.getBoundingClientRect();
+        const EDGE_ZONE = 36;
+        if (rawPt.clientY < hostRect.top + EDGE_ZONE) {
+          host.scrollTop -= Math.ceil((hostRect.top + EDGE_ZONE - rawPt.clientY) * 0.35);
+        } else if (rawPt.clientY > hostRect.bottom - EDGE_ZONE) {
+          host.scrollTop += Math.ceil((rawPt.clientY - (hostRect.bottom - EDGE_ZONE)) * 0.35);
+        }
+
+        const pt = clientToContainerPoint(rawPt.clientX, rawPt.clientY);
+        if (!pt) return;
 
         const next: MarqueeBox = {
           ...current,
-          currentX: point.x,
-          currentY: point.y,
-          currentClientX: point.clientX,
-          currentClientY: point.clientY,
+          currentX: pt.x,
+          currentY: pt.y,
         };
         marqueeRef.current = next;
         setMarquee(next);
 
-        const boxLeft = Math.min(current.startClientX, point.clientX);
-        const boxRight = Math.max(current.startClientX, point.clientX);
-        const boxTop = Math.min(current.startClientY, point.clientY);
-        const boxBottom = Math.max(current.startClientY, point.clientY);
-        // Ignore 1-3px jitter so a plain click never selects through the marquee.
+        const boxLeft = Math.min(current.startX, pt.x);
+        const boxRight = Math.max(current.startX, pt.x);
+        const boxTop = Math.min(current.startY, pt.y);
+        const boxBottom = Math.max(current.startY, pt.y);
+
         if (boxRight - boxLeft < 4 && boxBottom - boxTop < 4) return;
 
-        const ids = new Set<string>(additive ? baseSelectionRef.current : []);
+        // Collect all currently intersected card IDs
+        const hitSet = new Set<string>();
         for (const card of cardBoxesRef.current) {
           const hit = !(
             card.right < boxLeft ||
@@ -392,22 +561,42 @@ export function JustifiedGallery({
             card.bottom < boxTop ||
             card.top > boxBottom
           );
-          if (hit) ids.add(card.id);
+          if (hit) hitSet.add(card.id);
         }
 
-        // Skip the parent update when the highlighted set did not actually change.
-        const key = Array.from(ids).sort().join("|");
+        // Preserve FIFO selection order:
+        // 1. Keep items from baseOrder (if additive) or currentOrder that are still hit, in their existing order
+        // 2. Append newly hit items to the end of the queue
+        const prevOrder = currentOrderRef.current;
+        const baseSet = new Set(additive ? baseOrderRef.current : []);
+        const nextOrder: string[] = [];
+        const seen = new Set<string>();
+
+        for (const id of prevOrder) {
+          if (hitSet.has(id) || baseSet.has(id)) {
+            nextOrder.push(id);
+            seen.add(id);
+          }
+        }
+        for (const id of hitSet) {
+          if (!seen.has(id)) {
+            nextOrder.push(id);
+            seen.add(id);
+          }
+        }
+
+        const key = nextOrder.join("|");
         if (key === selectionKeyRef.current) return;
         selectionKeyRef.current = key;
-        onSelectionChangeRef.current(ids);
+        currentOrderRef.current = nextOrder;
+        onSelectionChangeRef.current(nextOrder);
       });
     },
-    [canvasBounds]
+    [clientToContainerPoint]
   );
 
-  // Listeners are attached once; the handlers no-op unless a gesture is running.
-  // The scroll host (parent of the gallery) is used as the press surface so the
-  // marquee can start anywhere in the pane, padding included.
+  // Attach pointer listeners to the scroll host so pressing ANYWHERE in the canvas
+  // (between cards, row-end whitespace, bottom blank space, or padding) triggers marquee selection.
   useEffect(() => {
     const host = containerRef.current?.parentElement;
     if (!host) return;
@@ -417,17 +606,21 @@ export function JustifiedGallery({
       activePointerIdRef.current = e.pointerId;
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      // Real controls keep their own behaviour.
-      if (target.closest("button, input, textarea, select, [contenteditable='true']")) return;
+      if (
+        target.closest(
+          "button, input, textarea, select, [contenteditable='true']"
+        )
+      ) {
+        return;
+      }
 
       const additive = e.shiftKey || e.metaKey || e.ctrlKey;
       gestureAdditiveRef.current = additive;
-      baseSelectionRef.current = additive ? new Set(selectedIdsRef.current) : new Set();
+      baseOrderRef.current = additive ? [...currentOrderRef.current] : [];
       suppressClickRef.current = false;
 
       if (target.closest("[data-asset-id]")) {
-        // Pressed on a card: leave the native drag (move / export) alone. Holding
-        // still for a second cancels it and turns this gesture into a marquee.
+        // Pressed on a card: allow native drag, or convert to marquee on 1s long press
         cancelLongPress();
         longPressOriginRef.current = { clientX: e.clientX, clientY: e.clientY };
         longPressTimerRef.current = window.setTimeout(() => {
@@ -440,27 +633,27 @@ export function JustifiedGallery({
         return;
       }
 
-      // Empty canvas: start straight away, clearing the old selection unless a
-      // modifier asks to keep it.
+      // Pressed on any whitespace (padding, row gap, row-end blank, or below last row):
+      // Immediately clear selection (unless additive) and start marquee box!
       if (!additive) {
-        onSelectionChangeRef.current(new Set());
+        currentOrderRef.current = [];
+        onSelectionChangeRef.current([]);
         setLastClickedItemId(null);
       }
       beginMarquee(e.clientX, e.clientY);
     };
 
     const handleMove = (e: PointerEvent) => {
-      // Self-healing: if the button is no longer held (its release was swallowed
-      // by a native drag or happened outside the window) the marquee must close.
       if (marqueeRef.current && e.buttons === 0) {
         endMarquee();
         return;
       }
       if (longPressOriginRef.current && !longPressArmedRef.current) {
-        // Still waiting for the long press: real movement means the user is
-        // dragging the card, so the marquee must never start.
         const origin = longPressOriginRef.current;
-        if (Math.abs(e.clientX - origin.clientX) > 6 || Math.abs(e.clientY - origin.clientY) > 6) {
+        if (
+          Math.abs(e.clientX - origin.clientX) > 6 ||
+          Math.abs(e.clientY - origin.clientY) > 6
+        ) {
           cancelLongPress();
           longPressOriginRef.current = null;
         }
@@ -475,7 +668,6 @@ export function JustifiedGallery({
     };
 
     const handleUp = (e: Event) => {
-      // Only the left button release finishes the gesture.
       if (e.type === "pointerup" && (e as PointerEvent).button !== 0) return;
       if (longPressOriginRef.current || marqueeRef.current) endMarquee();
       else {
@@ -488,7 +680,6 @@ export function JustifiedGallery({
     window.addEventListener("pointermove", handleMove);
     window.addEventListener("pointerup", handleUp);
     window.addEventListener("pointercancel", handleUp);
-    // Losing the capture (window switch, compositor grab, ...) also ends it.
     host.addEventListener("lostpointercapture", handleUp);
     window.addEventListener("blur", handleUp);
     document.addEventListener("visibilitychange", handleUp);
@@ -503,7 +694,6 @@ export function JustifiedGallery({
     };
   }, [beginMarquee, queueMarqueeMove, cancelLongPress, endMarquee]);
 
-  // Calculate visual marquee rect styles
   const marqueeStyle = useMemo(() => {
     if (!marquee) return null;
     const left = Math.min(marquee.startX, marquee.currentX);
@@ -524,32 +714,26 @@ export function JustifiedGallery({
       ref={containerRef}
       onDragStartCapture={(e) => {
         if (longPressArmedRef.current) {
-          // The long press took over: don't let the browser hijack it into a file drag.
           e.preventDefault();
           e.stopPropagation();
           return;
         }
-        // A real card drag started — drop any pending long press or marquee.
         endMarquee();
       }}
       onContextMenu={(e) => {
         e.preventDefault();
         onCanvasContextMenu(e);
       }}
-      className="relative w-full min-h-full flex flex-col gap-4 select-none"
+      className="relative w-full min-h-full flex-1 flex flex-col gap-4 select-none"
     >
-      {/* 
-        Marquee Rubber-Band Drag Selection Box 
-      */}
       {marqueeStyle && (
         <div
           data-selection-marquee="true"
           style={marqueeStyle}
-          className="absolute z-40 border border-border bg-primary/15 rounded-sm pointer-events-none"
+          className="absolute z-40 border border-primary/70 bg-primary/15 rounded-xs pointer-events-none"
         />
       )}
 
-      {/* Rows of cards: Strictly flex-nowrap to ensure zero unexpected wrapping */}
       {rows.map((row, rowIdx) => (
         <div
           key={rowIdx}
@@ -562,7 +746,7 @@ export function JustifiedGallery({
               item={item}
               cardWidth={width}
               cardHeight={height}
-              isSelected={selectedItemIds.has(item.id)}
+              isSelected={selectedSet.has(item.id)}
               onClick={(e) => handleCardClick(e, item)}
               onDoubleClick={() => onDoubleClickItem(item)}
               onDragStart={(e) => onDragStartItem(e, item)}
@@ -575,6 +759,9 @@ export function JustifiedGallery({
           ))}
         </div>
       ))}
+
+      {/* Flexible blank canvas filler at the bottom so clicking/dragging below the last row always hits containerRef */}
+      <div className="flex-1 min-h-12 w-full" />
     </div>
   );
 }

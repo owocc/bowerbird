@@ -22,6 +22,7 @@ export interface UniversalThumbnailProps {
   draggable?: boolean;
   onDragStart?: (e: React.DragEvent) => void;
   showFormatBadge?: boolean;
+  borderless?: boolean;
 }
 
 /**
@@ -41,6 +42,7 @@ export function UniversalThumbnail({
   draggable = true,
   onDragStart,
   showFormatBadge = false,
+  borderless = false,
 }: UniversalThumbnailProps) {
   const [imageError, setImageError] = useState(false);
   const [iconLoadError, setIconLoadError] = useState(false);
@@ -101,7 +103,7 @@ export function UniversalThumbnail({
         height: typeof height === "number" ? `${height}px` : height,
         aspectRatio: aspectRatio,
       }}
-      className={`relative rounded-sm overflow-hidden bg-muted/20 border border-border/80 flex items-center justify-center select-none draggable-asset-card wails-no-drag ${className}`}
+      className={`relative rounded-sm overflow-hidden ${borderless ? "bg-transparent border-none" : "bg-muted/20 border border-border/80"} flex items-center justify-center select-none draggable-asset-card wails-no-drag ${className}`}
     >
 
       {hasVisual ? (
@@ -112,7 +114,7 @@ export function UniversalThumbnail({
           draggable={false}
           onError={() => setImageError(true)}
           style={{ objectFit }}
-          className="w-full h-full pointer-events-none drop-shadow-2xs"
+          className={`w-full h-full pointer-events-none ${borderless ? "object-contain" : "drop-shadow-2xs"}`}
         />
       ) : systemIconUrl && !iconLoadError ? (
         <div className="flex flex-col items-center justify-center p-2.5 w-full h-full pointer-events-none select-none">

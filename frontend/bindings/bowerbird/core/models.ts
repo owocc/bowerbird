@@ -60,6 +60,27 @@ export interface Folder {
 }
 
 /**
+ * ImageMeta holds extended metadata extracted from an image or media file.
+ */
+export interface ImageMeta {
+    "colorModel"?: string;
+    "colorSpace"?: string;
+    "hasAlpha"?: boolean;
+    "aspectRatio"?: string;
+
+    /**
+     * "landscape" | "portrait" | "square"
+     */
+    "orientation"?: string;
+    "bitDepth"?: number;
+    "animated"?: boolean;
+    "exifMake"?: string;
+    "exifModel"?: string;
+    "exifDate"?: string;
+    "megapixels"?: string;
+}
+
+/**
  * Item represents a single managed asset in the library.
  */
 export interface Item {
@@ -77,6 +98,9 @@ export interface Item {
     "width": number;
     "height": number;
     "hasThumbnail": boolean;
+    "dominantColor": string;
+    "palette": string[] | null;
+    "meta"?: ImageMeta | null;
     "tags": string[] | null;
     "folders": string[] | null;
     "inTrash": boolean;

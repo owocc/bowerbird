@@ -92,9 +92,8 @@ func main() {
 		MinHeight:      600,
 		EnableFileDrop: true,
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 54,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
+			Backdrop: application.MacBackdropTranslucent,
+			TitleBar: application.MacTitleBarHiddenInset,
 		},
 		// Windows and Linux get no native menu - they render the app's own ≡
 		// button from core.GetAppMenu. The zero value is ignored on macOS.
