@@ -127,6 +127,9 @@ func main() {
 		var externalFiles []string
 
 		for _, f := range files {
+			if strings.TrimSpace(f) == "" {
+				continue
+			}
 			if itID := extractInternalItemID(f); itID != "" {
 				internalItemIDs = append(internalItemIDs, itID)
 			} else {

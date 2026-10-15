@@ -7,12 +7,6 @@ import { useTranslation } from "react-i18next";
 
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
 
-/**
- * Whether the native host receives OS file drops itself. The Wails runtime injects
- * `window._wails.flags.enableFileDrop` from the `EnableFileDrop` window option; in
- * a plain browser (dev preview) it is absent and the webview has to import drops
- * itself.
- */
 interface WailsFlagWindow extends Window {
   _wails?: { flags?: { enableFileDrop?: boolean } };
 }
@@ -20,6 +14,55 @@ interface WailsFlagWindow extends Window {
 function hostReceivesFileDrops(): boolean {
   const host = window as WailsFlagWindow;
   return host._wails?.flags?.enableFileDrop === true;
+}
+
+/**
+ * Extracts the first non-comment URI from a `text/uri-list`, `URL`, or `text/plain`
+ * DataTransfer payload.
+ */
+function extractDroppedUri(dt: DataTransfer): string {
+  const raw = dt.getData("text/uri-list") || dt.getData("URL") || dt.getData("text/plain") || "";
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed && !trimmed.startsWith("#")) {
+      return trimmed;
+    }
+  }
+  return "";
+}
+
+/**
+ * Determines whether a drop is a genuine OS file drop (from Finder / Explorer)
+ * that the native Wails `WindowFilesDropped` handler will import by disk path.
+ *
+ * Browser drags (e.g. dragging an `<img>` or blob out of Chrome/Safari) also
+ * populate `dataTransfer.files` with an in-memory `File`, alongside a remote
+ * `http(s):` / `blob:` / `data:` URI in `text/uri-list` or `text/html`. The native
+ * host never receives `NSFilenamesPboardType` (macOS) or a disk path (Windows
+ * `ICoreWebView2File::GetPath`) for those in-memory browser files, so skipping
+ * them in the webview drops the import on the floor.
+ */
+function isNativeOsFileDrop(dt: DataTransfer): boolean {
+  if (!hostReceivesFileDrops()) return false;
+  const files = dt.files;
+  if (!files || files.length === 0) return false;
+
+  const uri = extractDroppedUri(dt).toLowerCase();
+  if (
+    uri.startsWith("http://") ||
+    uri.startsWith("https://") ||
+    uri.startsWith("blob:") ||
+    uri.startsWith("data:")
+  ) {
+    return false;
+  }
+
+  const htmlData = dt.getData("text/html");
+  if (htmlData && /<img[^>]+src=["'](?:https?:|blob:|data:)/i.test(htmlData)) {
+    return false;
+  }
+
+  return true;
 }
 
 export interface DropState {
@@ -228,15 +271,26 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         const itemId = await importFileObject(file);
         if (itemId) importedIds.push(itemId);
       }
-
-      setState({
-        status: "success",
-        total: importedIds.length,
-        current: importedIds.length,
-        filename: "",
-        message: t("importing.importedFiles", { count: importedIds.length }),
-      });
-      await onRefresh(importedIds);
+      if (importedIds.length > 0) {
+        setState({
+          status: "success",
+          total: importedIds.length,
+          current: importedIds.length,
+          filename: "",
+          message: t("importing.importedFiles", { count: importedIds.length }),
+        });
+        toast.success(t("importing.importedAssets", { count: importedIds.length }));
+        await onRefresh(importedIds);
+      } else {
+        setState({
+          status: "idle",
+          total: 0,
+          current: 0,
+          filename: "",
+          message: null,
+        });
+        toast.error(t("importing.failed", { error: t("importing.unknownError") }));
+      }
       clearTimer();
       resetTimer.current = window.setTimeout(() => {
         setState((prev) => (prev.status === "success" ? { ...prev, status: "idle", message: null } : prev));
@@ -268,6 +322,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
             filename: item.filename,
             message: t("importing.remoteImported", { name: item.name }),
           });
+          toast.success(t("importing.importedAssets", { count: 1 }));
           await onRefresh([item.id]);
         }
       } catch (err) {
@@ -335,11 +390,11 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       // app twice: as this DOM drop and to the native drop handler in main.go,
       // which imports by path. Importing here as well would push every dropped
       // file through the base64 bridge as a second, racing import of the same
-      // content.
-      const droppedOsFiles = (e.dataTransfer.files?.length ?? 0) > 0;
-      if (droppedOsFiles && hostReceivesFileDrops()) return;
+      // content. Browser drags (which carry an in-memory File plus a remote/blob
+      // URI) are NOT delivered to the native handler and must be imported here.
+      if (isNativeOsFileDrop(e.dataTransfer)) return;
 
-      // 1. Files dropped via browser DataTransfer
+      // 1. Files dropped via browser DataTransfer (already in memory inside the webview)
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         await importFileList(e.dataTransfer.files);
         return;
@@ -355,12 +410,9 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       }
 
       if (!urlToImport) {
-        const uriList =
-          e.dataTransfer.getData("text/uri-list") ||
-          e.dataTransfer.getData("URL") ||
-          e.dataTransfer.getData("text/plain");
-        if (uriList && (uriList.startsWith("http://") || uriList.startsWith("https://") || uriList.startsWith("data:"))) {
-          urlToImport = uriList.split("\r\n")[0].trim();
+        const uri = extractDroppedUri(e.dataTransfer);
+        if (uri && (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("data:"))) {
+          urlToImport = uri;
         }
       }
 
