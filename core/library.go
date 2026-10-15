@@ -25,10 +25,10 @@ import (
 	"sync"
 	"time"
 
-	_ "modernc.org/sqlite"
 	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
+	_ "modernc.org/sqlite"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -161,7 +161,7 @@ func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*Libra
 	}
 
 	dbPath := filepath.Join(fullLibPath, "index.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openLibraryDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize SQLite: %w", err)
 	}
@@ -213,7 +213,7 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	_ = os.MkdirAll(filepath.Join(libraryPath, "items"), 0755)
 
 	dbPath := filepath.Join(libraryPath, "index.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := openLibraryDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
@@ -548,12 +548,52 @@ func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgres
 			onProgress(i+1, total, filepath.Base(path))
 		}
 		item, err := m.importSingleFile(path)
-		if err == nil && item != nil {
+		if err != nil {
+			// Import failures used to be dropped on the floor, so a file that could
+			// not be imported looked like nothing happened at all.
+			LogDragTrace("import-failed", fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		if item != nil {
 			imported = append(imported, *item)
 		}
 	}
 
 	return imported, nil
+}
+
+// ensureItemDir creates the content-addressed item directory if needed.
+//
+// Imports of the same bytes share this directory (an OS file drop reaches the app
+// through both the webview drop handler and the native drop handler, and on
+// Windows they race), so a failed import deliberately leaves whatever is already
+// on disk untouched: deleting it would remove the payload of an item whose row is
+// already committed, which the UI can only ever show as a broken card.
+func ensureItemDir(dir string) error {
+	return os.MkdirAll(dir, 0o755)
+}
+
+// itemPayloadPresent reports whether an item's file is still on disk. Rows can
+// outlive their directory (an import that failed after another one committed the
+// same content), and re-importing the same bytes is what repairs them.
+func itemPayloadPresent(item *Item) bool {
+	if item == nil || item.ItemPath == "" || item.Filename == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(item.ItemPath, item.Filename))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// sqliteDSNOptions is appended to the database path when opening a library.
+//
+// busy_timeout makes contention wait instead of failing: the same content can be
+// imported through two drop paths at once (the webview drop handler and the native
+// drop handler), and a library can live on a synced or virtual drive where writes
+// take longer, so "database is locked" is a routine event rather than a bug.
+const sqliteDSNOptions = "?_pragma=busy_timeout(5000)"
+
+func openLibraryDB(dbPath string) (*sql.DB, error) {
+	return sql.Open("sqlite", dbPath+sqliteDSNOptions)
 }
 
 func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
@@ -579,19 +619,18 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	}
 
 	existing, err := m.GetItem(contentHex)
-	if err == nil && existing != nil {
+	if err == nil && existing != nil && itemPayloadPresent(existing) {
 		return existing, nil
 	}
 
 	itemID := contentHex
 	itemDir := filepath.Join(active.Path, "items", itemID)
-	if err := os.MkdirAll(itemDir, 0755); err != nil {
+	if err := ensureItemDir(itemDir); err != nil {
 		return nil, err
 	}
 
 	srcFile, err := os.Open(srcPath)
 	if err != nil {
-		_ = os.RemoveAll(itemDir)
 		return nil, err
 	}
 	defer srcFile.Close()
@@ -600,14 +639,12 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	destPath := filepath.Join(itemDir, originalFilename)
 	destFile, err := os.Create(destPath)
 	if err != nil {
-		_ = os.RemoveAll(itemDir)
 		return nil, err
 	}
 
 	size, err := io.Copy(destFile, srcFile)
 	_ = destFile.Close()
 	if err != nil {
-		_ = os.RemoveAll(itemDir)
 		return nil, err
 	}
 
@@ -659,12 +696,21 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	}
 	_, err = db.Exec(
 		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+			hex = excluded.hex,
+			name = excluded.name,
+			extension = excluded.extension,
+			filename = excluded.filename,
+			size = excluded.size,
+			mime_type = excluded.mime_type,
+			width = excluded.width,
+			height = excluded.height,
+			has_thumbnail = excluded.has_thumbnail`,
 		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
 		item.Width, item.Height, hasThumbInt, "", item.CreatedAt, item.ImportedAt,
 	)
 	if err != nil {
-		_ = os.RemoveAll(itemDir)
 		return nil, fmt.Errorf("failed to insert item into SQLite: %w", err)
 	}
 
@@ -696,13 +742,13 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 
 	contentHex := ComputeBytesSHA256(data)
 	existing, err := m.GetItem(contentHex)
-	if err == nil && existing != nil {
+	if err == nil && existing != nil && itemPayloadPresent(existing) {
 		return existing, nil
 	}
 
 	itemID := contentHex
 	itemDir := filepath.Join(active.Path, "items", itemID)
-	if err := os.MkdirAll(itemDir, 0755); err != nil {
+	if err := ensureItemDir(itemDir); err != nil {
 		return nil, err
 	}
 
@@ -713,7 +759,6 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 
 	destPath := filepath.Join(itemDir, cleanFilename)
 	if err := os.WriteFile(destPath, data, 0644); err != nil {
-		_ = os.RemoveAll(itemDir)
 		return nil, err
 	}
 
@@ -764,12 +809,21 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	}
 	_, err = db.Exec(
 		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+			hex = excluded.hex,
+			name = excluded.name,
+			extension = excluded.extension,
+			filename = excluded.filename,
+			size = excluded.size,
+			mime_type = excluded.mime_type,
+			width = excluded.width,
+			height = excluded.height,
+			has_thumbnail = excluded.has_thumbnail`,
 		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
 		item.Width, item.Height, hasThumbInt, "", item.CreatedAt, item.ImportedAt,
 	)
 	if err != nil {
-		_ = os.RemoveAll(itemDir)
 		return nil, err
 	}
 

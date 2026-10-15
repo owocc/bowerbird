@@ -7,6 +7,21 @@ import { useTranslation } from "react-i18next";
 
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
 
+/**
+ * Whether the native host receives OS file drops itself. The Wails runtime injects
+ * `window._wails.flags.enableFileDrop` from the `EnableFileDrop` window option; in
+ * a plain browser (dev preview) it is absent and the webview has to import drops
+ * itself.
+ */
+interface WailsFlagWindow extends Window {
+  _wails?: { flags?: { enableFileDrop?: boolean } };
+}
+
+function hostReceivesFileDrops(): boolean {
+  const host = window as WailsFlagWindow;
+  return host._wails?.flags?.enableFileDrop === true;
+}
+
 export interface DropState {
   status: DropStatus;
   total: number;
@@ -315,6 +330,14 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       }
       dragCounter.current = 0;
       setState((prev) => (prev.status === "dragging-over" ? { ...prev, status: "idle" } : prev));
+
+      // An OS file drop (a real drag out of Explorer / Finder) is delivered to the
+      // app twice: as this DOM drop and to the native drop handler in main.go,
+      // which imports by path. Importing here as well would push every dropped
+      // file through the base64 bridge as a second, racing import of the same
+      // content.
+      const droppedOsFiles = (e.dataTransfer.files?.length ?? 0) > 0;
+      if (droppedOsFiles && hostReceivesFileDrops()) return;
 
       // 1. Files dropped via browser DataTransfer
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
