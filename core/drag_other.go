@@ -1,6 +1,12 @@
-//go:build !darwin || ios
+//go:build !darwin && !windows || ios
 
 package core
+
+import (
+	"errors"
+	"fmt"
+	"runtime"
+)
 
 // Cross-platform Native File Drag & Drop Architecture Reference:
 //
@@ -12,19 +18,10 @@ package core
 //   - public.file-url (NSPasteboardTypeFileURL)
 //   - NSFilenamesPboardType (NSArray of absolute filesystem paths)
 //
-// [Windows (Future Adaptation Guide)]
-//   When adapting Wails v3 on Windows with Microsoft Edge WebView2:
-//   1. Problem:
-//      In WebView2, standard HTML5 dataTransfer only sets text/plain (CF_UNICODETEXT)
-//      and text/uri-list. When dropped into Windows File Explorer, Windows creates
-//      a scrap file or refuses drop; in Figma/Photoshop, it creates a text layer.
-//   2. Solution:
-//      Windows shell and OLE drag targets require CF_HDROP format in the IDataObject:
-//      - Structure: DROPFILES followed by a double-null-terminated list of UTF-16 wchar paths.
-//      - Drop effect: DROPEFFECT_COPY | DROPEFFECT_LINK.
-//      - Mechanism: Hook IDropSource / IDataObject or intercept the window drag via
-//        OleSetClipboard / DoDragDrop, or use WebView2's CoreWebView2CompositionController /
-//        ICoreWebView2_17 drag-and-drop APIs to inject CF_HDROP payloads.
+// [Windows]
+//   Implemented in drag_windows.go:
+//   The webview drag is cancelled and replaced by a real OLE drag
+//   (SHCreateDataObject + DoDragDrop) so the payload carries CF_HDROP.
 //
 // [Linux (Future Adaptation Guide)]
 //   When adapting WebKitGTK on Linux:
@@ -32,9 +29,15 @@ package core
 //   2. Format: "text/uri-list" with CRLF-separated "file:///path/to/file" URIs.
 //      Set GtkSelectionData with gdk_atom_intern_static_string("text/uri-list").
 
-// StartDrag starts a native drag session for the given asset item.
-func (m *LibraryManager) StartDrag(id string) error {
-	return nil
+// StartDragItems starts a native drag session for the given asset items.
+//
+// Only Windows needs a host-side drag (see drag_windows.go) and macOS gets its
+// files injected into the webview's own drag session (see drag_darwin.go), so on
+// the remaining platforms there is nothing to start: the frontend never calls
+// this there, and the trace records the call if it ever does.
+func (m *LibraryManager) StartDragItems(ids []string) error {
+	LogDragTrace("start-drag", fmt.Sprintf("platform=%s items=%d action=unsupported", runtime.GOOS, len(ids)))
+	return errors.New("native drag-out is not implemented on this platform")
 }
 
 // AugmentPasteboardForTesting exercises pasteboard file extraction logic for test harnesses.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -47,6 +48,12 @@ func main() {
 	// Initialize core library manager and service
 	coreMgr := core.NewLibraryManager()
 	coreService := core.NewService(coreMgr)
+
+	// Native drag/drop tracing. Production Windows builds link with
+	// `-H windowsgui`, so stdout is invisible there and drag-debug.log is the
+	// real sink; the path is also printed for `wails3 dev`.
+	tracePath := core.StartDragTraceSession(fmt.Sprintf("os=%s arch=%s", runtime.GOOS, runtime.GOARCH))
+	log.Printf("[DragTrace] drag trace file: %s", tracePath)
 
 	app := application.New(application.Options{
 		Name:        "bowerbird",
@@ -100,7 +107,7 @@ func main() {
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
 		files := event.Context().DroppedFiles()
 		details := event.Context().DropTargetDetails()
-		log.Printf("[NativeDrop] WindowFilesDropped received %d files: %v, details: %+v", len(files), files, details)
+		core.LogDragTrace("native-drop-received", fmt.Sprintf("files=%d paths=%v details=%+v", len(files), files, details))
 		if len(files) == 0 {
 			return
 		}
@@ -135,28 +142,30 @@ func main() {
 			}
 		}
 
+		core.LogDragTrace("native-drop-routing", fmt.Sprintf("target=%s folderID=%s internal=%d external=%d", targetType, targetFolderID, len(internalItemIDs), len(externalFiles)))
+
 		// 1. Handle internal item drag-and-drop (Move to folder)
 		if len(internalItemIDs) > 0 {
 			if targetType == "folder" && targetFolderID != "" {
 				for _, itID := range internalItemIDs {
 					_ = coreMgr.MoveItemToFolder(itID, "", targetFolderID)
 				}
-				log.Printf("[NativeDrop] successfully moved %d internal items to folder %s", len(internalItemIDs), targetFolderID)
+				core.LogDragTrace("native-drop", fmt.Sprintf("successfully moved %d internal items to folder %s", len(internalItemIDs), targetFolderID))
 				app.Event.Emit("library-items-updated", len(internalItemIDs))
 			} else if targetType == "trash" {
 				for _, itID := range internalItemIDs {
 					_ = coreMgr.MoveToTrash(itID)
 				}
-				log.Printf("[NativeDrop] successfully moved %d internal items to trash", len(internalItemIDs))
+				core.LogDragTrace("native-drop", fmt.Sprintf("successfully moved %d internal items to trash", len(internalItemIDs)))
 				app.Event.Emit("library-items-updated", len(internalItemIDs))
 			} else if targetType == "all" {
 				for _, itID := range internalItemIDs {
 					_ = coreMgr.MoveItemToFolder(itID, "", "")
 				}
-				log.Printf("[NativeDrop] successfully unlinked %d internal items to all", len(internalItemIDs))
+				core.LogDragTrace("native-drop", fmt.Sprintf("successfully unlinked %d internal items to all", len(internalItemIDs)))
 				app.Event.Emit("library-items-updated", len(internalItemIDs))
 			} else {
-				log.Printf("[NativeDrop] internal items dropped on non-folder target (%s), ignored", targetType)
+				core.LogDragTrace("native-drop", fmt.Sprintf("internal items dropped on non-folder target (%s), ignored", targetType))
 			}
 			return
 		}
@@ -177,7 +186,7 @@ func main() {
 			}
 
 			if len(folderPaths) == 0 {
-				log.Printf("[NativeDrop] sidebar drop rejected: no folders in dropped files")
+				core.LogDragTrace("native-drop", fmt.Sprintf("sidebar drop rejected: no folders in dropped files"))
 				app.Event.Emit("import-error", "The sidebar only accepts dropped folders")
 				return
 			}
@@ -189,10 +198,10 @@ func main() {
 			go func() {
 				created, err := coreMgr.ImportFoldersRecursively(folderPaths, targetFolderID)
 				if err != nil {
-					log.Printf("[NativeDrop] error importing folders recursively: %v", err)
+					core.LogDragTrace("native-drop", fmt.Sprintf("error importing folders recursively: %v", err))
 					app.Event.Emit("import-error", err.Error())
 				} else {
-					log.Printf("[NativeDrop] successfully imported %d folders recursively", len(created))
+					core.LogDragTrace("native-drop", fmt.Sprintf("successfully imported %d folders recursively", len(created)))
 					app.Event.Emit("import-completed", map[string]any{
 						"count": len(created),
 					})
@@ -217,10 +226,10 @@ func main() {
 			})
 
 			if err != nil {
-				log.Printf("[NativeDrop] error importing files: %v", err)
+				core.LogDragTrace("native-drop", fmt.Sprintf("error importing files: %v", err))
 				app.Event.Emit("import-error", err.Error())
 			} else {
-				log.Printf("[NativeDrop] successfully imported %d files", len(imported))
+				core.LogDragTrace("native-drop", fmt.Sprintf("successfully imported %d files", len(imported)))
 				var ids []string
 				for _, it := range imported {
 					ids = append(ids, it.ID)

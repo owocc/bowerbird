@@ -366,6 +366,7 @@ static int testPasteboardAugmentation(const char **paths, int count, char ***out
 import "C"
 import (
 	"errors"
+	"fmt"
 	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -373,6 +374,25 @@ import (
 
 func init() {
 	C.installNativeDragHook()
+}
+
+// StartDragItems starts a native drag session for the given asset items.
+//
+// macOS drags normally never reach this call: the WKWebView drag session
+// carries the whole selection and installNativeDragHook rewrites its pasteboard
+// into native file objects, multi-selection included. The single-item native
+// drag below stays available for callers that need to start a drag without a
+// webview gesture.
+func (m *LibraryManager) StartDragItems(ids []string) error {
+	switch len(ids) {
+	case 0:
+		return errors.New("no items to drag")
+	case 1:
+		return m.StartDrag(ids[0])
+	default:
+		LogDragTrace("start-drag", fmt.Sprintf("platform=darwin items=%d action=unsupported-without-webview-gesture", len(ids)))
+		return errors.New("starting a multi-item native drag without a webview gesture is not supported on macOS")
+	}
 }
 
 func (m *LibraryManager) StartDrag(id string) error {
@@ -392,6 +412,7 @@ func (m *LibraryManager) StartDrag(id string) error {
 	}
 
 	filePath := item.FilePath
+	LogDragTrace("start-drag", fmt.Sprintf("id=%s platform=darwin path=%s", id, filePath))
 
 	var success bool
 	application.InvokeSync(func() {

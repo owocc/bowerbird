@@ -139,11 +139,19 @@ func (s *Service) RevealInFinder(id string) error {
 	return s.mgr.RevealInFinder(id)
 }
 
-func (s *Service) StartDrag(id string) error {
+func (s *Service) StartDragItems(ids []string) error {
 	if s.mgr == nil {
 		return errors.New("core manager not initialized")
 	}
-	return s.mgr.StartDrag(id)
+	return s.mgr.StartDragItems(ids)
+}
+
+// LogDragTrace forwards a frontend drag/drop trace event into the native drag
+// trace file. It is deliberately free of side effects so the frontend can fire
+// it on every dragstart/dragend/drop without branching.
+func (s *Service) LogDragTrace(phase string, detail string) error {
+	LogDragTrace(phase, detail)
+	return nil
 }
 
 func (s *Service) GetAssetServerPort() int {

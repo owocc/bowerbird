@@ -49,6 +49,49 @@ Take a moment to familiarize yourself with your project structure:
 - `app.go`: Define your application structure and methods here
 - `wails.json`: Configuration file for your Wails project
 
+## Native drag & drop out of the window
+
+Dragging an asset to another application is platform specific, because an HTML5
+drag from the webview only publishes text formats (`text/plain`,
+`text/uri-list`). Targets that expect real files - Explorer, terminals, Figma,
+Photoshop - therefore see a text/URL drop, which is why a browser navigates to
+the `file://` URI and reports `about:blank#blocked`.
+
+- **Windows** (`core/drag_windows.go`): `frontend/src/lib/drag-out.ts` cancels the
+  webview drag and calls `Service.StartDragItems` with the dragged item ids. The
+  Go side builds a shell data object from the item files
+  (`SHCreateDataObject` → `CF_HDROP`, `FileGroupDescriptorW`, `FileContents`)
+  and runs `DoDragDrop` with a minimal `IDropSource`, so the OS sees the same
+  payload Explorer publishes. Only `DROPEFFECT_COPY` is offered, so no drop can
+  move or delete a library file. As a consequence Windows drags are also
+  resolved by the native drop path (`WindowFilesDropped` in `main.go`), the same
+  one macOS has always used - in-app drops included.
+- **macOS** (`core/drag_darwin.go`): the webview drag session is left alone and
+  its pasteboard is rewritten into `public.file-url` / `NSFilenamesPboardType`.
+- **Linux**: not implemented; the webview's `text/uri-list` drag is what it is.
+
+## Drag & drop tracing
+
+A broken drop target cannot be reproduced from the UI alone, so every step of
+the pipeline is traced:
+
+- `frontend/src/lib/drag-trace.ts` — document-level listeners that dump the exact
+  payload offered at `dragstart` (formats, file paths, URIs), inbound
+  `dragenter`/`drop` payloads, and the `dropEffect` reported at `dragend`
+  (`none` means nothing accepted the drop).
+- `core/drag_debug.go` — trace sink, `core.LogDragTrace` plus the
+  `Service.LogDragTrace` RPC the frontend forwards to.
+- `main.go` — native drops delivered by Wails (`WindowFilesDropped`) and the
+  import/move branch each drop takes.
+- `core/drag_windows.go` — `start-drag` (paths handed to OLE) and
+  `drag-out-finished` (`effect=0x1` copy, `0x0` means no target accepted).
+
+Lines are appended to `drag-debug.log` in the app data directory
+(`%APPDATA%\bowerbird\drag-debug.log` on Windows,
+`~/Library/Application Support/bowerbird/drag-debug.log` on macOS), which is the
+only sink visible in production Windows builds (`-H windowsgui` hides stdout).
+The path is also printed at startup and shown live in `wails3 dev`.
+
 ## Next Steps
 
 1. Modify the frontend in the `frontend/` directory to create your desired UI.

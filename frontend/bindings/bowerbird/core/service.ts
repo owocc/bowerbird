@@ -150,6 +150,15 @@ export function InvokeAppMenu(action: string): $CancellablePromise<void> {
     return $Call.ByID(2638737248, action);
 }
 
+/**
+ * LogDragTrace forwards a frontend drag/drop trace event into the native drag
+ * trace file. It is deliberately free of side effects so the frontend can fire
+ * it on every dragstart/dragend/drop without branching.
+ */
+export function LogDragTrace(phase: string, detail: string): $CancellablePromise<void> {
+    return $Call.ByID(2796952273, phase, detail);
+}
+
 export function MoveItemToFolder(itemID: string, fromFolderID: string, toFolderID: string): $CancellablePromise<void> {
     return $Call.ByID(711622371, itemID, fromFolderID, toFolderID);
 }
@@ -238,8 +247,8 @@ export function SetTheme(theme: string): $CancellablePromise<void> {
     return $Call.ByID(3451483265, theme);
 }
 
-export function StartDrag(id: string): $CancellablePromise<void> {
-    return $Call.ByID(1926602914, id);
+export function StartDragItems(ids: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4164627166, ids);
 }
 
 export function ToggleFavorite(itemID: string): $CancellablePromise<boolean> {

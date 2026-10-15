@@ -5,9 +5,15 @@
 // @ts-ignore: Unused imports
 import type { Events } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as core$0 from "../../../../../bowerbird/core/models.js";
+
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "library-closed": string;
+            "library-opened": core$0.LibraryInfo | null;
             "theme-changed": string;
             "time": string;
         }
