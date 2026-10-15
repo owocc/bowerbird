@@ -206,6 +206,198 @@ func releaseComPointer(object unsafe.Pointer) {
 	(*w32.IUnknown)(object).Vtbl.CallRelease(object)
 }
 
+// Drag image bitmaps and the color key.
+//
+// SHDRAGIMAGE.crColorKey is "the color used by the control to fill the background
+// of the drag image" (and, consequently, the color treated as transparent): a
+// zero value means *black* is keyed out, which punches holes in any asset that
+// contains pure black. The shell's bitmaps do carry an alpha channel, but the key
+// applies on top of it, so the ghost is rebuilt as
+//
+//   - a 32-bit top-down DIB with an explicit alpha mask, and
+//   - a color key that no visible pixel uses,
+//
+// with fully transparent pixels filled with that key. A renderer that honours
+// alpha and one that only understands the color key then both show the asset
+// correctly.
+const (
+	biBitFields          = 3
+	lcsWindowsColorSpace = 0x73524742 // 'sRGB'
+	lcsGmImages          = 4
+	colorKeySpace        = 1 << 24 // COLORREF is 24-bit BGR
+)
+
+var procGetDIBits = syscall.NewLazyDLL("gdi32.dll").NewProc("GetDIBits")
+
+type cieXYZ struct {
+	X, Y, Z int32
+}
+
+// bitmapV5Header mirrors BITMAPV5HEADER (124 bytes). It is what declares an
+// alpha channel to GDI: a plain BITMAPINFOHEADER with BI_RGB does not.
+type bitmapV5Header struct {
+	Size          uint32
+	Width         int32
+	Height        int32
+	Planes        uint16
+	BitCount      uint16
+	Compression   uint32
+	SizeImage     uint32
+	XPelsPerMeter int32
+	YPelsPerMeter int32
+	ClrUsed       uint32
+	ClrImportant  uint32
+	RedMask       uint32
+	GreenMask     uint32
+	BlueMask      uint32
+	AlphaMask     uint32
+	CSType        uint32
+	Endpoints     [3]cieXYZ
+	GammaRed      uint32
+	GammaGreen    uint32
+	GammaBlue     uint32
+	Intent        uint32
+	ProfileData   uint32
+	ProfileSize   uint32
+	Reserved      uint32
+}
+
+// readBitmapPixels reads any bitmap back as 32-bit top-down BGRA.
+func readBitmapPixels(bitmap w32.HBITMAP, size w32.SIZE) ([]byte, error) {
+	pixels := make([]byte, int(size.CX)*int(size.CY)*4)
+
+	header := w32.BITMAPINFOHEADER{
+		BiSize:        uint32(unsafe.Sizeof(w32.BITMAPINFOHEADER{})),
+		BiWidth:       size.CX,
+		BiHeight:      -size.CY, // top-down
+		BiPlanes:      1,
+		BiBitCount:    32,
+		BiCompression: w32.BI_RGB,
+	}
+	bmi := w32.BITMAPINFO{BmiHeader: header}
+
+	hdc := w32.GetDC(0)
+	lines, _, _ := procGetDIBits.Call(
+		uintptr(hdc),
+		uintptr(bitmap),
+		0,
+		uintptr(size.CY),
+		uintptr(unsafe.Pointer(&pixels[0])),
+		uintptr(unsafe.Pointer(&bmi)),
+		w32.DIB_RGB_COLORS,
+	)
+	w32.ReleaseDC(0, hdc)
+
+	if int(lines) != int(size.CY) {
+		return nil, fmt.Errorf("GetDIBits returned %d of %d lines", lines, size.CY)
+	}
+	return pixels, nil
+}
+
+// spareColorKey returns a COLORREF no pixel with visible alpha uses, so keying it
+// away cannot hide anything. It starts from black, which keeps the ghost looking
+// the same for assets that do not contain it.
+func spareColorKey(pixels []byte) uint32 {
+	used := make([]uint64, colorKeySpace/64)
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i+3] == 0 {
+			continue
+		}
+		color := uint32(pixels[i]) | uint32(pixels[i+1])<<8 | uint32(pixels[i+2])<<16
+		used[color>>6] |= 1 << (color & 63)
+	}
+
+	for wordIndex, word := range used {
+		if word == ^uint64(0) {
+			continue
+		}
+		for bitIndex := range 64 {
+			if word&(1<<uint(bitIndex)) == 0 {
+				return uint32(wordIndex*64 + bitIndex)
+			}
+		}
+	}
+	return 0
+}
+
+// buildAlphaDIB copies BGRA pixels into a 32-bit top-down DIB section whose bitmap
+// info declares the alpha channel.
+func buildAlphaDIB(size w32.SIZE, pixels []byte) (w32.HBITMAP, error) {
+	header := bitmapV5Header{
+		Size:        uint32(unsafe.Sizeof(bitmapV5Header{})),
+		Width:       size.CX,
+		Height:      -size.CY, // top-down
+		Planes:      1,
+		BitCount:    32,
+		Compression: biBitFields,
+		RedMask:     0x00FF0000,
+		GreenMask:   0x0000FF00,
+		BlueMask:    0x000000FF,
+		AlphaMask:   0xFF000000,
+		CSType:      lcsWindowsColorSpace,
+		Intent:      lcsGmImages,
+		SizeImage:   uint32(len(pixels)),
+	}
+
+	var bits unsafe.Pointer
+	bitmap := w32.CreateDIBSection(
+		0,
+		(*w32.BITMAPINFO)(unsafe.Pointer(&header)),
+		w32.DIB_RGB_COLORS,
+		&bits,
+		0,
+		0,
+	)
+	if bitmap == 0 || bits == nil {
+		return 0, errors.New("CreateDIBSection failed")
+	}
+	copy(unsafe.Slice((*byte)(bits), len(pixels)), pixels)
+	return bitmap, nil
+}
+
+// normalizeDragImage turns the shell's bitmap into a drag image that survives both
+// alpha-aware and color-key-only rendering, and reports the color key in use.
+func normalizeDragImage(bitmap w32.HBITMAP, size w32.SIZE) (w32.HBITMAP, uint32, error) {
+	pixels, err := readBitmapPixels(bitmap, size)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// A bitmap whose alpha is zero everywhere would render as nothing; treat it as
+	// an opaque image instead (also the case for DDBs, which have no alpha).
+	hasAlpha := false
+	for i := 3; i < len(pixels); i += 4 {
+		if pixels[i] != 0 {
+			hasAlpha = true
+			break
+		}
+	}
+	if !hasAlpha {
+		for i := 3; i < len(pixels); i += 4 {
+			pixels[i] = 0xFF
+		}
+	}
+
+	key := spareColorKey(pixels)
+	// Transparent pixels carry the key color so a renderer that only understands
+	// the color key hides them as well; where alpha is honoured the channel already
+	// decides.
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i+3] != 0 {
+			continue
+		}
+		pixels[i] = byte(key)
+		pixels[i+1] = byte(key >> 8)
+		pixels[i+2] = byte(key >> 16)
+	}
+
+	normalized, err := buildAlphaDIB(size, pixels)
+	if err != nil {
+		return 0, 0, err
+	}
+	return normalized, key, nil
+}
+
 // dragImageBitmap asks the shell for the bitmap it would draw for path, bounded
 // by maxDragImageWidth x maxDragImageHeight and keeping the content's own aspect
 // ratio, and returns a drag image whose pointer offset matches the bitmap it
@@ -275,7 +467,17 @@ func dragImageBitmap(path string, request DragRequest) (shDragImage, error) {
 	image.PtOffset.X = min(max(image.PtOffset.X, 0), image.SizeDragImage.CX-1)
 	image.PtOffset.Y = min(max(image.PtOffset.Y, 0), image.SizeDragImage.CY-1)
 
-	image.HBmp = w32.HBITMAP(bitmap)
+	// The shell's bitmap becomes our own alpha DIB with a safe color key, so the
+	// zero-valued key (black) cannot punch holes in the ghost.
+	normalized, key, err := normalizeDragImage(w32.HBITMAP(bitmap), image.SizeDragImage)
+	if err != nil {
+		LogDragTrace("start-drag", fmt.Sprintf("drag image color key not normalized: %v", err))
+		image.HBmp = w32.HBITMAP(bitmap)
+		return image, nil
+	}
+	w32.DeleteObject(w32.HGDIOBJ(bitmap))
+	image.HBmp = normalized
+	image.CrColorKey = key
 	return image, nil
 }
 
@@ -413,6 +615,7 @@ func runWindowsFileDrag(hwnd unsafe.Pointer, paths []string, request DragRequest
 	// Without a drag image OLE only moves the cursor, which reads as "nothing is
 	// being dragged"; the bitmap has to stay alive until the loop returns.
 	if image, err := dragImageBitmap(paths[0], request); err == nil {
+		LogDragTrace("drag-image", fmt.Sprintf("%dx%d key=0x%06x", image.SizeDragImage.CX, image.SizeDragImage.CY, image.CrColorKey))
 		if attachErr := attachDragImage(dataObject, image); attachErr != nil {
 			LogDragTrace("start-drag", fmt.Sprintf("drag image rejected: %v", attachErr))
 			w32.DeleteObject(w32.HGDIOBJ(image.HBmp))

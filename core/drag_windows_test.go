@@ -107,6 +107,31 @@ func writeTestPNG(t *testing.T, dir, name string, width, height int) string {
 	return path
 }
 
+// writeSolidPNG writes a plain width x height PNG of a single colour.
+func writeSolidPNG(t *testing.T, dir, name string, width, height int, fill color.RGBA) string {
+	t.Helper()
+
+	source := image.NewRGBA(image.Rect(0, 0, width, height))
+	for x := range width {
+		for y := range height {
+			source.Set(x, y, fill)
+		}
+	}
+	path := filepath.Join(dir, name)
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create %s: %v", path, err)
+	}
+	if err := png.Encode(file, source); err != nil {
+		file.Close()
+		t.Fatalf("failed to encode %s: %v", path, err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("failed to close %s: %v", path, err)
+	}
+	return path
+}
+
 // bitmapSize reads back the dimensions of a drag image bitmap.
 func bitmapSize(t *testing.T, image shDragImage) w32.BITMAP {
 	t.Helper()
@@ -274,6 +299,96 @@ func TestDragImageKeepsTheSourceAspectRatio(t *testing.T) {
 					image.PtOffset.X, image.PtOffset.Y, wantX, wantY)
 			}
 		})
+	}
+}
+
+// colorOf extracts the COLORREF (24-bit BGR) a pixel's bytes describe.
+func colorOf(pixels []byte, index int) uint32 {
+	return uint32(pixels[index]) | uint32(pixels[index+1])<<8 | uint32(pixels[index+2])<<16
+}
+
+// Regression: crColorKey is the colour the drag image control treats as
+// transparent, and a zero key means black - which cut holes into any asset
+// containing pure black.
+func TestDragImageColorKeyCannotHideContent(t *testing.T) {
+	initTestCom(t)
+	defer runtime.UnlockOSThread()
+
+	// A fully black asset: it is exactly what a black colour key destroys.
+	path := writeSolidPNG(t, t.TempDir(), "black.png", 64, 64, color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
+
+	image, err := dragImageBitmap(path, DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120})
+	if err != nil {
+		t.Fatalf("dragImageBitmap failed: %v", err)
+	}
+	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
+
+	pixels, err := readBitmapPixels(image.HBmp, image.SizeDragImage)
+	if err != nil {
+		t.Fatalf("readBitmapPixels failed: %v", err)
+	}
+
+	if image.CrColorKey == 0x000000 {
+		t.Error("colour key is black, so the asset's opaque black pixels would be keyed out")
+	}
+
+	opaqueBlack := 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i+3] == 0 {
+			continue
+		}
+		if colorOf(pixels, i) == 0x000000 {
+			opaqueBlack++
+		}
+	}
+	if opaqueBlack == 0 {
+		t.Fatal("no opaque black pixel survived the drag image, want the asset untouched")
+	}
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i+3] == 0 {
+			continue
+		}
+		if colorOf(pixels, i) == image.CrColorKey {
+			t.Fatalf("visible pixel %d uses the colour key 0x%06x and would be keyed out", i/4, image.CrColorKey)
+		}
+	}
+}
+
+// Transparent pixels carry the colour key, so a renderer that only understands
+// the key (rather than the alpha channel) still shows them as transparent.
+func TestDragImageFillsTransparentPixelsWithTheKey(t *testing.T) {
+	initTestCom(t)
+	defer runtime.UnlockOSThread()
+
+	// A file-type icon has a transparent background.
+	paths := writeTestFiles(t, t.TempDir(), "asset.txt")
+	image, err := dragImageBitmap(paths[0], DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120})
+	if err != nil {
+		t.Fatalf("dragImageBitmap failed: %v", err)
+	}
+	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
+
+	pixels, err := readBitmapPixels(image.HBmp, image.SizeDragImage)
+	if err != nil {
+		t.Fatalf("readBitmapPixels failed: %v", err)
+	}
+
+	transparent, keyed := 0, 0
+	for i := 0; i < len(pixels); i += 4 {
+		if pixels[i+3] != 0 {
+			continue
+		}
+		transparent++
+		if colorOf(pixels, i) == image.CrColorKey {
+			keyed++
+		}
+	}
+	if transparent == 0 {
+		t.Fatal("the icon has no transparent pixel, the fixture no longer tests the fallback")
+	}
+	if keyed != transparent {
+		t.Errorf("%d of %d transparent pixels do not carry the colour key 0x%06x",
+			transparent-keyed, transparent, image.CrColorKey)
 	}
 }
 
