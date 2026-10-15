@@ -64,7 +64,11 @@ the `file://` URI and reports `about:blank#blocked`.
   `FileGroupDescriptorW`, `FileContents`), hands OLE the shell's own thumbnail
   (or file-type icon) as the drag image via `IDragSourceHelper` - so the ghost
   follows the cursor like the webview's native drag would - and runs
-  `DoDragDrop` with a minimal `IDropSource`. Only `DROPEFFECT_COPY` is offered, so
+  `DoDragDrop` with a minimal `IDropSource`. The ghost's bitmap is rebuilt as a
+  32-bit DIB with an explicit alpha mask and a color key that no visible pixel
+  uses: `SHDRAGIMAGE.crColorKey` is the color the control treats as the ghost's
+  background, and a zero value means *black*, which used to cut black assets out.
+  Only `DROPEFFECT_COPY` is offered, so
   no drop can move or delete a library file.
 - Because the native drag re-enters the window as an *external* file drag
   (CF_HDROP), the webview has to be told that the gesture is ours for its whole
