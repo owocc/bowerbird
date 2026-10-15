@@ -25,7 +25,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/tursodatabase/go-libsql"
+	_ "modernc.org/sqlite"
 	_ "golang.org/x/image/bmp"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
@@ -41,7 +41,7 @@ import (
 // frontend renders a localised label instead of this value.
 const FavoriteTagName = "收藏"
 
-// LibraryManager coordinates library lifecycle, storage, libSQL indexing, and user data.
+// LibraryManager coordinates library lifecycle, storage, SQLite indexing, and user data.
 type LibraryManager struct {
 	mu          sync.RWMutex
 	app         *application.App
@@ -119,7 +119,7 @@ func (m *LibraryManager) GetAssetServerPort() int {
 	return 0
 }
 
-// CreateLibrary creates a new xxx.library container, initializes libSQL, and remembers it in user data.
+// CreateLibrary creates a new xxx.library container, initializes SQLite, and remembers it in user data.
 func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*LibraryInfo, error) {
 	if strings.TrimSpace(parentDir) == "" {
 		return nil, errors.New("parent directory is required")
@@ -161,9 +161,9 @@ func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*Libra
 	}
 
 	dbPath := filepath.Join(fullLibPath, "index.db")
-	db, err := sql.Open("libsql", "file:"+dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize libSQL: %w", err)
+		return nil, fmt.Errorf("failed to initialize SQLite: %w", err)
 	}
 
 	if err := m.initSchema(db); err != nil {
@@ -213,9 +213,9 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	_ = os.MkdirAll(filepath.Join(libraryPath, "items"), 0755)
 
 	dbPath := filepath.Join(libraryPath, "index.db")
-	db, err := sql.Open("libsql", "file:"+dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open libSQL database: %w", err)
+		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
 	if err := m.initSchema(db); err != nil {
@@ -342,7 +342,7 @@ func (m *LibraryManager) initSchema(db *sql.DB) error {
 	return nil
 }
 
-// GetItems queries items from the libSQL database.
+// GetItems queries items from the SQLite database.
 func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error) {
 	m.mu.RLock()
 	db := m.db
@@ -665,7 +665,7 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	)
 	if err != nil {
 		_ = os.RemoveAll(itemDir)
-		return nil, fmt.Errorf("failed to insert item into libSQL: %w", err)
+		return nil, fmt.Errorf("failed to insert item into SQLite: %w", err)
 	}
 
 	return &item, nil
@@ -901,7 +901,7 @@ func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string,
 	return origW, origH, true
 }
 
-// DeleteItem removes the item folder from disk and its row from libSQL.
+// DeleteItem removes the item folder from disk and its row from SQLite.
 func (m *LibraryManager) DeleteItem(id string) error {
 	m.mu.RLock()
 	active := m.activeLib

@@ -132,7 +132,7 @@ export interface LibraryInfo {
 }
 
 /**
- * LibraryManager coordinates library lifecycle, storage, libSQL indexing, and user data.
+ * LibraryManager coordinates library lifecycle, storage, SQLite indexing, and user data.
  */
 export interface LibraryManager {
 }

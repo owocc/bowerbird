@@ -172,7 +172,7 @@
     "title": "Settings"
   },
   "setup": {
-    "badge": "Local isolated asset library · libSQL index storage",
+    "badge": "Local isolated asset library · SQLite index storage",
     "create": {
       "chooseLocation": "Choose location",
       "creating": "Initializing…",
