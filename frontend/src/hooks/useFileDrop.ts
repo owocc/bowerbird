@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events } from "@wailsio/runtime";
 import { ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
+import { isInternalDragActive } from "../lib/drag-state";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -273,22 +274,11 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     [onRefresh, t]
   );
 
-  const isInternalDrag = (e: React.DragEvent): boolean => {
-    if ((window as any).__isInternalDragging === true) return true;
-    if (document.body.hasAttribute("data-internal-dragging")) return true;
-    if (!e.dataTransfer) return false;
-    const types = Array.from(e.dataTransfer.types || []);
-    return (
-      types.includes("application/x-bowerbird-internal-drag") ||
-      types.includes("application/x-bowerbird-item-id") ||
-      types.includes("application/x-bowerbird-item-ids")
-    );
-  };
 
   // Global HTML5 Drag event handlers
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    if (isInternalDrag(e)) return;
+    if (isInternalDragActive(e)) return;
     dragCounter.current += 1;
     const types = Array.from(e.dataTransfer?.types || []);
     const hasFiles = types.some((t) => t.toLowerCase() === "files" || t === "text/uri-list" || t === "public.file-url" || t === "nsfilenamespboardtype") || (e.dataTransfer?.files && e.dataTransfer.files.length > 0);
@@ -299,7 +289,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    if (isInternalDrag(e)) {
+    if (isInternalDragActive(e)) {
       e.dataTransfer.dropEffect = "none";
       return;
     }
@@ -308,7 +298,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
   }, []);
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    if (isInternalDrag(e)) return;
+    if (isInternalDragActive(e)) return;
     dragCounter.current -= 1;
     if (dragCounter.current <= 0) {
       dragCounter.current = 0;
@@ -319,7 +309,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault();
-      if (isInternalDrag(e)) {
+      if (isInternalDragActive(e)) {
         // Intra-app drag dropped on main window: ignore completely!
         return;
       }

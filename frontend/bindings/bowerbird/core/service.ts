@@ -247,8 +247,8 @@ export function SetTheme(theme: string): $CancellablePromise<void> {
     return $Call.ByID(3451483265, theme);
 }
 
-export function StartDragItems(ids: string[] | null): $CancellablePromise<void> {
-    return $Call.ByID(4164627166, ids);
+export function StartDragItems(request: $models.DragRequest): $CancellablePromise<void> {
+    return $Call.ByID(4164627166, request);
 }
 
 export function ToggleFavorite(itemID: string): $CancellablePromise<boolean> {

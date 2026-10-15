@@ -58,14 +58,21 @@ Photoshop - therefore see a text/URL drop, which is why a browser navigates to
 the `file://` URI and reports `about:blank#blocked`.
 
 - **Windows** (`core/drag_windows.go`): `frontend/src/lib/drag-out.ts` cancels the
-  webview drag and calls `Service.StartDragItems` with the dragged item ids. The
-  Go side builds a shell data object from the item files
-  (`SHCreateDataObject` → `CF_HDROP`, `FileGroupDescriptorW`, `FileContents`)
-  and runs `DoDragDrop` with a minimal `IDropSource`, so the OS sees the same
-  payload Explorer publishes. Only `DROPEFFECT_COPY` is offered, so no drop can
-  move or delete a library file. As a consequence Windows drags are also
-  resolved by the native drop path (`WindowFilesDropped` in `main.go`), the same
-  one macOS has always used - in-app drops included.
+  webview drag and calls `Service.StartDragItems` with the dragged item ids plus
+  the grabbed element's size and pointer offset. The Go side builds a shell data
+  object from the item files (`SHCreateDataObject` → `CF_HDROP`,
+  `FileGroupDescriptorW`, `FileContents`), hands OLE the shell's own thumbnail
+  (or file-type icon) as the drag image via `IDragSourceHelper` - so the ghost
+  follows the cursor like the webview's native drag would - and runs
+  `DoDragDrop` with a minimal `IDropSource`. Only `DROPEFFECT_COPY` is offered, so
+  no drop can move or delete a library file.
+- Because the native drag re-enters the window as an *external* file drag
+  (CF_HDROP), the webview has to be told that the gesture is ours for its whole
+  lifetime: `frontend/src/lib/drag-state.ts` holds that flag, and the import
+  affordances (sidebar root) and folder drop targets read it so an in-app drag is
+  never mistaken for an import.
+- On Windows an in-app drop is therefore resolved by the native drop path
+  (`WindowFilesDropped` in `main.go`), the same one macOS has always used.
 - **macOS** (`core/drag_darwin.go`): the webview drag session is left alone and
   its pasteboard is rewritten into `public.file-url` / `NSFilenamesPboardType`.
 - **Linux**: not implemented; the webview's `text/uri-list` drag is what it is.

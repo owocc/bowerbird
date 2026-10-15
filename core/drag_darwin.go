@@ -383,14 +383,14 @@ func init() {
 // into native file objects, multi-selection included. The single-item native
 // drag below stays available for callers that need to start a drag without a
 // webview gesture.
-func (m *LibraryManager) StartDragItems(ids []string) error {
-	switch len(ids) {
+func (m *LibraryManager) StartDragItems(request DragRequest) error {
+	switch len(request.IDs) {
 	case 0:
 		return errors.New("no items to drag")
 	case 1:
-		return m.StartDrag(ids[0])
+		return m.StartDrag(request.IDs[0])
 	default:
-		LogDragTrace("start-drag", fmt.Sprintf("platform=darwin items=%d action=unsupported-without-webview-gesture", len(ids)))
+		LogDragTrace("start-drag", fmt.Sprintf("platform=darwin items=%d action=unsupported-without-webview-gesture", len(request.IDs)))
 		return errors.New("starting a multi-item native drag without a webview gesture is not supported on macOS")
 	}
 }

@@ -56,21 +56,26 @@ var (
 	modShell32 = syscall.NewLazyDLL("shell32.dll")
 	modUser32  = syscall.NewLazyDLL("user32.dll")
 
-	procOleInitialize       = modOle32.NewProc("OleInitialize")
-	procDoDragDrop          = modOle32.NewProc("DoDragDrop")
-	procSHCreateDataObject  = modShell32.NewProc("SHCreateDataObject")
-	procILCreateFromPathW   = modShell32.NewProc("ILCreateFromPathW")
-	procILClone             = modShell32.NewProc("ILClone")
-	procILRemoveLastID      = modShell32.NewProc("ILRemoveLastID")
-	procILFindLastID        = modShell32.NewProc("ILFindLastID")
-	procILFree              = modShell32.NewProc("ILFree")
-	procGetAsyncKeyState    = modUser32.NewProc("GetAsyncKeyState")
+	procOleInitialize               = modOle32.NewProc("OleInitialize")
+	procDoDragDrop                  = modOle32.NewProc("DoDragDrop")
+	procCoCreateInstance            = modOle32.NewProc("CoCreateInstance")
+	procSHCreateDataObject          = modShell32.NewProc("SHCreateDataObject")
+	procSHCreateItemFromParsingName = modShell32.NewProc("SHCreateItemFromParsingName")
+	procILCreateFromPathW           = modShell32.NewProc("ILCreateFromPathW")
+	procILClone                     = modShell32.NewProc("ILClone")
+	procILRemoveLastID              = modShell32.NewProc("ILRemoveLastID")
+	procILFindLastID                = modShell32.NewProc("ILFindLastID")
+	procILFree                      = modShell32.NewProc("ILFree")
+	procGetAsyncKeyState            = modUser32.NewProc("GetAsyncKeyState")
 )
 
 var (
-	iidIUnknown   = syscall.GUID{Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	iidIDataObject = syscall.GUID{Data1: 0x0000010e, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
-	iidIDropSource = syscall.GUID{Data1: 0x00000121, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidIUnknown               = syscall.GUID{Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidIDataObject            = syscall.GUID{Data1: 0x0000010e, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidIDropSource            = syscall.GUID{Data1: 0x00000121, Data4: [8]byte{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+	iidIShellItemImageFactory = syscall.GUID{Data1: 0xbcc18b79, Data2: 0xba16, Data3: 0x442f, Data4: [8]byte{0x80, 0xc4, 0x8a, 0x59, 0xc3, 0x0c, 0x46, 0x3b}}
+	iidIDragSourceHelper      = syscall.GUID{Data1: 0xde5bf786, Data2: 0x477a, Data3: 0x11d2, Data4: [8]byte{0x83, 0x9d, 0x00, 0xc0, 0x4f, 0xd9, 0x18, 0xd0}}
+	clsidDragDropHelper       = syscall.GUID{Data1: 0x4657278a, Data2: 0x411b, Data3: 0x11d2, Data4: [8]byte{0x83, 0x9a, 0x00, 0xc0, 0x4f, 0xd9, 0x18, 0xd0}}
 )
 
 // dropSourceVtbl is the IDropSource vtable. The field order is the COM contract
@@ -140,6 +145,169 @@ func dropSourceQueryContinueDrag(this, escapePressed, keyState uintptr) uintptr 
 // Let OLE draw its own copy/link cursor rather than a custom one.
 func dropSourceGiveFeedback(this, effect uintptr) uintptr { return dragdropSUseDefaultCursors }
 
+// Drag image.
+//
+// The webview's own drag draws a ghost of the dragged element, which is exactly
+// what the HTML5 drag we cancel would have shown. To keep that feedback we ask
+// the shell for the image it would draw (thumbnail for images, file-type icon
+// otherwise) and hand it to IDragSourceHelper, so the bitmap follows the cursor.
+const (
+	siigbfResizeToFit  = 0x0
+	siigbfBiggerSizeOK = 0x01
+	// maxDragImageSide caps the ghost; a huge gallery card must not turn into a
+	// full-screen image.
+	maxDragImageSide = 384
+)
+
+// IShellItemImageFactory: three IUnknown slots, then GetImage.
+type shellItemImageFactoryVtbl struct {
+	queryInterface w32.ComProc
+	addRef         w32.ComProc
+	release        w32.ComProc
+	getImage       w32.ComProc
+}
+
+type shellItemImageFactory struct {
+	vtbl *shellItemImageFactoryVtbl
+}
+
+// IDragSourceHelper: three IUnknown slots, then InitializeFromBitmap and
+// InitializeFromWindow.
+type dragSourceHelperVtbl struct {
+	queryInterface       w32.ComProc
+	addRef               w32.ComProc
+	release              w32.ComProc
+	initializeFromBitmap w32.ComProc
+	initializeFromWindow w32.ComProc
+}
+
+type dragSourceHelper struct {
+	vtbl *dragSourceHelperVtbl
+}
+
+// shDragImage mirrors SHDRAGIMAGE: the bitmap OLE shows under the cursor, its
+// size, and where inside it the pointer sits.
+type shDragImage struct {
+	SizeDragImage w32.SIZE
+	PtOffset      w32.POINT
+	HBmp          w32.HBITMAP
+	CrColorKey    uint32
+}
+
+func releaseComPointer(object unsafe.Pointer) {
+	if object == nil {
+		return
+	}
+	(*w32.IUnknown)(object).Vtbl.CallRelease(object)
+}
+
+// dragImageBitmap asks the shell for the bitmap it would draw for path and
+// returns a drag image whose pointer offset matches the bitmap it actually got.
+//
+// The shell does not promise the size it hands back: a large image is scaled down
+// to fit the requested box, a small one comes back at its natural size, and a
+// file-type icon comes back as a square of the box' longest side. The offset is
+// therefore derived from the measured bitmap rather than from the request, so the
+// ghost stays under the pointer whatever the shell decided to return.
+func dragImageBitmap(path string, request DragRequest) (shDragImage, error) {
+	var image shDragImage
+
+	width, height := request.Width, request.Height
+	if width <= 0 || height <= 0 {
+		width, height = 96, 96
+	}
+	// Scale the request down into the cap first, then the grab point with it.
+	if longest := max(width, height); longest > maxDragImageSide {
+		scale := float64(maxDragImageSide) / float64(longest)
+		width = int(float64(width) * scale)
+		height = int(float64(height) * scale)
+	}
+	grabX, grabY := request.GrabX, request.GrabY
+	if request.Width > 0 && request.Height > 0 {
+		grabX = int(float64(request.GrabX) * float64(width) / float64(request.Width))
+		grabY = int(float64(request.GrabY) * float64(height) / float64(request.Height))
+	}
+
+	pathPtr, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return image, err
+	}
+
+	var factory unsafe.Pointer
+	hr, _, _ := procSHCreateItemFromParsingName.Call(
+		uintptr(unsafe.Pointer(pathPtr)),
+		0,
+		uintptr(unsafe.Pointer(&iidIShellItemImageFactory)),
+		uintptr(unsafe.Pointer(&factory)),
+	)
+	if int32(hr) < 0 || factory == nil {
+		return image, fmt.Errorf("SHCreateItemFromParsingName failed: 0x%08x", uint32(hr))
+	}
+	defer releaseComPointer(factory)
+
+	// SIZE is eight bytes, so the x64 ABI passes it in a single register rather
+	// than through a pointer.
+	packedSize := uintptr(uint32(int32(width))) | uintptr(uint32(int32(height)))<<32
+
+	var bitmap uintptr
+	hr, _, _ = (*shellItemImageFactory)(factory).vtbl.getImage.Call(
+		uintptr(factory),
+		packedSize,
+		siigbfResizeToFit|siigbfBiggerSizeOK,
+		uintptr(unsafe.Pointer(&bitmap)),
+	)
+	if int32(hr) < 0 || bitmap == 0 {
+		return image, fmt.Errorf("IShellItemImageFactory.GetImage failed: 0x%08x", uint32(hr))
+	}
+
+	var info w32.BITMAP
+	if w32.GetObject(w32.HGDIOBJ(bitmap), unsafe.Sizeof(info), unsafe.Pointer(&info)) == 0 || info.BmWidth <= 0 || info.BmHeight <= 0 {
+		w32.DeleteObject(w32.HGDIOBJ(bitmap))
+		return image, errors.New("shell returned a bitmap without size information")
+	}
+
+	image.SizeDragImage = w32.SIZE{CX: info.BmWidth, CY: info.BmHeight}
+	image.PtOffset = w32.POINT{
+		X: int32(float64(grabX) * float64(info.BmWidth) / float64(width)),
+		Y: int32(float64(grabY) * float64(info.BmHeight) / float64(height)),
+	}
+	if image.PtOffset.X >= image.SizeDragImage.CX {
+		image.PtOffset.X = image.SizeDragImage.CX - 1
+	}
+	if image.PtOffset.Y >= image.SizeDragImage.CY {
+		image.PtOffset.Y = image.SizeDragImage.CY - 1
+	}
+	image.HBmp = w32.HBITMAP(bitmap)
+	return image, nil
+}
+
+// attachDragImage stores the bitmap in the data object so OLE draws it during the
+// drag loop.
+func attachDragImage(dataObject unsafe.Pointer, image shDragImage) error {
+	var helper unsafe.Pointer
+	hr, _, _ := procCoCreateInstance.Call(
+		uintptr(unsafe.Pointer(&clsidDragDropHelper)),
+		0,
+		w32.CLSCTX_INPROC_SERVER,
+		uintptr(unsafe.Pointer(&iidIDragSourceHelper)),
+		uintptr(unsafe.Pointer(&helper)),
+	)
+	if int32(hr) < 0 || helper == nil {
+		return fmt.Errorf("CoCreateInstance(CLSID_DragDropHelper) failed: 0x%08x", uint32(hr))
+	}
+	defer releaseComPointer(helper)
+
+	hr, _, _ = (*dragSourceHelper)(helper).vtbl.initializeFromBitmap.Call(
+		uintptr(helper),
+		uintptr(unsafe.Pointer(&image)),
+		uintptr(dataObject),
+	)
+	if int32(hr) < 0 {
+		return fmt.Errorf("IDragSourceHelper.InitializeFromBitmap failed: 0x%08x", uint32(hr))
+	}
+	return nil
+}
+
 // shellDropPayload owns the shell item IDs (PIDLs) of the dragged files. They
 // have to stay alive until the drag loop returns, because the data object the
 // shell creates from them reads through them.
@@ -208,7 +376,7 @@ func (p *shellDropPayload) childArray() []uintptr {
 // runWindowsFileDrag publishes the paths as CF_HDROP and runs the OLE drag loop
 // until the user releases the button or cancels. It blocks, so it must run on
 // the thread that owns the window.
-func runWindowsFileDrag(hwnd unsafe.Pointer, paths []string) (uint32, error) {
+func runWindowsFileDrag(hwnd unsafe.Pointer, paths []string, request DragRequest) (uint32, error) {
 	// OLE has to be initialized on the thread running the drag loop. 0 = S_OK,
 	// 1 = S_FALSE (already initialized), anything else (notably 0x80010106
 	// RPC_E_CHANGED_MODE, i.e. the thread is MTA) is recorded and the drag is
@@ -244,6 +412,19 @@ func runWindowsFileDrag(hwnd unsafe.Pointer, paths []string) (uint32, error) {
 	object := (*w32.IDataObject)(dataObject)
 	defer object.Vtbl.CallRelease(dataObject)
 
+	// Without a drag image OLE only moves the cursor, which reads as "nothing is
+	// being dragged"; the bitmap has to stay alive until the loop returns.
+	if image, err := dragImageBitmap(paths[0], request); err == nil {
+		if attachErr := attachDragImage(dataObject, image); attachErr != nil {
+			LogDragTrace("start-drag", fmt.Sprintf("drag image rejected: %v", attachErr))
+			w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
+		} else {
+			defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
+		}
+	} else {
+		LogDragTrace("start-drag", fmt.Sprintf("no drag image for %s: %v", paths[0], err))
+	}
+
 	var effect uint32
 	hr, _, _ = procDoDragDrop.Call(
 		uintptr(dataObject),
@@ -260,8 +441,8 @@ func runWindowsFileDrag(hwnd unsafe.Pointer, paths []string) (uint32, error) {
 // StartDragItems starts a native OS drag for the given library items. It returns
 // once the drag has ended, since the OLE loop owns the mouse until then; callers
 // in the webview fire it without awaiting the result.
-func (m *LibraryManager) StartDragItems(ids []string) error {
-	if len(ids) == 0 {
+func (m *LibraryManager) StartDragItems(request DragRequest) error {
+	if len(request.IDs) == 0 {
 		return errors.New("no items to drag")
 	}
 
@@ -274,8 +455,8 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 		return errors.New("native window is nil")
 	}
 
-	paths := make([]string, 0, len(ids))
-	for _, id := range ids {
+	paths := make([]string, 0, len(request.IDs))
+	for _, id := range request.IDs {
 		item, err := m.GetItem(id)
 		if err != nil || item == nil {
 			LogDragTrace("start-drag", fmt.Sprintf("item %s not found, skipped", id))
@@ -298,14 +479,17 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 		return errors.New("drag gesture already ended")
 	}
 
-	LogDragTrace("start-drag", fmt.Sprintf("platform=windows items=%d paths=%v", len(paths), paths))
+	LogDragTrace("start-drag", fmt.Sprintf(
+		"platform=windows items=%d paths=%v grab=%dx%d at %d,%d",
+		len(paths), paths, request.Width, request.Height, request.GrabX, request.GrabY,
+	))
 
 	var (
 		effect uint32
 		err    error
 	)
 	application.InvokeSync(func() {
-		effect, err = runWindowsFileDrag(hwnd, paths)
+		effect, err = runWindowsFileDrag(hwnd, paths, request)
 	})
 	if err != nil {
 		LogDragTrace("drag-out-finished", fmt.Sprintf("error=%v", err))

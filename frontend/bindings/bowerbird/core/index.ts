@@ -8,6 +8,7 @@ export {
 
 export type {
     AppMenuItem,
+    DragRequest,
     Folder,
     Item,
     LibraryInfo,

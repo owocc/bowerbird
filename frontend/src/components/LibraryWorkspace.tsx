@@ -74,6 +74,7 @@ import type { Item, Folder, Tag, LibraryInfo } from "../../bindings/bowerbird/co
 import { HistoryNavButtons } from "@/components/HistoryNavButtons";
 import { getFileCategory } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
+import { setInternalDragActive } from "@/lib/drag-state";
 import {
   useWorkspaceSearch,
   TRASH_FOLDER_ID,
@@ -258,8 +259,7 @@ export function LibraryWorkspace({
   useEffect(() => {
     const cleanupActiveClasses = () => {
       setIsInternalDragging(false);
-      (window as any).__isInternalDragging = false;
-      document.body.removeAttribute("data-internal-dragging");
+      setInternalDragActive(false);
       document.querySelectorAll(".file-drop-target-active").forEach((el) => {
         el.classList.remove("file-drop-target-active");
       });
@@ -406,8 +406,7 @@ export function LibraryWorkspace({
   // Native OS & In-App Drag Start
   const handleDragStart = (e: React.DragEvent, item: Item) => {
     setIsInternalDragging(true);
-    (window as any).__isInternalDragging = true;
-    document.body.setAttribute("data-internal-dragging", "true");
+    setInternalDragActive(true);
     const isMulti = selectedItemIds.has(item.id) && selectedItemIds.size > 1;
     const targetItems = isMulti
       ? items.filter((i) => selectedItemIds.has(i.id))

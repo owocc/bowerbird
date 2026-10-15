@@ -25,6 +25,7 @@
  * (native file list), while the webview only offers text/uri-list + text/plain.
  */
 import { LogDragTrace } from "../../bindings/bowerbird/core/service";
+import { isInternalDragActive } from "./drag-state";
 import { isLinux, isWindows } from "./platform";
 import { isMacOS } from "./macos";
 
@@ -152,20 +153,6 @@ function describeDataTransfer(dt: DataTransfer | null): string {
   return clampLine(line);
 }
 
-/** Window flag set by the drag sources while an in-app drag is in flight. */
-interface DragFlagWindow extends Window {
-  __isInternalDragging?: boolean;
-}
-
-function isInternalDrag(dt: DataTransfer | null): boolean {
-  if (document.body.hasAttribute("data-internal-dragging")) return true;
-  // The flag is our own global, written by LibraryWorkspace's dragstart handler.
-  const dragWindow = window as DragFlagWindow;
-  if (dragWindow.__isInternalDragging === true) return true;
-  const types = Array.from(dt?.types ?? []);
-  return types.some((t) => t.startsWith("application/x-bowerbird"));
-}
-
 function handleDragStart(e: DragEvent): void {
   dragSeq += 1;
   currentDrag = `drag#${dragSeq}`;
@@ -173,7 +160,7 @@ function handleDragStart(e: DragEvent): void {
   inboundAnnounced = false;
   traceDrag(
     "dragstart",
-    `${currentDrag} internal=${isInternalDrag(e.dataTransfer)} target=${describeTarget(e.target)} ${describeDataTransfer(e.dataTransfer)}`
+    `${currentDrag} internal=${isInternalDragActive(e)} target=${describeTarget(e.target)} ${describeDataTransfer(e.dataTransfer)}`
   );
 }
 
@@ -184,7 +171,7 @@ function handleDragEnter(e: DragEvent): void {
   const types = Array.from(dt.types ?? []);
   // Only external (Explorer / Finder) inbound drags are interesting here; the
   // app's own drags are already traced at dragstart.
-  if (!types.includes("Files") || isInternalDrag(dt)) return;
+  if (!types.includes("Files") || isInternalDragActive(e)) return;
   inboundAnnounced = true;
   currentDrag = "inbound";
   traceDrag("dragenter-external", `${currentDrag} target=${describeTarget(e.target)} types=[${types.join(", ")}]`);
@@ -194,7 +181,7 @@ function handleDrop(e: DragEvent): void {
   droppedInsideApp = true;
   traceDrag(
     "drop-in-app",
-    `${currentDrag} internal=${isInternalDrag(e.dataTransfer)} target=${describeTarget(e.target)} ${describeDataTransfer(e.dataTransfer)}`
+    `${currentDrag} internal=${isInternalDragActive(e)} target=${describeTarget(e.target)} ${describeDataTransfer(e.dataTransfer)}`
   );
 }
 

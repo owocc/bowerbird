@@ -38,6 +38,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { AppMenuButton } from "@/components/AppMenuButton";
 import { Input } from "@/components/ui/input";
+import { isInternalDragActive } from "@/lib/drag-state";
 import { cn } from "@/lib/utils";
 import {
   Popover,
@@ -148,6 +149,10 @@ export function SidebarDirectoryTree({
   const handleSidebarRootDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // An in-app drag re-enters the window as a native file drag, but the sidebar
+    // root only imports folders from outside the app - never show the import
+    // affordance for our own items.
+    if (isInternalDragActive(e)) return;
     sidebarDragCounter.current += 1;
     setIsSidebarRootDragOver(true);
   };
@@ -155,6 +160,7 @@ export function SidebarDirectoryTree({
   const handleSidebarRootDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isInternalDragActive(e)) return;
     e.dataTransfer.dropEffect = "copy";
     if (!isSidebarRootDragOver) setIsSidebarRootDragOver(true);
   };
@@ -162,6 +168,7 @@ export function SidebarDirectoryTree({
   const handleSidebarRootDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (isInternalDragActive(e)) return;
     sidebarDragCounter.current -= 1;
     if (sidebarDragCounter.current <= 0) {
       sidebarDragCounter.current = 0;
@@ -174,6 +181,10 @@ export function SidebarDirectoryTree({
     e.stopPropagation();
     sidebarDragCounter.current = 0;
     setIsSidebarRootDragOver(false);
+
+    // An in-app drag is handled by the native drop path, which knows the target
+    // element; it is never an import.
+    if (isInternalDragActive(e)) return;
 
     // If intra-app item drag, ignore root drop
     const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");
@@ -970,6 +981,10 @@ function FolderTreeItemNode({
     e.stopPropagation();
     dragCounter.current = 0;
     setIsDragOver(false);
+
+    // An in-app drag is moved by the native drop path, which reads the drop
+    // target from the DOM; the DataTransfer carries no bowerbird payload here.
+    if (isInternalDragActive(e)) return;
 
     // 1. Intra-app asset drag: MOVE to folder (supports multi-selection)
     const itemIdsJson = e.dataTransfer.getData("application/x-bowerbird-item-ids");

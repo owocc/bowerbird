@@ -35,8 +35,8 @@ import (
 // files injected into the webview's own drag session (see drag_darwin.go), so on
 // the remaining platforms there is nothing to start: the frontend never calls
 // this there, and the trace records the call if it ever does.
-func (m *LibraryManager) StartDragItems(ids []string) error {
-	LogDragTrace("start-drag", fmt.Sprintf("platform=%s items=%d action=unsupported", runtime.GOOS, len(ids)))
+func (m *LibraryManager) StartDragItems(request DragRequest) error {
+	LogDragTrace("start-drag", fmt.Sprintf("platform=%s items=%d action=unsupported", runtime.GOOS, len(request.IDs)))
 	return errors.New("native drag-out is not implemented on this platform")
 }
 
