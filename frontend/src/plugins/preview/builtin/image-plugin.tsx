@@ -249,6 +249,14 @@ function ImageInspectorPreview({
 export const ImagePreviewPlugin: PreviewPlugin = {
   id: "builtin.image",
   name: "Image Viewer",
+  nameKey: "settings.plugins.items.image.name",
+  description:
+    "High-precision image viewer with damped trackpad pinch-to-zoom, 2D pan, interactive MiniMap, and borderless inspector preview.",
+  descriptionKey: "settings.plugins.items.image.description",
+  version: "1.0.0",
+  author: "Bowerbird",
+  builtin: true,
+  canDisable: false,
   priority: 100,
   extensions: IMAGE_EXTENSIONS,
   mimePrefixes: ["image/"],

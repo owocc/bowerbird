@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/accordion";
 import {
   previewRegistry,
+  usePreviewPlugins,
   createPreviewPluginHostAPI,
 } from "@/plugins/preview/registry";
 import type {
@@ -78,6 +79,7 @@ export function ItemDetailPanel({
   onItemUpdated,
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
+  usePreviewPlugins();
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);

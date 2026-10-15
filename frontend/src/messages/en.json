@@ -227,6 +227,33 @@
       "lightDescription": "Always use the light theme",
       "title": "Colour mode"
     },
+    "nav": {
+      "general": "General",
+      "plugins": "Plugins"
+    },
+    "plugins": {
+      "alwaysEnabled": "Built-in · Active",
+      "builtinBadge": "Built-in",
+      "cannotDisableHint": "Built-in core plugins cannot be disabled",
+      "description": "View installed preview plugins. Built-in image and video plugins are always active and cannot be disabled.",
+      "disabled": "Disabled",
+      "enabled": "Enabled",
+      "installedCount_one": "{{count}} installed",
+      "installedCount_other": "{{count}} installed",
+      "items": {
+        "image": {
+          "description": "High-precision image viewer with damped trackpad pinch-to-zoom, 2D pan, interactive MiniMap, and borderless inspector preview.",
+          "name": "Image Viewer"
+        },
+        "video": {
+          "description": "Multi-engine video player (HLS, MPEG-TS/FLV, DASH & HTML5 Native) with frame-accurate controls and automatic cover color extraction.",
+          "name": "Video Player"
+        }
+      },
+      "supportedFormats": "Supported formats",
+      "supportsZoom": "Zoom & Pan",
+      "title": "Installed plugins"
+    },
     "subtitle": "Application preferences",
     "title": "Settings"
   },

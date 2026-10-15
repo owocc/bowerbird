@@ -1072,7 +1072,7 @@ function VideoCoverInspectorPreview({
 
 /**
  * Matches video files while ensuring TypeScript source files (.ts with text/* MIME)
- * are delegated to DocumentPreviewPlugin instead of VideoPreviewPlugin.
+ * are not mistakenly treated as MPEG-TS video streams.
  */
 function matchVideoItem(item: Item): boolean {
   const ext = (item.extension || "").toLowerCase();
@@ -1097,7 +1097,15 @@ function matchVideoItem(item: Item): boolean {
 
 export const VideoPreviewPlugin: PreviewPlugin = {
   id: "builtin.video",
-  name: "Universal Video Player (HLS + MPEG-TS/FLV + DASH + Native)",
+  name: "Video Player",
+  nameKey: "settings.plugins.items.video.name",
+  description:
+    "Multi-engine video player (HLS, MPEG-TS/FLV, DASH & HTML5 Native) with frame-accurate controls and automatic cover color extraction.",
+  descriptionKey: "settings.plugins.items.video.description",
+  version: "1.0.0",
+  author: "Bowerbird",
+  builtin: true,
+  canDisable: false,
   priority: 90,
   extensions: VIDEO_EXTENSIONS,
   mimePrefixes: [

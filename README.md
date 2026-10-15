@@ -12,7 +12,8 @@ Bowerbird is a cross-platform desktop digital asset manager built with **Wails v
 2. **Automatic Color Palette & Extended Metadata Extraction**
    - On import (and automatically in the background for existing libraries), Bowerbird extracts the **dominant color**, a **6-color perceptual palette**, color model, alpha channel presence, aspect ratio, orientation (`landscape` / `portrait` / `square`), resolution (megapixels), and JPEG EXIF camera/capture metadata.
 3. **Pluggable File Preview Architecture (`PreviewPluginRegistry`)**
-   - Built-in preview plugins for **Images** (with damped trackpad pinch-to-zoom, 2-finger pan, and >125% minimap), **Video**, **Audio**, **Documents/Code** (PDF & syntax text preview), and **System Icon Fallback**.
+   - Built-in preview plugins for **Images** (with damped trackpad pinch-to-zoom, 2-finger pan, and >125% minimap) and **Video** (multi-engine HLS/MPEG-TS/DASH/Native player), plus **System Icon Fallback**.
+   - Built-in core plugins (`builtin.image` and `builtin.video`) are always enabled and cannot be disabled; all installed plugins can be inspected in the Settings panel (`800×650` sidebar layout).
    - Supports both inline workspace preview (`Double-click`) and full-window QuickLook (`Space`).
 4. **Multi-Dimensional Filtering Bar**
    - Unified dropdown filters for **File Type**, **Color Swatches** (perceptual ΔE matching against preset and library palette colors), **Tags**, **Virtual Folders**, and **Orientation**.
@@ -40,7 +41,7 @@ Bowerbird is a cross-platform desktop digital asset manager built with **Wails v
         ├── plugins/preview/          # Pluggable file preview system
         │   ├── types.ts              # PreviewPlugin, PreviewViewportProps, PreviewInspectorProps
         │   ├── registry.ts           # PreviewPluginRegistry singleton & plugin resolution
-        │   └── builtin/              # Built-in plugins (image, video, audio, document, fallback)
+        │   └── builtin/              # Built-in plugins (image, video, fallback)
         ├── components/
         │   ├── LibraryWorkspace.tsx  # Main 3-column resizable workspace
         │   ├── FilterBar.tsx         # Multi-dimensional filter dropdowns (Type, Color, Tag, Folder, Orientation)
@@ -65,14 +66,11 @@ All file previews—both in the main/fullscreen modal (`UnifiedPreviewModal`) an
 
 ### Built-in Plugins
 
-| Plugin ID | Priority | Handled Formats | Capabilities |
-| :--- | :--- | :--- | :--- |
-| `builtin.image` | `100` | `png, jpg, jpeg, webp, gif, bmp, svg, ico, tiff, avif` | Damped trackpad zoom (`25%`–`800%`), 2-finger pan when zoomed in, interactive MiniMap (`>125%`), borderless inspector preview |
-| `builtin.video` | `90` | `mp4, mov, qt, webm, mkv, avi, m4v, flv, f4v, ts, mts, m2ts, m3u8, m3u, mpd, ogv, ogm, 3gp, 3g2, wmv, asf, mpg, mpeg, m2v, vob, rmvb, rm` | Multi-engine player (**hls.js** + **mpegts.js** + **dash.js** + HTML5 Native), standalone shadcn UI bottom control bar (`0.25x`–`8x` speed menu, hover volume slider, ±5s seek, loop, fullscreen), cover/first-frame color palette extraction, and cover-only inspector preview |
-| `builtin.audio` | `85` | `mp3, wav, flac, aac, ogg, m4a, opus` | Audio player with artwork/icon header and native playback controls |
-| `builtin.document` | `70` | `pdf, txt, md, json, yaml, xml, csv, js, ts, go, py, rs, css, html, sql` | Embedded PDF viewer and live text/code preview |
-| `builtin.fallback` | `0` | `*` (catch-all fallback) | Native OS file icon rendering via `/asset/icon/<ext>` |
-
+| Plugin ID | Priority | Status | Handled Formats | Capabilities |
+| :--- | :--- | :--- | :--- | :--- |
+| `builtin.image` | `100` | Built-in (Always Enabled) | `png, jpg, jpeg, webp, gif, bmp, svg, ico, tiff, tif, avif` | Damped trackpad zoom (`25%`–`800%`), 2-finger pan when zoomed in, interactive MiniMap (`>125%`), borderless inspector preview |
+| `builtin.video` | `90` | Built-in (Always Enabled) | `mp4, mov, qt, webm, mkv, avi, m4v, flv, f4v, ts, mts, m2ts, m3u8, m3u, mpd, ogv, ogm, 3gp, 3g2, wmv, asf, mpg, mpeg, m2v, vob, rmvb, rm` | Multi-engine player (**hls.js** + **mpegts.js** + **dash.js** + HTML5 Native), standalone shadcn UI bottom control bar (`0.25x`–`8x` speed menu, hover volume slider, ±5s seek, loop, fullscreen), cover/first-frame color palette extraction, and cover-only inspector preview |
+| `builtin.fallback` | `0` | Internal Fallback | `*` (catch-all fallback) | Native OS file icon rendering via `/asset/icon/<ext>` |
 ### Registering a Custom Preview Plugin
 
 ```tsx

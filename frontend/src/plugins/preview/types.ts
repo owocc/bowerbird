@@ -85,6 +85,25 @@ export interface PreviewPlugin {
   id: string;
   /** Human-readable name */
   name: string;
+  /** Optional i18n translation key for the plugin name */
+  nameKey?: string;
+  /** Optional human-readable description of the plugin's capabilities */
+  description?: string;
+  /** Optional i18n translation key for the plugin description */
+  descriptionKey?: string;
+  /** Semantic version of the plugin */
+  version?: string;
+  /** Plugin author or provider */
+  author?: string;
+  /** Whether this is a built-in core plugin */
+  builtin?: boolean;
+  /**
+   * Whether this plugin can be disabled by the user.
+   * Defaults to false for built-in core plugins (Image & Video).
+   */
+  canDisable?: boolean;
+  /** Whether this plugin should be hidden from the user-facing plugin management list (e.g. system fallback) */
+  internal?: boolean;
   /** Higher priority plugins are evaluated first (fallback = 0) */
   priority: number;
   /** Supported lowercase file extensions without leading dot */

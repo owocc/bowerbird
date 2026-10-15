@@ -13,6 +13,7 @@ import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import {
   previewRegistry,
+  usePreviewPlugins,
   createPreviewPluginHostAPI,
   type PreviewZoomController,
 } from "@/plugins/preview/registry";
@@ -47,6 +48,7 @@ export function UnifiedPreviewModal({
   onItemUpdated,
 }: UnifiedPreviewModalProps) {
   const { t } = useTranslation();
+  usePreviewPlugins();
   const controllerRef = useRef<PreviewZoomController | null>(null);
   const [scale, setScale] = useState<number>(1);
 

@@ -118,6 +118,11 @@ function PreviewCategoryIcon({
 export const FallbackPreviewPlugin: PreviewPlugin = {
   id: "builtin.fallback",
   name: "System File Icon Fallback",
+  version: "1.0.0",
+  author: "Bowerbird",
+  builtin: true,
+  canDisable: false,
+  internal: true,
   priority: 0,
   match: () => true,
   supportsZoom: false,
