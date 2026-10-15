@@ -139,11 +139,11 @@ func (s *Service) RevealInFinder(id string) error {
 	return s.mgr.RevealInFinder(id)
 }
 
-func (s *Service) StartDragItems(request DragRequest) error {
+func (s *Service) StartDragItems(ids []string) error {
 	if s.mgr == nil {
 		return errors.New("core manager not initialized")
 	}
-	return s.mgr.StartDragItems(request)
+	return s.mgr.StartDragItems(ids)
 }
 
 // LogDragTrace forwards a frontend drag/drop trace event into the native drag

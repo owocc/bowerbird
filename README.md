@@ -58,18 +58,17 @@ Photoshop - therefore see a text/URL drop, which is why a browser navigates to
 the `file://` URI and reports `about:blank#blocked`.
 
 - **Windows** (`core/drag_windows.go`): `frontend/src/lib/drag-out.ts` cancels the
-  webview drag and calls `Service.StartDragItems` with the dragged item ids plus
-  the grabbed element's size and pointer offset. The Go side builds a shell data
-  object from the item files (`SHCreateDataObject` → `CF_HDROP`,
-  `FileGroupDescriptorW`, `FileContents`), hands OLE the shell's own thumbnail
-  (or file-type icon) as the drag image via `IDragSourceHelper` - so the ghost
-  follows the cursor like the webview's native drag would - and runs
-  `DoDragDrop` with a minimal `IDropSource`. The ghost's bitmap is rebuilt as a
-  32-bit DIB with an explicit alpha mask and a color key that no visible pixel
-  uses: `SHDRAGIMAGE.crColorKey` is the color the control treats as the ghost's
-  background, and a zero value means *black*, which used to cut black assets out.
-  Only `DROPEFFECT_COPY` is offered, so
-  no drop can move or delete a library file.
+  webview drag and calls `Service.StartDragItems` with the dragged item ids. The
+  Go side builds a shell data object from the item files (`SHCreateDataObject` →
+  `CF_HDROP`, `FileGroupDescriptorW`, `FileContents`) and runs `DoDragDrop` with a
+  minimal `IDropSource`. Only `DROPEFFECT_COPY` is offered, so no drop can move or
+  delete a library file.
+- **No drag image is attached**, on purpose. `IDragSourceHelper` wants a bitmap
+  plus `SHDRAGIMAGE.crColorKey`, the colour the ghost treats as its background,
+  and Windows draws that key *on top of* the alpha channel: the ghost came out
+  with the asset's own colours cut out of it (black with a zero key). A preview
+  that damages the asset it previews is worse than no preview, so the drag lets
+  Windows draw its own default feedback and never hands OLE a bitmap at all.
 - Because the native drag re-enters the window as an *external* file drag
   (CF_HDROP), the webview has to be told that the gesture is ours for its whole
   lifetime: `frontend/src/lib/drag-state.ts` holds that flag, and the import

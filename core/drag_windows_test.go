@@ -3,10 +3,6 @@
 package core
 
 import (
-	"image"
-	"image/color"
-	"image/png"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,41 +16,30 @@ import (
 // testDragData is the shell data object a drag would publish, kept alive for the
 // duration of a test.
 type testDragData struct {
-	payload *shellDropPayload
-	object  unsafe.Pointer
+	drag *windowsDrag
 }
 
+// procRegisterClipboardFormatW resolves the clipboard format ID a named drag
+// format travels in.
+var procRegisterClipboardFormatW = syscall.NewLazyDLL("user32.dll").NewProc("RegisterClipboardFormatW")
+
+func (d *testDragData) release() { d.drag.release() }
+
+// newTestDragData builds the payload a real drag would publish, through the same
+// constructor the drag loop uses, so the assertions below describe what a drop
+// target actually receives.
 func newTestDragData(t *testing.T, paths []string) *testDragData {
 	t.Helper()
 
-	payload, err := newShellDropPayload(paths)
+	drag, err := newWindowsDrag(paths)
 	if err != nil {
-		t.Fatalf("newShellDropPayload failed: %v", err)
+		t.Fatalf("newWindowsDrag failed: %v", err)
 	}
-	children := payload.childArray()
-	if len(children) != len(paths) {
-		t.Fatalf("childArray returned %d items, want %d", len(children), len(paths))
+	if got := len(drag.payload.items); got != len(paths) {
+		drag.release()
+		t.Fatalf("payload resolved %d items, want %d", got, len(paths))
 	}
-
-	var dataObject unsafe.Pointer
-	hr, _, _ := procSHCreateDataObject.Call(
-		payload.folder,
-		uintptr(len(children)),
-		uintptr(unsafe.Pointer(&children[0])),
-		0,
-		uintptr(unsafe.Pointer(&iidIDataObject)),
-		uintptr(unsafe.Pointer(&dataObject)),
-	)
-	if int32(hr) < 0 || dataObject == nil {
-		payload.free()
-		t.Fatalf("SHCreateDataObject failed: 0x%08x", uint32(hr))
-	}
-	return &testDragData{payload: payload, object: dataObject}
-}
-
-func (d *testDragData) release() {
-	(*w32.IDataObject)(d.object).Vtbl.CallRelease(d.object)
-	d.payload.free()
+	return &testDragData{drag: drag}
 }
 
 // initTestCom puts the calling thread in an STA, which the shell data object and
@@ -81,80 +66,6 @@ func writeTestFiles(t *testing.T, dir string, names ...string) []string {
 	return paths
 }
 
-// writeTestPNG writes a real width x height PNG, i.e. something the shell has an
-// actual thumbnail for.
-func writeTestPNG(t *testing.T, dir, name string, width, height int) string {
-	t.Helper()
-
-	source := image.NewRGBA(image.Rect(0, 0, width, height))
-	for x := range width {
-		for y := range height {
-			source.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 0x40, A: 0xFF})
-		}
-	}
-	path := filepath.Join(dir, name)
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("failed to create %s: %v", path, err)
-	}
-	if err := png.Encode(file, source); err != nil {
-		file.Close()
-		t.Fatalf("failed to encode %s: %v", path, err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatalf("failed to close %s: %v", path, err)
-	}
-	return path
-}
-
-// writeSolidPNG writes a plain width x height PNG of a single colour.
-func writeSolidPNG(t *testing.T, dir, name string, width, height int, fill color.RGBA) string {
-	t.Helper()
-
-	source := image.NewRGBA(image.Rect(0, 0, width, height))
-	for x := range width {
-		for y := range height {
-			source.Set(x, y, fill)
-		}
-	}
-	path := filepath.Join(dir, name)
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("failed to create %s: %v", path, err)
-	}
-	if err := png.Encode(file, source); err != nil {
-		file.Close()
-		t.Fatalf("failed to encode %s: %v", path, err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatalf("failed to close %s: %v", path, err)
-	}
-	return path
-}
-
-// bitmapSize reads back the dimensions of a drag image bitmap.
-func bitmapSize(t *testing.T, image shDragImage) w32.BITMAP {
-	t.Helper()
-
-	var info w32.BITMAP
-	if n := w32.GetObject(w32.HGDIOBJ(image.HBmp), unsafe.Sizeof(info), unsafe.Pointer(&info)); n == 0 {
-		t.Fatal("GetObject returned no bitmap information")
-	}
-	return info
-}
-
-func assertWithinCap(t *testing.T, image shDragImage) {
-	t.Helper()
-
-	if image.SizeDragImage.CX <= 0 || image.SizeDragImage.CY <= 0 {
-		t.Fatalf("drag image is %dx%d, want a positive bitmap", image.SizeDragImage.CX, image.SizeDragImage.CY)
-	}
-	if image.SizeDragImage.CX > maxDragImageWidth || image.SizeDragImage.CY > maxDragImageHeight {
-		t.Errorf("drag image is %dx%d, want it inside the %dx%d cap",
-			image.SizeDragImage.CX, image.SizeDragImage.CY, maxDragImageWidth, maxDragImageHeight)
-	}
-}
-
 // A drop target only treats a drag as a file drag when the payload carries
 // CF_HDROP - the absence of it is what makes Windows targets navigate to the
 // file:// URI instead of copying the file. This asserts the exact payload OLE
@@ -167,7 +78,7 @@ func TestShellDropPayloadExposesHDrop(t *testing.T) {
 	data := newTestDragData(t, paths)
 	defer data.release()
 
-	object := (*w32.IDataObject)(data.object)
+	object := (*w32.IDataObject)(data.drag.object)
 	format := w32.FORMATETC{
 		CfFormat: w32.CF_HDROP,
 		DwAspect: dvaspectContent,
@@ -179,7 +90,7 @@ func TestShellDropPayloadExposesHDrop(t *testing.T) {
 	// checked directly (the wrapper reports the syscall's success errno as an
 	// error).
 	hr, _, _ := object.Vtbl.GetData.Call(
-		uintptr(data.object),
+		uintptr(data.drag.object),
 		uintptr(unsafe.Pointer(&format)),
 		uintptr(unsafe.Pointer(&medium)),
 	)
@@ -207,188 +118,52 @@ func TestShellDropPayloadExposesHDrop(t *testing.T) {
 	}
 }
 
-// The bitmap under the cursor is the shell's own thumbnail (file-type icon when
-// there is no thumbnail); this asserts we obtain it, keep it inside the cap, keep
-// the ghost under the pointer, and hand OLE a SHDRAGIMAGE it accepts.
-func TestDragImageIsAttachedToDataObject(t *testing.T) {
+// The drag must not publish a drag image. OLE renders a supplied bitmap with
+// SHDRAGIMAGE.crColorKey as its background colour - black when the key is left at
+// zero - so an image came out with the asset's own colours cut out of it. This
+// asserts the payload carries CF_HDROP and nothing for OLE to draw, which is the
+// whole reason the drag preview cannot damage an asset.
+func TestDragPayloadCarriesNoDragImage(t *testing.T) {
 	initTestCom(t)
 	defer runtime.UnlockOSThread()
 
-	paths := writeTestFiles(t, t.TempDir(), "asset.txt")
-	// Pointer at the centre of a 200x120 card.
-	request := DragRequest{IDs: []string{"unused"}, GrabX: 100, GrabY: 60, Width: 200, Height: 120}
-
-	image, err := dragImageBitmap(paths[0], request)
+	// The format ID the drag image travels in, so a helper could only be found by
+	// the shell looking for this name.
+	name, err := syscall.UTF16PtrFromString("DragImageBits")
 	if err != nil {
-		t.Fatalf("dragImageBitmap failed: %v", err)
+		t.Fatalf("UTF16PtrFromString: %v", err)
 	}
-	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
-
-	assertWithinCap(t, image)
-	info := bitmapSize(t, image)
-	if info.BmWidth != image.SizeDragImage.CX || info.BmHeight != image.SizeDragImage.CY {
-		t.Errorf("drag image reports %dx%d but the bitmap is %dx%d",
-			image.SizeDragImage.CX, image.SizeDragImage.CY, info.BmWidth, info.BmHeight)
-	}
-	// The pointer was at the middle of the element, so it has to be at the middle
-	// of whatever bitmap the shell returned.
-	if want := info.BmWidth / 2; image.PtOffset.X < want-1 || image.PtOffset.X > want+1 {
-		t.Errorf("drag image offset x = %d, want ~%d for a centred grab", image.PtOffset.X, want)
-	}
-	if want := info.BmHeight / 2; image.PtOffset.Y < want-1 || image.PtOffset.Y > want+1 {
-		t.Errorf("drag image offset y = %d, want ~%d for a centred grab", image.PtOffset.Y, want)
+	dragImageFormat, _, _ := procRegisterClipboardFormatW.Call(uintptr(unsafe.Pointer(name)))
+	if dragImageFormat == 0 {
+		t.Fatal("RegisterClipboardFormatW(DragImageBits) returned 0")
 	}
 
+	paths := writeTestFiles(t, t.TempDir(), "image one.png")
 	data := newTestDragData(t, paths)
 	defer data.release()
-	if err := attachDragImage(data.object, image); err != nil {
-		t.Fatalf("attachDragImage failed: %v", err)
-	}
-}
 
-// The ghost must show the asset as it is: a wide screenshot stays wide, a poster
-// stays tall, and neither grows past the cap.
-func TestDragImageKeepsTheSourceAspectRatio(t *testing.T) {
-	initTestCom(t)
-	defer runtime.UnlockOSThread()
-
-	dir := t.TempDir()
-	cases := []struct {
-		name           string
-		width, height  int
-		sourceAspect   float64
-		landscapeCheck bool
-	}{
-		{name: "wide.png", width: 1000, height: 600, sourceAspect: 1000.0 / 600.0, landscapeCheck: true},
-		{name: "tall.png", width: 600, height: 1000, sourceAspect: 600.0 / 1000.0},
-	}
-
-	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
-			path := writeTestPNG(t, dir, testCase.name, testCase.width, testCase.height)
-			// Grabbed a quarter into a 200x120 card.
-			request := DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120}
-
-			image, err := dragImageBitmap(path, request)
-			if err != nil {
-				t.Fatalf("dragImageBitmap failed: %v", err)
-			}
-			defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
-
-			assertWithinCap(t, image)
-
-			aspect := float64(image.SizeDragImage.CX) / float64(image.SizeDragImage.CY)
-			if math.Abs(aspect-testCase.sourceAspect) > 0.02 {
-				t.Errorf("drag image is %dx%d (aspect %.3f), want the source's %.3f",
-					image.SizeDragImage.CX, image.SizeDragImage.CY, aspect, testCase.sourceAspect)
-			}
-			if testCase.landscapeCheck && image.SizeDragImage.CX <= image.SizeDragImage.CY {
-				t.Errorf("drag image is %dx%d, want it wider than tall",
-					image.SizeDragImage.CX, image.SizeDragImage.CY)
-			}
-			if !testCase.landscapeCheck && image.SizeDragImage.CY <= image.SizeDragImage.CX {
-				t.Errorf("drag image is %dx%d, want it taller than wide",
-					image.SizeDragImage.CX, image.SizeDragImage.CY)
-			}
-
-			// A grab a quarter into the element stays a quarter into the ghost.
-			wantX := int32(float64(image.SizeDragImage.CX) * 0.25)
-			wantY := int32(float64(image.SizeDragImage.CY) * 0.25)
-			if image.PtOffset.X < wantX-1 || image.PtOffset.X > wantX+1 || image.PtOffset.Y < wantY-1 || image.PtOffset.Y > wantY+1 {
-				t.Errorf("drag image offset is %d,%d, want ~%d,%d",
-					image.PtOffset.X, image.PtOffset.Y, wantX, wantY)
-			}
-		})
-	}
-}
-
-// colorOf extracts the COLORREF (24-bit BGR) a pixel's bytes describe.
-func colorOf(pixels []byte, index int) uint32 {
-	return uint32(pixels[index]) | uint32(pixels[index+1])<<8 | uint32(pixels[index+2])<<16
-}
-
-// Regression: crColorKey is the colour the drag image control treats as
-// transparent, and a zero key means black - which cut holes into any asset
-// containing pure black.
-func TestDragImageColorKeyCannotHideContent(t *testing.T) {
-	initTestCom(t)
-	defer runtime.UnlockOSThread()
-
-	// A fully black asset: it is exactly what a black colour key destroys.
-	path := writeSolidPNG(t, t.TempDir(), "black.png", 64, 64, color.RGBA{R: 0, G: 0, B: 0, A: 0xFF})
-
-	image, err := dragImageBitmap(path, DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120})
-	if err != nil {
-		t.Fatalf("dragImageBitmap failed: %v", err)
-	}
-	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
-
-	pixels, err := readBitmapPixels(image.HBmp, image.SizeDragImage)
-	if err != nil {
-		t.Fatalf("readBitmapPixels failed: %v", err)
-	}
-
-	if image.CrColorKey == 0x000000 {
-		t.Error("colour key is black, so the asset's opaque black pixels would be keyed out")
-	}
-
-	opaqueBlack := 0
-	for i := 0; i < len(pixels); i += 4 {
-		if pixels[i+3] == 0 {
-			continue
+	object := (*w32.IDataObject)(data.drag.object)
+	// QueryGetData answers S_OK when the format is on offer and a failure HRESULT
+	// (S_FALSE, DV_E_FORMATETC) otherwise. Called through the vtable because the
+	// w32 wrapper reports the syscall's success errno as an error.
+	offered := func(format uint16) uint32 {
+		etc := w32.FORMATETC{
+			CfFormat: format,
+			DwAspect: dvaspectContent,
+			Lindex:   -1,
+			Tymed:    w32.TYMED_HGLOBAL,
 		}
-		if colorOf(pixels, i) == 0x000000 {
-			opaqueBlack++
-		}
-	}
-	if opaqueBlack == 0 {
-		t.Fatal("no opaque black pixel survived the drag image, want the asset untouched")
-	}
-	for i := 0; i < len(pixels); i += 4 {
-		if pixels[i+3] == 0 {
-			continue
-		}
-		if colorOf(pixels, i) == image.CrColorKey {
-			t.Fatalf("visible pixel %d uses the colour key 0x%06x and would be keyed out", i/4, image.CrColorKey)
-		}
-	}
-}
-
-// Transparent pixels carry the colour key, so a renderer that only understands
-// the key (rather than the alpha channel) still shows them as transparent.
-func TestDragImageFillsTransparentPixelsWithTheKey(t *testing.T) {
-	initTestCom(t)
-	defer runtime.UnlockOSThread()
-
-	// A file-type icon has a transparent background.
-	paths := writeTestFiles(t, t.TempDir(), "asset.txt")
-	image, err := dragImageBitmap(paths[0], DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120})
-	if err != nil {
-		t.Fatalf("dragImageBitmap failed: %v", err)
-	}
-	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
-
-	pixels, err := readBitmapPixels(image.HBmp, image.SizeDragImage)
-	if err != nil {
-		t.Fatalf("readBitmapPixels failed: %v", err)
+		hr, _, _ := object.Vtbl.QueryGetData.Call(uintptr(data.drag.object), uintptr(unsafe.Pointer(&etc)))
+		return uint32(hr)
 	}
 
-	transparent, keyed := 0, 0
-	for i := 0; i < len(pixels); i += 4 {
-		if pixels[i+3] != 0 {
-			continue
-		}
-		transparent++
-		if colorOf(pixels, i) == image.CrColorKey {
-			keyed++
-		}
+	// Control: the same call succeeds for the format we do publish, so the
+	// assertion below cannot pass just because QueryGetData never works here.
+	if hr := offered(w32.CF_HDROP); hr != hresultOK {
+		t.Fatalf("QueryGetData(CF_HDROP) = 0x%08x, so this test cannot tell a missing drag image from a broken query", hr)
 	}
-	if transparent == 0 {
-		t.Fatal("the icon has no transparent pixel, the fixture no longer tests the fallback")
-	}
-	if keyed != transparent {
-		t.Errorf("%d of %d transparent pixels do not carry the colour key 0x%06x",
-			transparent-keyed, transparent, image.CrColorKey)
+	if hr := offered(uint16(dragImageFormat)); hr == hresultOK {
+		t.Error("the drag offers DragImageBits, so OLE draws a ghost of a bitmap we hand it")
 	}
 }
 
