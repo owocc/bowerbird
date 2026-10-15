@@ -33,6 +33,7 @@ import {
 import type { Folder as FolderModel, Tag as TagModel, Item } from "../../bindings/bowerbird/core/models";
 import { cn } from "cn";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
+import { isMacOS } from "@/lib/macos";
 
 export interface ContextMenuPosition {
   x: number;
@@ -54,6 +55,7 @@ export interface ContextMenuProps {
   onRename?: () => void;
   onReveal?: () => void;
   onOpenWithDefaultApp?: () => void;
+  onCopy?: () => void;
   onCopyPath?: () => void;
   onToggleFavorite?: () => void;
   onDelete?: () => void;
@@ -81,6 +83,7 @@ export function CustomContextMenu({
   onRename,
   onReveal,
   onOpenWithDefaultApp,
+  onCopy,
   onCopyPath,
   onToggleFavorite,
   onDelete,
@@ -156,11 +159,16 @@ export function CustomContextMenu({
 
   // Sections are separated by rules only (no group headings), so each rule is
   // rendered solely when both the preceding and the following section exist.
+  const isMac = isMacOS();
+  const copyShortcutLabel = isMac ? "⌘C" : "Ctrl+C";
+  const selectAllShortcutLabel = isMac ? "⌘A" : "Ctrl+A";
   const hasPrimaryActions = Boolean(
     onPreview ||
       onReveal ||
+      onCopy ||
+      onCopyPath ||
       (selectedCount === 1 &&
-        (onRename || onOpenWithDefaultApp || onCopyPath || onToggleFavorite))
+        (onRename || onOpenWithDefaultApp || onToggleFavorite))
   );
   const hasFolderActions = flatFolders.length > 0 && Boolean(onAddToFolder);
   const hasTagActions = allTags.length > 0 && Boolean(onAddTag || onRemoveTag);
@@ -301,7 +309,23 @@ export function CustomContextMenu({
                   </CommandItem>
                 )}
 
-                {selectedCount === 1 && onCopyPath && (
+                {onCopy && (
+                  <CommandItem
+                    onSelect={() => {
+                      onCopy();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <Copy className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1">{t("common.copy")}</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">
+                      {copyShortcutLabel}
+                    </CommandShortcut>
+                  </CommandItem>
+                )}
+
+                {onCopyPath && (
                   <CommandItem
                     onSelect={() => {
                       onCopyPath();
@@ -440,7 +464,7 @@ export function CustomContextMenu({
                 >
                   <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
                   <span className="flex-1">{t("contextMenu.selectAll")}</span>
-                  <CommandShortcut className="text-[10px] font-mono tracking-normal">⌘A</CommandShortcut>
+                  <CommandShortcut className="text-[10px] font-mono tracking-normal">{selectAllShortcutLabel}</CommandShortcut>
                 </CommandItem>
               )}
 

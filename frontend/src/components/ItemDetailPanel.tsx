@@ -41,6 +41,7 @@ import {
 } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { cn } from "@/lib/utils";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import { toast } from "sonner";
 
 export interface ItemDetailPanelProps {
@@ -261,11 +262,8 @@ export function ItemDetailPanel({
                   key={hex}
                   type="button"
                   onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(hex);
+                    if (await copyTextToClipboard(hex)) {
                       toast.success(t("inspector.colorCopied", { hex }));
-                    } catch {
-                      /* clipboard unavailable */
                     }
                     if (onSelectColorFilter) {
                       onSelectColorFilter(isColorActive ? null : hex);
@@ -621,9 +619,10 @@ export function ItemDetailPanel({
                     <button
                       type="button"
                       onClick={async () => {
-                        await navigator.clipboard.writeText(item.hex);
-                        setCopiedHex(true);
-                        setTimeout(() => setCopiedHex(false), 1500);
+                        if (await copyTextToClipboard(item.hex)) {
+                          setCopiedHex(true);
+                          setTimeout(() => setCopiedHex(false), 1500);
+                        }
                       }}
                       className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
                     >
@@ -656,9 +655,11 @@ export function ItemDetailPanel({
                         (item.itemPath
                           ? `${item.itemPath}/${item.filename}`
                           : shellPath);
-                      await navigator.clipboard.writeText(plainPath);
-                      setCopiedPath(true);
-                      setTimeout(() => setCopiedPath(false), 1500);
+                      if (await copyTextToClipboard(plainPath)) {
+                        setCopiedPath(true);
+                        setTimeout(() => setCopiedPath(false), 1500);
+                        toast.success(t("workspace.pathCopied"));
+                      }
                     }}
                     className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"
                   >

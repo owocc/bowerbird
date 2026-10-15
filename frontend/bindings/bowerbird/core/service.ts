@@ -41,6 +41,15 @@ export function CloseSetupWindow(): $CancellablePromise<void> {
     return $Call.ByID(341736549);
 }
 
+/**
+ * CopyItemsToClipboard writes the selected library items to the native OS
+ * clipboard as file objects (and image bitmap when a single image is selected)
+ * so they can be pasted directly into Finder, Explorer, chat apps, or editors.
+ */
+export function CopyItemsToClipboard(ids: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(3175102288, ids);
+}
+
 export function CreateFolder(name: string, parentID: string): $CancellablePromise<$models.Folder | null> {
     return $Call.ByID(1778465740, name, parentID);
 }

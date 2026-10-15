@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 )
 
 // Cross-platform Native File Drag & Drop Architecture Reference:
@@ -43,4 +44,24 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 // AugmentPasteboardForTesting exercises pasteboard file extraction logic for test harnesses.
 func AugmentPasteboardForTesting(paths []string) ([]string, error) {
 	return paths, nil
+}
+
+// CopyItemsToClipboard writes the given library items to the system clipboard.
+func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
+	if len(ids) == 0 {
+		return errors.New("no items to copy")
+	}
+	var paths []string
+	for _, id := range ids {
+		if item, err := m.GetItem(id); err == nil && item != nil && item.FilePath != "" {
+			paths = append(paths, item.FilePath)
+		}
+	}
+	if len(paths) == 0 {
+		return errors.New("no valid files to copy")
+	}
+	if app := m.GetApp(); app != nil && app.Clipboard != nil {
+		app.Clipboard.SetText(strings.Join(paths, "\n"))
+	}
+	return nil
 }

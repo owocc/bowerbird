@@ -77,6 +77,7 @@ import {
   OpenSettingsWindow,
   OpenSetupWindow,
   RevealInFinder,
+  CopyItemsToClipboard,
 } from "../../bindings/bowerbird/core/service";
 import type {
   Item,
@@ -88,6 +89,7 @@ import { HistoryNavButtons } from "@/components/HistoryNavButtons";
 import { getFileCategory } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { setInternalDragActive } from "@/lib/drag-state";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   useWorkspaceSearch,
   TRASH_FOLDER_ID,
@@ -654,19 +656,57 @@ export function LibraryWorkspace({
     }
   };
 
-  const handleCopyPath = async (targetItem?: Item) => {
-    const item = targetItem || activeItem;
-    if (!item) return;
-    try {
-      const plainPath =
-        item.filePath ||
-        (item.itemPath ? `${item.itemPath}/${item.filename}` : item.shellPath);
-      await navigator.clipboard.writeText(plainPath);
-      toast.success(t("workspace.pathCopied"));
-    } catch (err) {
-      console.error("Failed to copy file path:", err);
-    }
-  };
+  const handleCopyItems = useCallback(
+    async (targetList?: Item[]) => {
+      const targets =
+        targetList && targetList.length > 0
+          ? targetList
+          : ws.preview && previewActiveItem
+          ? [previewActiveItem]
+          : selectedItems.length > 0
+          ? selectedItems
+          : activeItem
+          ? [activeItem]
+          : [];
+      if (targets.length === 0) return;
+      try {
+        await CopyItemsToClipboard(targets.map((i) => i.id));
+        toast.success(t("workspace.copiedItems", { count: targets.length }));
+      } catch (err) {
+        console.error("Failed to copy items to clipboard:", err);
+        toast.error(t("workspace.copyFailed"));
+      }
+    },
+    [ws.preview, previewActiveItem, selectedItems, activeItem, t]
+  );
+
+  const handleCopyPath = useCallback(
+    async (targetItem?: Item) => {
+      const targets = targetItem
+        ? [targetItem]
+        : selectedItems.length > 0
+        ? selectedItems
+        : activeItem
+        ? [activeItem]
+        : [];
+      if (targets.length === 0) return;
+      const paths = targets
+        .map(
+          (item) =>
+            item.filePath ||
+            (item.itemPath ? `${item.itemPath}/${item.filename}` : item.shellPath)
+        )
+        .filter(Boolean);
+      if (paths.length === 0) return;
+      const ok = await copyTextToClipboard(paths.join("\n"));
+      if (ok) {
+        toast.success(t("workspace.pathsCopied", { count: paths.length }));
+      } else {
+        toast.error(t("workspace.copyFailed"));
+      }
+    },
+    [selectedItems, activeItem, t]
+  );
 
   const handleOpenSettings = async () => {
     try {
@@ -927,8 +967,41 @@ export function LibraryWorkspace({
     0
   );
 
-  // Global Keyboard shortcuts
+  // Global Keyboard shortcuts & native copy event handler
+  const lastCopyTsRef = useRef<number>(0);
+  const triggerCopyShortcut = useCallback(() => {
+    const now = Date.now();
+    if (now - lastCopyTsRef.current < 150) return;
+    lastCopyTsRef.current = now;
+    void handleCopyItems();
+  }, [handleCopyItems]);
+
   useEffect(() => {
+    const isEditableOrTextSelected = (target: HTMLElement | null): boolean => {
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return true;
+      }
+      const sel = window.getSelection();
+      return Boolean(sel && !sel.isCollapsed && sel.toString().trim().length > 0);
+    };
+
+    const handleCopyEvent = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (isEditableOrTextSelected(target)) return;
+      const hasTarget =
+        (ws.preview && previewActiveItem) ||
+        selectedItems.length > 0 ||
+        Boolean(activeItem);
+      if (!hasTarget) return;
+      e.preventDefault();
+      triggerCopyShortcut();
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (
@@ -937,6 +1010,19 @@ export function LibraryWorkspace({
           target.tagName === "TEXTAREA" ||
           target.isContentEditable)
       ) {
+        return;
+      }
+
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.code === "KeyC") {
+        if (isEditableOrTextSelected(target)) return;
+        const hasTarget =
+          (ws.preview && previewActiveItem) ||
+          selectedItems.length > 0 ||
+          Boolean(activeItem);
+        if (hasTarget) {
+          e.preventDefault();
+          triggerCopyShortcut();
+        }
         return;
       }
 
@@ -969,8 +1055,21 @@ export function LibraryWorkspace({
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeItem, ws.preview, contextMenu, selectedOrder, filteredItems]);
+    window.addEventListener("copy", handleCopyEvent);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("copy", handleCopyEvent);
+    };
+  }, [
+    activeItem,
+    previewActiveItem,
+    selectedItems,
+    ws.preview,
+    contextMenu,
+    selectedOrder,
+    filteredItems,
+    triggerCopyShortcut,
+  ]);
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
@@ -1516,7 +1615,8 @@ export function LibraryWorkspace({
           onOpenWithDefaultApp={() =>
             activeItem && handleOpenDefaultApp(activeItem)
           }
-          onCopyPath={() => activeItem && handleCopyPath(activeItem)}
+          onCopy={() => handleCopyItems()}
+          onCopyPath={() => handleCopyPath()}
           onToggleFavorite={() =>
             activeItem && handleToggleFavorite(activeItem)
           }

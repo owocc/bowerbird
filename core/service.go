@@ -146,6 +146,16 @@ func (s *Service) StartDragItems(ids []string) error {
 	return s.mgr.StartDragItems(ids)
 }
 
+// CopyItemsToClipboard writes the selected library items to the native OS
+// clipboard as file objects (and image bitmap when a single image is selected)
+// so they can be pasted directly into Finder, Explorer, chat apps, or editors.
+func (s *Service) CopyItemsToClipboard(ids []string) error {
+	if s.mgr == nil {
+		return errors.New("core manager not initialized")
+	}
+	return s.mgr.CopyItemsToClipboard(ids)
+}
+
 // LogDragTrace forwards a frontend drag/drop trace event into the native drag
 // trace file. It is deliberately free of side effects so the frontend can fire
 // it on every dragstart/dragend/drop without branching.

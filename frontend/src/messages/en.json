@@ -350,6 +350,9 @@
       "videos": "Videos"
     },
     "chooseFiles": "Choose files to import",
+    "copiedItems_one": "Copied {{count}} item to clipboard",
+    "copiedItems_other": "Copied {{count}} items to clipboard",
+    "copyFailed": "Failed to copy to clipboard",
     "dedupe": "Auto dedupe",
     "deleteMultiFolderMessage": "The selected items are referenced in more than one folder. You can remove the reference from the current folder only, or move the items to the trash:",
     "deletePermanently": "Delete permanently",
@@ -378,6 +381,8 @@
     "noFilesTitle": "No files",
     "oldest": "Oldest",
     "pathCopied": "File path copied",
+    "pathsCopied_one": "File path copied",
+    "pathsCopied_other": "Copied {{count}} file paths",
     "removeFromFolder": "Remove from current folder only",
     "renameTitle": "Rename item",
     "restoreCount": "Restore ({{count}})",

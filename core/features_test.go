@@ -425,3 +425,37 @@ func TestVideoMimeTypesAndAssetStreamingCORS(t *testing.T) {
 		t.Errorf("Expected video ImageMeta 16:9 landscape, got %+v", updatedVideo.Meta)
 	}
 }
+
+func TestCopyItemsToClipboard(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+	mgr := core.NewLibraryManager()
+	t.Cleanup(func() { _ = mgr.CloseLibrary() })
+
+	if _, err := mgr.CreateLibrary(tempDir, "ClipboardTestLib"); err != nil {
+		t.Fatalf("CreateLibrary failed: %v", err)
+	}
+
+	if err := mgr.CopyItemsToClipboard(nil); err == nil {
+		t.Errorf("Expected error when copying empty item slice")
+	}
+
+	img := image.NewRGBA(image.Rect(0, 0, 16, 16))
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	f1 := filepath.Join(tempDir, "clip_img.png")
+	if err := os.WriteFile(f1, pngBuf.Bytes(), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	items, err := mgr.ImportFiles([]string{f1})
+	if err != nil || len(items) != 1 {
+		t.Fatalf("ImportFiles failed: %v", err)
+	}
+
+	if err := mgr.CopyItemsToClipboard([]string{items[0].ID}); err != nil {
+		t.Fatalf("CopyItemsToClipboard failed: %v", err)
+	}
+}

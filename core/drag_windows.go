@@ -64,6 +64,8 @@ var (
 
 	procOleInitialize      = modOle32.NewProc("OleInitialize")
 	procDoDragDrop         = modOle32.NewProc("DoDragDrop")
+	procOleSetClipboard    = modOle32.NewProc("OleSetClipboard")
+	procOleFlushClipboard  = modOle32.NewProc("OleFlushClipboard")
 	procSHCreateDataObject = modShell32.NewProc("SHCreateDataObject")
 	procILCreateFromPathW  = modShell32.NewProc("ILCreateFromPathW")
 	procILClone            = modShell32.NewProc("ILClone")
@@ -351,4 +353,46 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 	// drop, which is the signal to compare against the target's own behaviour.
 	LogDragTrace("drag-out-finished", fmt.Sprintf("effect=0x%x accepted=%t items=%d", effect, effect != 0, len(paths)))
 	return nil
+}
+
+// CopyItemsToClipboard writes the given library items to the Windows clipboard
+// as a shell IDataObject (carrying CF_HDROP, FileGroupDescriptorW, etc.).
+func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
+	if len(ids) == 0 {
+		return errors.New("no items to copy")
+	}
+
+	paths := make([]string, 0, len(ids))
+	for _, id := range ids {
+		item, err := m.GetItem(id)
+		if err != nil || item == nil || item.FilePath == "" {
+			continue
+		}
+		if info, statErr := os.Stat(item.FilePath); statErr != nil || info.IsDir() {
+			continue
+		}
+		paths = append(paths, item.FilePath)
+	}
+	if len(paths) == 0 {
+		return errors.New("no valid files to copy")
+	}
+
+	var copyErr error
+	application.InvokeSync(func() {
+		_, _, _ = procOleInitialize.Call(0)
+		drag, err := newWindowsDrag(paths)
+		if err != nil {
+			copyErr = err
+			return
+		}
+		defer drag.release()
+
+		hr, _, _ := procOleSetClipboard.Call(uintptr(drag.object))
+		if int32(hr) < 0 {
+			copyErr = fmt.Errorf("OleSetClipboard failed: 0x%08x", uint32(hr))
+			return
+		}
+		_, _, _ = procOleFlushClipboard.Call()
+	})
+	return copyErr
 }

@@ -330,6 +330,53 @@ static bool doNativeFileDrag(void* windowPtr, const char* cPath) {
     }
 }
 
+static bool copyFilesToGeneralPasteboard(const char **paths, int count) {
+    if (!paths || count <= 0) return false;
+    @autoreleasepool {
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSMutableArray<NSURL *> *fileURLs = [NSMutableArray arrayWithCapacity:count];
+        NSMutableArray<NSString *> *validPaths = [NSMutableArray arrayWithCapacity:count];
+
+        for (int i = 0; i < count; i++) {
+            if (!paths[i]) continue;
+            NSString *p = [NSString stringWithUTF8String:paths[i]];
+            if (!p || [p length] == 0) continue;
+            BOOL isDir = NO;
+            if ([fm fileExistsAtPath:p isDirectory:&isDir]) {
+                NSURL *u = [NSURL fileURLWithPath:p isDirectory:isDir];
+                if (u) {
+                    [fileURLs addObject:u];
+                    [validPaths addObject:p];
+                }
+            }
+        }
+
+        if ([fileURLs count] == 0) {
+            return false;
+        }
+
+        NSPasteboard *pb = [NSPasteboard generalPasteboard];
+        [pb clearContents];
+
+        NSMutableArray *writers = [NSMutableArray arrayWithArray:fileURLs];
+        if ([validPaths count] == 1) {
+            NSImage *img = [[NSImage alloc] initWithContentsOfFile:validPaths[0]];
+            if (img && [img isValid]) {
+                [writers addObject:img];
+            }
+        }
+
+        BOOL ok = [pb writeObjects:writers];
+
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [pb setPropertyList:validPaths forType:NSFilenamesPboardType];
+        #pragma clang diagnostic pop
+
+        return ok ? true : false;
+    }
+}
+
 static int testPasteboardAugmentation(const char **paths, int count, char ***outFilenames, int *outCount) {
     @autoreleasepool {
         NSPasteboard *pb = [NSPasteboard pasteboardWithUniqueName];
@@ -423,6 +470,38 @@ func (m *LibraryManager) StartDrag(id string) error {
 
 	if !success {
 		return errors.New("failed to start native drag session")
+	}
+	return nil
+}
+
+// CopyItemsToClipboard writes the given library items to the macOS general
+// pasteboard as native file URLs (and NSImage when a single image is copied).
+func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
+	if len(ids) == 0 {
+		return errors.New("no items to copy")
+	}
+
+	paths := make([]string, 0, len(ids))
+	for _, id := range ids {
+		item, err := m.GetItem(id)
+		if err != nil || item == nil || item.FilePath == "" {
+			continue
+		}
+		paths = append(paths, item.FilePath)
+	}
+	if len(paths) == 0 {
+		return errors.New("no valid files to copy")
+	}
+
+	cPaths := make([]*C.char, len(paths))
+	for i, p := range paths {
+		cPaths[i] = C.CString(p)
+		defer C.free(unsafe.Pointer(cPaths[i]))
+	}
+
+	ok := C.copyFilesToGeneralPasteboard((**C.char)(&cPaths[0]), C.int(len(paths)))
+	if !bool(ok) {
+		return errors.New("failed to write files to clipboard")
 	}
 	return nil
 }
