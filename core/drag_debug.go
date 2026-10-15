@@ -50,11 +50,7 @@ func dragTraceFileLocked() string {
 	if dragTracePath != "" {
 		return dragTracePath
 	}
-	dir, err := os.UserConfigDir()
-	if err != nil || dir == "" {
-		dir = os.TempDir()
-	}
-	dragTracePath = filepath.Join(dir, "bowerbird", dragTraceFileName)
+	dragTracePath = filepath.Join(UserDataDir(), dragTraceFileName)
 	return dragTracePath
 }
 

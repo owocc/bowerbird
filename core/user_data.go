@@ -24,14 +24,23 @@ type UserDataStore struct {
 	data     UserData
 }
 
-// NewUserDataStore initializes the user data store in the system user data directory.
-func NewUserDataStore() (*UserDataStore, error) {
+// UserDataDir returns the directory holding this app's state (user_data.json,
+// drag-debug.log). BOWERBIRD_USER_DATA_DIR overrides it, which keeps test runs
+// and portable installs out of the real user profile.
+func UserDataDir() string {
+	if dir := os.Getenv("BOWERBIRD_USER_DATA_DIR"); dir != "" {
+		return dir
+	}
 	configDir, err := os.UserConfigDir()
-	if err != nil {
+	if err != nil || configDir == "" {
 		configDir = os.TempDir()
 	}
+	return filepath.Join(configDir, "bowerbird")
+}
 
-	appDataDir := filepath.Join(configDir, "bowerbird")
+// NewUserDataStore initializes the user data store in the system user data directory.
+func NewUserDataStore() (*UserDataStore, error) {
+	appDataDir := UserDataDir()
 	if err := os.MkdirAll(appDataDir, 0755); err != nil {
 		return nil, err
 	}

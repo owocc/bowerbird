@@ -10,7 +10,12 @@ import (
 
 func TestRecycleBinAndFoldersAndTags(t *testing.T) {
 	tempDir := t.TempDir()
+	// Keep the manager's user data store out of the real user profile, and
+	// release the index database before the temp dir is removed (Windows cannot
+	// delete a file that still has an open handle).
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
 	mgr := core.NewLibraryManager()
+	t.Cleanup(func() { _ = mgr.CloseLibrary() })
 	libInfo, err := mgr.CreateLibrary(tempDir, "TestLib")
 	if err != nil {
 		t.Fatalf("CreateLibrary failed: %v", err)

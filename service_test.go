@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,6 +18,10 @@ import (
 )
 
 func TestLibraryServiceEndToEnd(t *testing.T) {
+	// Keep the manager's user data store out of the real user profile: this test
+	// creates, remembers and un-remembers libraries.
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+
 	tempDir, err := os.MkdirTemp("", "bowerbird_test_*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -178,17 +183,21 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	if !strings.Contains(spaceItem.ShellPath, `\ `) {
 		t.Errorf("Expected ShellPath to contain backslash-escaped spaces, got: %s", spaceItem.ShellPath)
 	}
-	cmd := exec.Command("sh", "-c", "test -f "+spaceItem.ShellPath)
-	if err := cmd.Run(); err != nil {
-		t.Errorf("Shell failed to find file using ShellPath %s: %v", spaceItem.ShellPath, err)
+	// ShellPath is the "copy as shell path" form (backslash-escaped spaces), so
+	// the POSIX shell lookup only means anything on a POSIX platform.
+	if runtime.GOOS != "windows" {
+		cmd := exec.Command("sh", "-c", "test -f "+spaceItem.ShellPath)
+		if err := cmd.Run(); err != nil {
+			t.Errorf("Shell failed to find file using ShellPath %s: %v", spaceItem.ShellPath, err)
+		}
 	}
-	// 5. Query items via libSQL
+	// 5. Query items via SQLite
 	allItems, err := svc.GetItems("", "desc")
 	if err != nil {
 		t.Fatalf("GetItems failed: %v", err)
 	}
 	if len(allItems) != 3 {
-		t.Fatalf("Expected 3 items in libSQL, got %d", len(allItems))
+		t.Fatalf("Expected 3 items in SQLite, got %d", len(allItems))
 	}
 
 	// Test search query

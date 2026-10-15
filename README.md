@@ -90,7 +90,9 @@ Lines are appended to `drag-debug.log` in the app data directory
 (`%APPDATA%\bowerbird\drag-debug.log` on Windows,
 `~/Library/Application Support/bowerbird/drag-debug.log` on macOS), which is the
 only sink visible in production Windows builds (`-H windowsgui` hides stdout).
-The path is also printed at startup and shown live in `wails3 dev`.
+The path is also printed at startup and shown live in `wails3 dev`. Set
+`BOWERBIRD_USER_DATA_DIR` to relocate the app data directory - the Go tests do,
+so a test run never touches the real user profile.
 
 ## Next Steps
 
