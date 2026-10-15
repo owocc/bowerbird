@@ -81,6 +81,55 @@ func writeTestFiles(t *testing.T, dir string, names ...string) []string {
 	return paths
 }
 
+// writeTestPNG writes a real width x height PNG, i.e. something the shell has an
+// actual thumbnail for.
+func writeTestPNG(t *testing.T, dir, name string, width, height int) string {
+	t.Helper()
+
+	source := image.NewRGBA(image.Rect(0, 0, width, height))
+	for x := range width {
+		for y := range height {
+			source.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 0x40, A: 0xFF})
+		}
+	}
+	path := filepath.Join(dir, name)
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create %s: %v", path, err)
+	}
+	if err := png.Encode(file, source); err != nil {
+		file.Close()
+		t.Fatalf("failed to encode %s: %v", path, err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("failed to close %s: %v", path, err)
+	}
+	return path
+}
+
+// bitmapSize reads back the dimensions of a drag image bitmap.
+func bitmapSize(t *testing.T, image shDragImage) w32.BITMAP {
+	t.Helper()
+
+	var info w32.BITMAP
+	if n := w32.GetObject(w32.HGDIOBJ(image.HBmp), unsafe.Sizeof(info), unsafe.Pointer(&info)); n == 0 {
+		t.Fatal("GetObject returned no bitmap information")
+	}
+	return info
+}
+
+func assertWithinCap(t *testing.T, image shDragImage) {
+	t.Helper()
+
+	if image.SizeDragImage.CX <= 0 || image.SizeDragImage.CY <= 0 {
+		t.Fatalf("drag image is %dx%d, want a positive bitmap", image.SizeDragImage.CX, image.SizeDragImage.CY)
+	}
+	if image.SizeDragImage.CX > maxDragImageWidth || image.SizeDragImage.CY > maxDragImageHeight {
+		t.Errorf("drag image is %dx%d, want it inside the %dx%d cap",
+			image.SizeDragImage.CX, image.SizeDragImage.CY, maxDragImageWidth, maxDragImageHeight)
+	}
+}
+
 // A drop target only treats a drag as a file drag when the payload carries
 // CF_HDROP - the absence of it is what makes Windows targets navigate to the
 // file:// URI instead of copying the file. This asserts the exact payload OLE
@@ -134,8 +183,8 @@ func TestShellDropPayloadExposesHDrop(t *testing.T) {
 }
 
 // The bitmap under the cursor is the shell's own thumbnail (file-type icon when
-// there is no thumbnail); this asserts we obtain it, keep the ghost under the
-// pointer, and hand OLE a SHDRAGIMAGE it accepts.
+// there is no thumbnail); this asserts we obtain it, keep it inside the cap, keep
+// the ghost under the pointer, and hand OLE a SHDRAGIMAGE it accepts.
 func TestDragImageIsAttachedToDataObject(t *testing.T) {
 	initTestCom(t)
 	defer runtime.UnlockOSThread()
@@ -150,24 +199,18 @@ func TestDragImageIsAttachedToDataObject(t *testing.T) {
 	}
 	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
 
-	var info w32.BITMAP
-	if n := w32.GetObject(w32.HGDIOBJ(image.HBmp), unsafe.Sizeof(info), unsafe.Pointer(&info)); n == 0 {
-		t.Fatal("GetObject returned no bitmap information")
-	}
+	assertWithinCap(t, image)
+	info := bitmapSize(t, image)
 	if info.BmWidth != image.SizeDragImage.CX || info.BmHeight != image.SizeDragImage.CY {
 		t.Errorf("drag image reports %dx%d but the bitmap is %dx%d",
 			image.SizeDragImage.CX, image.SizeDragImage.CY, info.BmWidth, info.BmHeight)
 	}
-	if info.BmWidth <= 0 || info.BmHeight <= 0 || info.BmWidth > maxDragImageSide || info.BmHeight > maxDragImageSide {
-		t.Errorf("drag image is %dx%d, want a positive bitmap inside the %dpx cap",
-			info.BmWidth, info.BmHeight, maxDragImageSide)
-	}
 	// The pointer was at the middle of the element, so it has to be at the middle
 	// of whatever bitmap the shell returned.
-	if want := int32(info.BmWidth) / 2; image.PtOffset.X < want-1 || image.PtOffset.X > want+1 {
+	if want := info.BmWidth / 2; image.PtOffset.X < want-1 || image.PtOffset.X > want+1 {
 		t.Errorf("drag image offset x = %d, want ~%d for a centred grab", image.PtOffset.X, want)
 	}
-	if want := int32(info.BmHeight) / 2; image.PtOffset.Y < want-1 || image.PtOffset.Y > want+1 {
+	if want := info.BmHeight / 2; image.PtOffset.Y < want-1 || image.PtOffset.Y > want+1 {
 		t.Errorf("drag image offset y = %d, want ~%d for a centred grab", image.PtOffset.Y, want)
 	}
 
@@ -178,90 +221,59 @@ func TestDragImageIsAttachedToDataObject(t *testing.T) {
 	}
 }
 
-// An oversized element must not turn into a screen-covering ghost.
-func TestDragImageScalesDownWithTheElement(t *testing.T) {
+// The ghost must show the asset as it is: a wide screenshot stays wide, a poster
+// stays tall, and neither grows past the cap.
+func TestDragImageKeepsTheSourceAspectRatio(t *testing.T) {
 	initTestCom(t)
 	defer runtime.UnlockOSThread()
 
-	paths := writeTestFiles(t, t.TempDir(), "big.txt")
-	request := DragRequest{IDs: []string{"unused"}, GrabX: 500, GrabY: 250, Width: 1000, Height: 500}
-
-	image, err := dragImageBitmap(paths[0], request)
-	if err != nil {
-		t.Fatalf("dragImageBitmap failed: %v", err)
-	}
-	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
-
-	if image.SizeDragImage.CX > maxDragImageSide || image.SizeDragImage.CY > maxDragImageSide {
-		t.Errorf("drag image is %dx%d, want it capped at %d",
-			image.SizeDragImage.CX, image.SizeDragImage.CY, maxDragImageSide)
-	}
-	// Grabbed at the centre of a 2:1 element, so still centred in the ghost.
-	expectedX := int32(image.SizeDragImage.CX) / 2
-	expectedY := int32(image.SizeDragImage.CY) / 2
-	if image.PtOffset.X < expectedX-1 || image.PtOffset.X > expectedX+1 {
-		t.Errorf("drag image offset x = %d, want ~%d", image.PtOffset.X, expectedX)
-	}
-	if image.PtOffset.Y < expectedY-1 || image.PtOffset.Y > expectedY+1 {
-		t.Errorf("drag image offset y = %d, want ~%d", image.PtOffset.Y, expectedY)
-	}
-}
-
-// A real asset image comes back scaled into the element's box, which is the case
-// that matters for library screenshots.
-func TestDragImageFitsARealImageIntoTheElement(t *testing.T) {
-	initTestCom(t)
-	defer runtime.UnlockOSThread()
-
-	path := filepath.Join(t.TempDir(), "wide.png")
-	source := image.NewRGBA(image.Rect(0, 0, 1000, 600))
-	for x := range 1000 {
-		for y := range 600 {
-			source.Set(x, y, color.RGBA{R: uint8(x % 256), G: uint8(y % 256), B: 0x40, A: 0xFF})
-		}
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		t.Fatalf("failed to create %s: %v", path, err)
-	}
-	if err := png.Encode(file, source); err != nil {
-		file.Close()
-		t.Fatalf("failed to encode %s: %v", path, err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatalf("failed to close %s: %v", path, err)
+	dir := t.TempDir()
+	cases := []struct {
+		name           string
+		width, height  int
+		sourceAspect   float64
+		landscapeCheck bool
+	}{
+		{name: "wide.png", width: 1000, height: 600, sourceAspect: 1000.0 / 600.0, landscapeCheck: true},
+		{name: "tall.png", width: 600, height: 1000, sourceAspect: 600.0 / 1000.0},
 	}
 
-	request := DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120}
-	image, err := dragImageBitmap(path, request)
-	if err != nil {
-		t.Fatalf("dragImageBitmap failed: %v", err)
-	}
-	defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := writeTestPNG(t, dir, testCase.name, testCase.width, testCase.height)
+			// Grabbed a quarter into a 200x120 card.
+			request := DragRequest{IDs: []string{"unused"}, GrabX: 50, GrabY: 30, Width: 200, Height: 120}
 
-	var info w32.BITMAP
-	if n := w32.GetObject(w32.HGDIOBJ(image.HBmp), unsafe.Sizeof(info), unsafe.Pointer(&info)); n == 0 {
-		t.Fatal("GetObject returned no bitmap information")
-	}
-	if info.BmWidth <= 0 || info.BmHeight <= 0 {
-		t.Fatalf("drag image bitmap is %dx%d", info.BmWidth, info.BmHeight)
-	}
-	// The shell serves a cached thumbnail at its own standard size (256px here)
-	// even for a smaller box, so the bound that has to hold is the drag image cap.
-	if info.BmWidth > maxDragImageSide || info.BmHeight > maxDragImageSide {
-		t.Errorf("drag image is %dx%d, want it inside the %dpx cap",
-			info.BmWidth, info.BmHeight, maxDragImageSide)
-	}
-	// A 1000x600 source must not come back distorted.
-	if ratio := float64(info.BmWidth) / float64(info.BmHeight); math.Abs(ratio-1000.0/600.0) > 0.02 {
-		t.Errorf("drag image is %dx%d, want the source's 1000x600 aspect", info.BmWidth, info.BmHeight)
-	}
-	// Grab offset 50,30 of 200,120 is a quarter/quarter into the element.
-	wantX := int32(float64(info.BmWidth) * 0.25)
-	wantY := int32(float64(info.BmHeight) * 0.25)
-	if image.PtOffset.X < wantX-1 || image.PtOffset.X > wantX+1 || image.PtOffset.Y < wantY-1 || image.PtOffset.Y > wantY+1 {
-		t.Errorf("drag image offset is %d,%d, want ~%d,%d",
-			image.PtOffset.X, image.PtOffset.Y, wantX, wantY)
+			image, err := dragImageBitmap(path, request)
+			if err != nil {
+				t.Fatalf("dragImageBitmap failed: %v", err)
+			}
+			defer w32.DeleteObject(w32.HGDIOBJ(image.HBmp))
+
+			assertWithinCap(t, image)
+
+			aspect := float64(image.SizeDragImage.CX) / float64(image.SizeDragImage.CY)
+			if math.Abs(aspect-testCase.sourceAspect) > 0.02 {
+				t.Errorf("drag image is %dx%d (aspect %.3f), want the source's %.3f",
+					image.SizeDragImage.CX, image.SizeDragImage.CY, aspect, testCase.sourceAspect)
+			}
+			if testCase.landscapeCheck && image.SizeDragImage.CX <= image.SizeDragImage.CY {
+				t.Errorf("drag image is %dx%d, want it wider than tall",
+					image.SizeDragImage.CX, image.SizeDragImage.CY)
+			}
+			if !testCase.landscapeCheck && image.SizeDragImage.CY <= image.SizeDragImage.CX {
+				t.Errorf("drag image is %dx%d, want it taller than wide",
+					image.SizeDragImage.CX, image.SizeDragImage.CY)
+			}
+
+			// A grab a quarter into the element stays a quarter into the ghost.
+			wantX := int32(float64(image.SizeDragImage.CX) * 0.25)
+			wantY := int32(float64(image.SizeDragImage.CY) * 0.25)
+			if image.PtOffset.X < wantX-1 || image.PtOffset.X > wantX+1 || image.PtOffset.Y < wantY-1 || image.PtOffset.Y > wantY+1 {
+				t.Errorf("drag image offset is %d,%d, want ~%d,%d",
+					image.PtOffset.X, image.PtOffset.Y, wantX, wantY)
+			}
+		})
 	}
 }
 

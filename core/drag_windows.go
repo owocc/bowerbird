@@ -151,12 +151,17 @@ func dropSourceGiveFeedback(this, effect uintptr) uintptr { return dragdropSUseD
 // what the HTML5 drag we cancel would have shown. To keep that feedback we ask
 // the shell for the image it would draw (thumbnail for images, file-type icon
 // otherwise) and hand it to IDragSourceHelper, so the bitmap follows the cursor.
+//
+// The bitmap is requested inside a square cap: the shell then fits the content
+// into it at the content's own aspect ratio (a large image is scaled down, a
+// small one keeps its natural size, an icon stays square) instead of stretching
+// it to the element's box.
 const (
-	siigbfResizeToFit  = 0x0
-	siigbfBiggerSizeOK = 0x01
-	// maxDragImageSide caps the ghost; a huge gallery card must not turn into a
-	// full-screen image.
-	maxDragImageSide = 384
+	siigbfResizeToFit = 0x0
+	// maxDragImageWidth/Height bound the ghost on both axes, so a wide screenshot
+	// or a tall poster can never cover the screen.
+	maxDragImageWidth  = 256
+	maxDragImageHeight = 256
 )
 
 // IShellItemImageFactory: three IUnknown slots, then GetImage.
@@ -201,32 +206,18 @@ func releaseComPointer(object unsafe.Pointer) {
 	(*w32.IUnknown)(object).Vtbl.CallRelease(object)
 }
 
-// dragImageBitmap asks the shell for the bitmap it would draw for path and
-// returns a drag image whose pointer offset matches the bitmap it actually got.
+// dragImageBitmap asks the shell for the bitmap it would draw for path, bounded
+// by maxDragImageWidth x maxDragImageHeight and keeping the content's own aspect
+// ratio, and returns a drag image whose pointer offset matches the bitmap it
+// actually got.
 //
 // The shell does not promise the size it hands back: a large image is scaled down
-// to fit the requested box, a small one comes back at its natural size, and a
-// file-type icon comes back as a square of the box' longest side. The offset is
-// therefore derived from the measured bitmap rather than from the request, so the
-// ghost stays under the pointer whatever the shell decided to return.
+// to fit the box, a small one comes back at its natural size, and a file-type icon
+// comes back as a square of the box' longest side. The offset is therefore derived
+// from the measured bitmap rather than from the request, so the ghost stays under
+// the pointer whatever the shell decided to return.
 func dragImageBitmap(path string, request DragRequest) (shDragImage, error) {
 	var image shDragImage
-
-	width, height := request.Width, request.Height
-	if width <= 0 || height <= 0 {
-		width, height = 96, 96
-	}
-	// Scale the request down into the cap first, then the grab point with it.
-	if longest := max(width, height); longest > maxDragImageSide {
-		scale := float64(maxDragImageSide) / float64(longest)
-		width = int(float64(width) * scale)
-		height = int(float64(height) * scale)
-	}
-	grabX, grabY := request.GrabX, request.GrabY
-	if request.Width > 0 && request.Height > 0 {
-		grabX = int(float64(request.GrabX) * float64(width) / float64(request.Width))
-		grabY = int(float64(request.GrabY) * float64(height) / float64(request.Height))
-	}
 
 	pathPtr, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
@@ -247,13 +238,14 @@ func dragImageBitmap(path string, request DragRequest) (shDragImage, error) {
 
 	// SIZE is eight bytes, so the x64 ABI passes it in a single register rather
 	// than through a pointer.
-	packedSize := uintptr(uint32(int32(width))) | uintptr(uint32(int32(height)))<<32
+	box := w32.SIZE{CX: maxDragImageWidth, CY: maxDragImageHeight}
+	packedSize := uintptr(uint32(box.CX)) | uintptr(uint32(box.CY))<<32
 
 	var bitmap uintptr
 	hr, _, _ = (*shellItemImageFactory)(factory).vtbl.getImage.Call(
 		uintptr(factory),
 		packedSize,
-		siigbfResizeToFit|siigbfBiggerSizeOK,
+		siigbfResizeToFit,
 		uintptr(unsafe.Pointer(&bitmap)),
 	)
 	if int32(hr) < 0 || bitmap == 0 {
@@ -267,16 +259,22 @@ func dragImageBitmap(path string, request DragRequest) (shDragImage, error) {
 	}
 
 	image.SizeDragImage = w32.SIZE{CX: info.BmWidth, CY: info.BmHeight}
+
+	// Where the pointer sits inside the grabbed element, expressed as a fraction
+	// of it, then applied to the bitmap - which has a different size and aspect, so
+	// a grabbed centre stays a centre. Unknown element geometry means "centre".
+	ratioX, ratioY := 0.5, 0.5
+	if request.Width > 0 && request.Height > 0 {
+		ratioX = float64(request.GrabX) / float64(request.Width)
+		ratioY = float64(request.GrabY) / float64(request.Height)
+	}
 	image.PtOffset = w32.POINT{
-		X: int32(float64(grabX) * float64(info.BmWidth) / float64(width)),
-		Y: int32(float64(grabY) * float64(info.BmHeight) / float64(height)),
+		X: int32(ratioX * float64(image.SizeDragImage.CX)),
+		Y: int32(ratioY * float64(image.SizeDragImage.CY)),
 	}
-	if image.PtOffset.X >= image.SizeDragImage.CX {
-		image.PtOffset.X = image.SizeDragImage.CX - 1
-	}
-	if image.PtOffset.Y >= image.SizeDragImage.CY {
-		image.PtOffset.Y = image.SizeDragImage.CY - 1
-	}
+	image.PtOffset.X = min(max(image.PtOffset.X, 0), image.SizeDragImage.CX-1)
+	image.PtOffset.Y = min(max(image.PtOffset.Y, 0), image.SizeDragImage.CY-1)
+
 	image.HBmp = w32.HBITMAP(bitmap)
 	return image, nil
 }
