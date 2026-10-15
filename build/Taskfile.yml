@@ -191,17 +191,39 @@ tasks:
       - wails3 generate bindings -f '{{.BUILD_FLAGS}}' -clean=true{{if eq .OBFUSCATED "true"}} -obfuscated{{end}} -ts -i
 
   generate:icons:
-    summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
+    summary: Generates Windows `.ico` and Mac `.icns` from `appicon.png` (prefers ImageMagick + `iconutil` when available, falling back to `wails3 generate icons`).
     run: once
     dir: build
     sources:
       - "appicon.png"
-      - "appicon.icon"
     generates:
       - "darwin/icons.icns"
       - "windows/icon.ico"
     cmds:
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
+      - |
+        export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+        if command -v magick >/dev/null 2>&1; then
+          TMP_DIR=$(mktemp -d)
+          if command -v iconutil >/dev/null 2>&1; then
+            ICONSET="$TMP_DIR/icons.iconset"
+            mkdir -p "$ICONSET"
+            for spec in "16x16:16" "16x16@2x:32" "32x32:32" "32x32@2x:64" "128x128:128" "128x128@2x:256" "256x256:256" "256x256@2x:512" "512x512:512" "512x512@2x:1024"; do
+              name="${spec%%:*}"
+              sz="${spec##*:}"
+              magick appicon.png -filter Lanczos -resize "${sz}x${sz}" -strip "PNG32:$ICONSET/icon_${name}.png"
+            done
+            iconutil --convert icns "$ICONSET" --output darwin/icons.icns
+          else
+            wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+          fi
+          for sz in 16 24 32 48 64 128 256; do
+            magick appicon.png -filter Lanczos -resize "${sz}x${sz}" -strip "PNG32:$TMP_DIR/win_${sz}.png"
+          done
+          magick "$TMP_DIR/win_16.png" "$TMP_DIR/win_24.png" "$TMP_DIR/win_32.png" "$TMP_DIR/win_48.png" "$TMP_DIR/win_64.png" "$TMP_DIR/win_128.png" "$TMP_DIR/win_256.png" windows/icon.ico
+          rm -rf "$TMP_DIR"
+        else
+          wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+        fi
 
   dev:frontend:
     summary: Runs the frontend in development mode

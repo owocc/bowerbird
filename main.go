@@ -23,6 +23,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var appIcon []byte
+
 func init() {
 	// Register a custom event whose associated data type is string.
 	application.RegisterEvent[string]("time")
@@ -58,6 +61,7 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "bowerbird",
 		Description: "Bowerbird Asset Manager",
+		Icon:        appIcon,
 		Services: []application.Service{
 			application.NewService(&GreetService{}),
 			application.NewService(coreService),
