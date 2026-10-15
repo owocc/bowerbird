@@ -10,11 +10,12 @@ import { Button } from "@/components/ui/button";
 import { ZoomControls } from "@/components/ZoomControls";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
+import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import {
   previewRegistry,
+  createPreviewPluginHostAPI,
   type PreviewZoomController,
 } from "@/plugins/preview/registry";
-
 export interface UnifiedPreviewModalProps {
   open: boolean;
   mode: "inline" | "full-window";
@@ -24,6 +25,7 @@ export interface UnifiedPreviewModalProps {
   onIndexChange?: (item: Item) => void;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
+  onItemUpdated?: (updated: Item) => void;
 }
 
 /**
@@ -42,6 +44,7 @@ export function UnifiedPreviewModal({
   onIndexChange,
   sidebarOpen = true,
   onToggleSidebar,
+  onItemUpdated,
 }: UnifiedPreviewModalProps) {
   const { t } = useTranslation();
   const controllerRef = useRef<PreviewZoomController | null>(null);
@@ -79,16 +82,24 @@ export function UnifiedPreviewModal({
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" || e.code === "Escape") {
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      const inMediaControl = Boolean(
+        target?.closest(".plyr, input, button, select, textarea, [data-video-interactive]")
+      );
+      if (e.code === "Escape") {
         e.preventDefault();
         onClose();
-      } else if (e.code === "ArrowLeft") {
+      } else if (e.code === "Space" && !inMediaControl) {
+        e.preventDefault();
+        onClose();
+      } else if (e.code === "ArrowLeft" && !inMediaControl) {
         e.preventDefault();
         handlePrev();
-      } else if (e.code === "ArrowRight") {
+      } else if (e.code === "ArrowRight" && !inMediaControl) {
         e.preventDefault();
         handleNext();
-      } else if (e.key === "0") {
+      } else if (e.key === "0" && !inMediaControl) {
         e.preventDefault();
         controllerRef.current?.zoomToFit();
       }
@@ -118,6 +129,7 @@ export function UnifiedPreviewModal({
     return null;
   }
 
+  const hostApi = createPreviewPluginHostAPI(activeItem, onItemUpdated);
   const plugin = previewRegistry.resolve(activeItem);
   const PluginViewport = plugin.Viewport;
   const isInline = mode === "inline";
@@ -140,12 +152,11 @@ export function UnifiedPreviewModal({
           >
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               onClick={onClose}
-              className="size-7 rounded-lg text-muted-foreground hover:text-foreground shrink-0 wails-no-drag"
               title={t("preview.backTooltip")}
             >
-              <ArrowLeft className="size-4" />
+              <ArrowLeft />
             </Button>
 
             {items.length > 1 && (
@@ -155,9 +166,8 @@ export function UnifiedPreviewModal({
                   size="icon-xs"
                   onClick={handlePrev}
                   title={t("preview.previousTooltip")}
-                  className="size-6 text-muted-foreground hover:text-foreground rounded wails-no-drag"
                 >
-                  <ChevronLeft className="size-3.5" />
+                  <ChevronLeft />
                 </Button>
 
                 <span className="text-[11px] text-muted-foreground font-mono min-w-10 text-center select-none">
@@ -169,9 +179,8 @@ export function UnifiedPreviewModal({
                   size="icon-xs"
                   onClick={handleNext}
                   title={t("preview.nextTooltip")}
-                  className="size-6 text-muted-foreground hover:text-foreground rounded wails-no-drag"
                 >
-                  <ChevronRight className="size-3.5" />
+                  <ChevronRight />
                 </Button>
               </div>
             )}
@@ -194,65 +203,82 @@ export function UnifiedPreviewModal({
           <div className="flex items-center header-interactive-container wails-no-drag">
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               onClick={onClose}
               title={t("preview.closePreviewTooltip")}
-              className="size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted wails-no-drag"
             >
-              <X className="size-3.5" />
+              <X />
             </Button>
           </div>
         </header>
       ) : (
-        <div className="absolute top-4 right-4 z-40 header-interactive-container wails-no-drag">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={onClose}
-            title={t("preview.exitFullscreenTooltip")}
-            className="size-8 rounded-full bg-background/70 hover:bg-background text-foreground border border-border/60 shadow-lg backdrop-blur-md wails-no-drag"
-          >
-            <X className="size-4" />
-          </Button>
-        </div>
+        <header className="h-(--titlebar-height) px-3 flex items-center justify-between gap-4 shrink-0 bg-background/95 z-20 wails-no-drag">
+          <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
+
+          <div className="flex-1 h-full min-w-4 wails-drag" />
+
+          {plugin.supportsZoom && (
+            <ZoomControls
+              scale={scale}
+              onScaleChange={handleManualScaleChange}
+              onActualSize={handleActualSize}
+              onZoomToFit={handleZoomToFit}
+              className="max-w-xs justify-center header-interactive-container wails-no-drag"
+            />
+          )}
+
+          <div className="flex-1 h-full min-w-4 wails-drag" />
+
+          <div className="flex items-center header-interactive-container wails-no-drag">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              title={t("preview.exitFullscreenTooltip")}
+            >
+              <X />
+            </Button>
+          </div>
+        </header>
       )}
 
-      <div className="flex-1 w-full h-full relative overflow-hidden flex items-center justify-center">
+      <div className="flex-1 min-h-0 w-full relative overflow-hidden flex items-center justify-center">
         <PluginViewport
           item={activeItem}
           mode={mode}
           scale={scale}
           onScaleChange={setScale}
           controllerRef={controllerRef}
+          api={hostApi}
         />
       </div>
 
       {!isInline && items.length > 1 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 bg-background/85 hover:bg-background/95 backdrop-blur-md px-3 py-1 rounded-full border border-border/80 shadow-2xl transition-all header-interactive-container wails-no-drag">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={handlePrev}
-            title={t("preview.previousTooltip")}
-            className="size-7 rounded-full text-foreground hover:bg-muted"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
+        <footer className="w-full py-2 px-4 flex items-center justify-center shrink-0 z-20 wails-no-drag">
+          <div className="flex items-center gap-1.5 header-interactive-container wails-no-drag">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handlePrev}
+              title={t("preview.previousTooltip")}
+            >
+              <ChevronLeft />
+            </Button>
 
-          <span className="text-xs font-mono font-medium text-foreground px-2 min-w-14 text-center select-none">
-            {currentIndex >= 0 ? currentIndex + 1 : 1} / {items.length}
-          </span>
+            <span className="text-xs font-mono font-medium text-muted-foreground px-2 min-w-14 text-center select-none">
+              {currentIndex >= 0 ? currentIndex + 1 : 1} / {items.length}
+            </span>
 
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={handleNext}
-            title={t("preview.nextTooltip")}
-            className="size-7 rounded-full text-foreground hover:bg-muted"
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-        </div>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleNext}
+              title={t("preview.nextTooltip")}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        </footer>
       )}
     </div>
   );

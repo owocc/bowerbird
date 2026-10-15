@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -960,33 +961,21 @@ func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
 	return m.ImportFromBase64(filename, b64)
 }
 
-func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string, ext string) (int, int, bool, string, []string, *ImageMeta) {
-	if !IsImageExtension(ext) {
-		return 0, 0, false, "", []string{}, nil
-	}
-
-	file, err := os.Open(imagePath)
-	if err != nil {
-		return 0, 0, false, "", []string{}, nil
-	}
-	defer file.Close()
-
-	img, _, err := image.Decode(file)
-	if err != nil {
-		return 0, 0, false, "", []string{}, nil
-	}
-
+func encodeThumbnailAndExtractPalette(img image.Image, origW, origH int, itemDir, ext, filePath string) (int, int, bool, string, []string, *ImageMeta) {
 	bounds := img.Bounds()
-	origW := bounds.Dx()
-	origH := bounds.Dy()
-	if origW == 0 || origH == 0 {
+	if origW <= 0 {
+		origW = bounds.Dx()
+	}
+	if origH <= 0 {
+		origH = bounds.Dy()
+	}
+	if origW <= 0 || origH <= 0 {
 		return 0, 0, false, "", []string{}, nil
 	}
 
 	maxEdge := 480
 	targetW := origW
 	targetH := origH
-
 	if origW > maxEdge || origH > maxEdge {
 		if origW >= origH {
 			targetW = maxEdge
@@ -1006,7 +995,7 @@ func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string,
 	thumb := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
 	draw.BiLinear.Scale(thumb, thumb.Bounds(), img, bounds, draw.Over, nil)
 
-	dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, thumb, origW, origH, ext, imagePath)
+	dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, thumb, origW, origH, ext, filePath)
 
 	thumbFile, err := os.Create(filepath.Join(itemDir, "thumbnail.jpg"))
 	if err != nil {
@@ -1014,14 +1003,161 @@ func (m *LibraryManager) processImageThumbnail(imagePath string, itemDir string,
 	}
 	defer thumbFile.Close()
 
-	if err := jpeg.Encode(thumbFile, thumb, &jpeg.Options{Quality: 82}); err != nil {
+	if err := jpeg.Encode(thumbFile, thumb, &jpeg.Options{Quality: 84}); err != nil {
 		return origW, origH, false, dominantColor, palette, imgMeta
 	}
 
 	return origW, origH, true, dominantColor, palette, imgMeta
 }
 
-// backfillImageMetadata populates dominant_color, palette, and meta_json for existing image items
+func (m *LibraryManager) processImageThumbnail(mediaPath string, itemDir string, ext string) (int, int, bool, string, []string, *ImageMeta) {
+	if IsImageExtension(ext) {
+		file, err := os.Open(mediaPath)
+		if err != nil {
+			return 0, 0, false, "", []string{}, nil
+		}
+		defer file.Close()
+
+		img, _, err := image.Decode(file)
+		if err != nil {
+			return 0, 0, false, "", []string{}, nil
+		}
+		bounds := img.Bounds()
+		return encodeThumbnailAndExtractPalette(img, bounds.Dx(), bounds.Dy(), itemDir, ext, mediaPath)
+	}
+
+	if IsVideoExtension(ext) {
+		// 1. Check if a custom cover thumbnail already exists in itemDir
+		existingThumbPath := filepath.Join(itemDir, "thumbnail.jpg")
+		if tf, err := os.Open(existingThumbPath); err == nil {
+			img, _, decErr := image.Decode(tf)
+			_ = tf.Close()
+			if decErr == nil {
+				b := img.Bounds()
+				sampleW := min(b.Dx(), 128)
+				sampleH := min(b.Dy(), 128)
+				sample := image.NewRGBA(image.Rect(0, 0, max(1, sampleW), max(1, sampleH)))
+				draw.BiLinear.Scale(sample, sample.Bounds(), img, b, draw.Over, nil)
+				dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, sample, b.Dx(), b.Dy(), ext, mediaPath)
+				return b.Dx(), b.Dy(), true, dominantColor, palette, imgMeta
+			}
+		}
+
+		// 2. Extract embedded video cover artwork or first frame via native OS extractor
+		if img, vw, vh := ExtractNativeVideoFrame(mediaPath); img != nil {
+			return encodeThumbnailAndExtractPalette(img, vw, vh, itemDir, ext, mediaPath)
+		}
+	}
+
+	return 0, 0, false, "", []string{}, nil
+}
+
+// SaveItemThumbnail decodes a base64-encoded image (e.g., extracted video cover or first frame from a preview plugin),
+// saves it as thumbnail.jpg, runs perceptual color palette & metadata extraction, updates SQLite and metadata.json,
+// and returns the updated Item.
+func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, videoWidth int, videoHeight int) (*Item, error) {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	port := m.GetAssetServerPort()
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return nil, errors.New("no active library")
+	}
+
+	item, err := m.GetItem(itemID)
+	if err != nil || item == nil {
+		return nil, errors.New("item not found")
+	}
+
+	pureData := strings.TrimSpace(base64Data)
+	if idx := strings.Index(pureData, ","); idx != -1 {
+		pureData = pureData[idx+1:]
+	}
+	rawBytes, err := base64.StdEncoding.DecodeString(pureData)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base64 image data: %w", err)
+	}
+
+	img, _, err := image.Decode(bytes.NewReader(rawBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode thumbnail image: %w", err)
+	}
+
+	itemDir := filepath.Join(active.Path, "items", item.ID)
+	if err := ensureItemDir(itemDir); err != nil {
+		return nil, err
+	}
+	origPath := filepath.Join(itemDir, item.Filename)
+
+	origW := videoWidth
+	origH := videoHeight
+	if origW <= 0 || origH <= 0 {
+		b := img.Bounds()
+		origW = b.Dx()
+		origH = b.Dy()
+	}
+
+	w, h, hasThumb, dominantColor, palette, imgMeta := encodeThumbnailAndExtractPalette(
+		img,
+		origW,
+		origH,
+		itemDir,
+		item.Extension,
+		origPath,
+	)
+	if !hasThumb {
+		return nil, errors.New("failed to write thumbnail.jpg")
+	}
+
+	paletteStr := strings.Join(palette, ",")
+	metaJSONBytes, _ := json.Marshal(imgMeta)
+	metaJSONStr := ""
+	if imgMeta != nil {
+		metaJSONStr = string(metaJSONBytes)
+	}
+
+	_, err = db.Exec(
+		`UPDATE items SET width = ?, height = ?, has_thumbnail = 1, dominant_color = ?, palette = ?, meta_json = ? WHERE id = ? OR hex = ?`,
+		w, h, dominantColor, paletteStr, metaJSONStr, item.ID, item.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	metaPath := filepath.Join(itemDir, "metadata.json")
+	if raw, rErr := os.ReadFile(metaPath); rErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(raw, &meta) == nil {
+			meta.Width = w
+			meta.Height = h
+			meta.HasThumbnail = true
+			meta.DominantColor = dominantColor
+			meta.Palette = palette
+			meta.Meta = imgMeta
+			if out, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+				_ = os.WriteFile(metaPath, out, 0644)
+			}
+		}
+	}
+
+	item.Width = w
+	item.Height = h
+	item.HasThumbnail = true
+	item.DominantColor = dominantColor
+	item.Palette = palette
+	item.Meta = imgMeta
+	m.populateItemPaths(item, active.Path, port)
+
+	if m.app != nil {
+		m.app.Event.Emit("library-items-updated", 1)
+	}
+
+	return item, nil
+}
+
+// backfillImageMetadata populates dominant_color, palette, thumbnail, and meta_json for existing image and video items
 // that were imported before extended metadata extraction was introduced.
 func (m *LibraryManager) backfillImageMetadata(libPath string) {
 	m.mu.RLock()
@@ -1032,7 +1168,7 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 		return
 	}
 
-	rows, err := db.Query("SELECT id, filename, extension FROM items WHERE COALESCE(dominant_color, '') = ''")
+	rows, err := db.Query("SELECT id, filename, extension, COALESCE(has_thumbnail, 0) FROM items WHERE COALESCE(dominant_color, '') = '' OR COALESCE(has_thumbnail, 0) = 0")
 	if err != nil {
 		return
 	}
@@ -1040,11 +1176,12 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 		id       string
 		filename string
 		ext      string
+		hasThumb int
 	}
 	var list []pendingItem
 	for rows.Next() {
 		var p pendingItem
-		if rows.Scan(&p.id, &p.filename, &p.ext) == nil && IsImageExtension(p.ext) {
+		if rows.Scan(&p.id, &p.filename, &p.ext, &p.hasThumb) == nil && (IsImageExtension(p.ext) || IsVideoExtension(p.ext)) {
 			list = append(list, p)
 		}
 	}
@@ -1066,36 +1203,19 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 
 		itemDir := filepath.Join(libPath, "items", p.id)
 		origPath := filepath.Join(itemDir, p.filename)
-		f, err := os.Open(origPath)
-		if err != nil {
+		w, h, hasThumb, dominantColor, palette, imgMeta := m.processImageThumbnail(origPath, itemDir, p.ext)
+		if dominantColor == "" && !hasThumb {
 			continue
 		}
-		img, _, decErr := image.Decode(f)
-		_ = f.Close()
-		if decErr != nil {
-			continue
-		}
-		bounds := img.Bounds()
-		origW := bounds.Dx()
-		origH := bounds.Dy()
-		if origW <= 0 || origH <= 0 {
-			continue
-		}
-
-		sampleW := min(origW, 128)
-		sampleH := min(origH, 128)
-		sample := image.NewRGBA(image.Rect(0, 0, sampleW, sampleH))
-		draw.BiLinear.Scale(sample, sample.Bounds(), img, bounds, draw.Over, nil)
-
-		dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, sample, origW, origH, p.ext, origPath)
-		if dominantColor == "" {
-			continue
+		hasThumbInt := p.hasThumb
+		if hasThumb {
+			hasThumbInt = 1
 		}
 		paletteStr := strings.Join(palette, ",")
 		metaBytes, _ := json.Marshal(imgMeta)
 		_, err = currDB.Exec(
-			"UPDATE items SET dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?",
-			dominantColor, paletteStr, string(metaBytes), p.id,
+			"UPDATE items SET width = CASE WHEN ? > 0 THEN ? ELSE width END, height = CASE WHEN ? > 0 THEN ? ELSE height END, has_thumbnail = ?, dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?",
+			w, w, h, h, hasThumbInt, dominantColor, paletteStr, string(metaBytes), p.id,
 		)
 		if err == nil {
 			updatedCount++
@@ -1103,6 +1223,13 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 			if raw, rErr := os.ReadFile(metaPath); rErr == nil {
 				var meta ItemMetadata
 				if json.Unmarshal(raw, &meta) == nil {
+					if w > 0 && h > 0 {
+						meta.Width = w
+						meta.Height = h
+					}
+					if hasThumb {
+						meta.HasThumbnail = true
+					}
 					meta.DominantColor = dominantColor
 					meta.Palette = palette
 					meta.Meta = imgMeta
@@ -1222,6 +1349,15 @@ func IsImageExtension(ext string) bool {
 	}
 }
 
+func IsVideoExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case "mp4", "mov", "qt", "webm", "mkv", "avi", "m4v", "flv", "f4v", "mts", "m2ts", "m3u8", "m3u", "mpd", "ogv", "ogm", "3gp", "3g2", "wmv", "asf", "mpg", "mpeg", "m2v", "vob", "rmvb", "rm":
+		return true
+	default:
+		return false
+	}
+}
+
 func DetectMimeType(filePath string, ext string) string {
 	switch strings.ToLower(ext) {
 	case "png":
@@ -1236,10 +1372,54 @@ func DetectMimeType(filePath string, ext string) string {
 		return "image/svg+xml"
 	case "pdf":
 		return "application/pdf"
-	case "mp4":
+	case "mp4", "m4v", "f4v", "m4s":
 		return "video/mp4"
-	case "mov":
+	case "mov", "qt":
 		return "video/quicktime"
+	case "webm":
+		return "video/webm"
+	case "mkv":
+		return "video/x-matroska"
+	case "avi":
+		return "video/x-msvideo"
+	case "flv":
+		return "video/x-flv"
+	case "mts", "m2ts":
+		return "video/mp2t"
+	case "ts":
+		if f, err := os.Open(filePath); err == nil {
+			defer f.Close()
+			buf := make([]byte, 376)
+			if n, _ := f.Read(buf); n >= 188 && buf[0] == 0x47 && (n < 189 || buf[188] == 0x47) {
+				return "video/mp2t"
+			} else if n > 0 {
+				for i := 0; i < n; i++ {
+					if buf[i] == 0 {
+						return "video/mp2t"
+					}
+				}
+				return "text/typescript"
+			}
+		}
+		return "text/typescript"
+	case "m3u8", "m3u":
+		return "application/vnd.apple.mpegurl"
+	case "mpd":
+		return "application/dash+xml"
+	case "ogv", "ogm":
+		return "video/ogg"
+	case "3gp":
+		return "video/3gpp"
+	case "3g2":
+		return "video/3gpp2"
+	case "wmv":
+		return "video/x-ms-wmv"
+	case "asf":
+		return "video/x-ms-asf"
+	case "mpg", "mpeg", "m2v", "vob":
+		return "video/mpeg"
+	case "rmvb", "rm":
+		return "application/vnd.rn-realmedia-vbr"
 	case "mp3":
 		return "audio/mpeg"
 	case "wav":

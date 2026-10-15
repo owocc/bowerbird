@@ -253,8 +253,8 @@ export const ImagePreviewPlugin: PreviewPlugin = {
   extensions: IMAGE_EXTENSIONS,
   mimePrefixes: ["image/"],
   match: (item) =>
-    item.hasThumbnail ||
-    IMAGE_EXTENSIONS.includes((item.extension || "").toLowerCase()),
+    IMAGE_EXTENSIONS.includes((item.extension || "").toLowerCase()) ||
+    (item.mimeType || "").toLowerCase().startsWith("image/"),
   supportsZoom: true,
   Viewport: ImageViewport,
   InspectorPreview: ImageInspectorPreview,

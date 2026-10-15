@@ -1,12 +1,17 @@
 package core_test
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"strings"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
+	"net/http"
 
 	"bowerbird/core"
 )
@@ -292,5 +297,131 @@ func TestImagePaletteAndMetadataExtraction(t *testing.T) {
 	}
 	if fetched.Meta == nil || fetched.Meta.AspectRatio != "16:9" {
 		t.Errorf("GetItem Meta was not persisted properly: %+v", fetched.Meta)
+	}
+}
+
+func TestVideoMimeTypesAndAssetStreamingCORS(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+	mgr := core.NewLibraryManager()
+	t.Cleanup(func() { _ = mgr.CloseLibrary() })
+
+	if _, err := mgr.CreateLibrary(tempDir, "VideoTestLib"); err != nil {
+		t.Fatalf("CreateLibrary failed: %v", err)
+	}
+
+	// 1. Verify comprehensive video MIME detection and .ts disambiguation
+	cases := []struct {
+		name     string
+		payload  []byte
+		wantMime string
+	}{
+		{"clip.mp4", []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p'}, "video/mp4"},
+		{"movie.mkv", []byte{0x1a, 0x45, 0xdf, 0xa3}, "video/x-matroska"},
+		{"stream.flv", []byte{'F', 'L', 'V', 0x01}, "video/x-flv"},
+		{"playlist.m3u8", []byte("#EXTM3U\n"), "application/vnd.apple.mpegurl"},
+		{"manifest.mpd", []byte("<MPD></MPD>"), "application/dash+xml"},
+		{"camera.mts", []byte{0x47, 0x40, 0x00, 0x10}, "video/mp2t"},
+		// MPEG-TS packet starts with 0x47 sync byte every 188 bytes
+		{"broadcast.ts", append(append([]byte{0x47}, make([]byte, 187)...), 0x47, 0x00), "video/mp2t"},
+		// TypeScript source file with .ts extension
+		{"component.ts", []byte("export const x: number = 42;\n"), "text/typescript"},
+	}
+
+	for _, tc := range cases {
+		p := filepath.Join(tempDir, tc.name)
+		if err := os.WriteFile(p, tc.payload, 0o644); err != nil {
+			t.Fatalf("write %s: %v", tc.name, err)
+		}
+		items, err := mgr.ImportFiles([]string{p})
+		if err != nil || len(items) != 1 {
+			t.Fatalf("ImportFiles(%s) failed: %v", tc.name, err)
+		}
+		if items[0].MimeType != tc.wantMime {
+			t.Errorf("%s: got mimeType=%q, want %q", tc.name, items[0].MimeType, tc.wantMime)
+		}
+	}
+
+	// 2. Verify AssetServer Range & CORS headers for MSE players (hls.js / mpegts.js / dash.js)
+	allItems, err := mgr.GetItems("", "imported_desc")
+	if err != nil || len(allItems) == 0 {
+		t.Fatalf("GetItems failed: %v", err)
+	}
+	req, err := http.NewRequest("GET", allItems[0].OriginalURL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Range", "bytes=0-3")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET OriginalURL failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusPartialContent {
+		t.Errorf("Expected 206 Partial Content for Range request, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Errorf("Expected Access-Control-Allow-Origin=*, got %q", got)
+	}
+
+	// 3. Verify SaveItemThumbnail API (via POST /asset/item/<id>/thumbnail) saves cover,
+	// extracts dominantColor + 6-color palette, and updates SQLite + metadata.json for video color search
+	var targetVideo core.Item
+	for _, it := range allItems {
+		if it.Extension == "mp4" {
+			targetVideo = it
+			break
+		}
+	}
+
+	coverImg := image.NewRGBA(image.Rect(0, 0, 320, 180))
+	for y := range 180 {
+		for x := range 320 {
+			if x < 220 {
+				coverImg.SetRGBA(x, y, color.RGBA{R: 34, G: 197, B: 94, A: 255}) // Green (#22C55E)
+			} else {
+				coverImg.SetRGBA(x, y, color.RGBA{R: 239, G: 68, B: 68, A: 255}) // Red (#EF4444)
+			}
+		}
+	}
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, coverImg); err != nil {
+		t.Fatalf("png.Encode cover: %v", err)
+	}
+	b64DataUrl := "data:image/png;base64," + base64.StdEncoding.EncodeToString(pngBuf.Bytes())
+
+	postBody, _ := json.Marshal(map[string]any{
+		"base64Data": b64DataUrl,
+		"width":      1920,
+		"height":     1080,
+	})
+	postResp, err := http.Post(targetVideo.ThumbnailURL, "application/json", bytes.NewReader(postBody))
+	if err != nil {
+		t.Fatalf("POST ThumbnailURL failed: %v", err)
+	}
+	defer postResp.Body.Close()
+	if postResp.StatusCode != http.StatusOK {
+		t.Fatalf("Expected 200 OK from POST ThumbnailURL, got %d", postResp.StatusCode)
+	}
+
+	updatedVideo, err := mgr.GetItem(targetVideo.ID)
+	if err != nil || updatedVideo == nil {
+		t.Fatalf("GetItem after SaveItemThumbnail failed: %v", err)
+	}
+	if !updatedVideo.HasThumbnail {
+		t.Errorf("Expected HasThumbnail=true on video after SaveItemThumbnail")
+	}
+	if updatedVideo.Width != 1920 || updatedVideo.Height != 1080 {
+		t.Errorf("Expected video dimensions 1920x1080, got %dx%d", updatedVideo.Width, updatedVideo.Height)
+	}
+	if !strings.HasPrefix(updatedVideo.DominantColor, "#") {
+		t.Errorf("Expected extracted DominantColor hex for video, got %q", updatedVideo.DominantColor)
+	}
+	if len(updatedVideo.Palette) < 2 {
+		t.Errorf("Expected extracted Palette for video color search, got %v", updatedVideo.Palette)
+	}
+	if updatedVideo.Meta == nil || updatedVideo.Meta.AspectRatio != "16:9" || updatedVideo.Meta.Orientation != "landscape" {
+		t.Errorf("Expected video ImageMeta 16:9 landscape, got %+v", updatedVideo.Meta)
 	}
 }

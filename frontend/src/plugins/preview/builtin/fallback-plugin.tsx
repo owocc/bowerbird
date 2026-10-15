@@ -24,7 +24,7 @@ function FallbackViewport({ item }: PreviewViewportProps) {
     setIconLoadError(false);
   }, [item.id]);
 
-  const category = getFileCategory(item.extension);
+  const category = getFileCategory(item.extension, item.mimeType);
   const serverOrigin = item.originalUrl
     ? item.originalUrl.replace(/\/asset\/item\/.*$/, "")
     : item.thumbnailUrl

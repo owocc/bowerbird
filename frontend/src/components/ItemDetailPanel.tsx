@@ -18,7 +18,10 @@ import {
   AccordionTrigger,
   AccordionContent,
 } from "@/components/ui/accordion";
-import { previewRegistry } from "@/plugins/preview/registry";
+import {
+  previewRegistry,
+  createPreviewPluginHostAPI,
+} from "@/plugins/preview/registry";
 import type {
   Item,
   Folder,
@@ -57,6 +60,7 @@ export interface ItemDetailPanelProps {
   onToggleFavorite?: () => void;
   onFolderUpdated?: () => void;
   onTagsUpdated?: () => void;
+  onItemUpdated?: (updated: Item) => void;
 }
 
 export function ItemDetailPanel({
@@ -71,6 +75,7 @@ export function ItemDetailPanel({
   onPreview,
   onFolderUpdated,
   onTagsUpdated,
+  onItemUpdated,
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
   const [copiedPath, setCopiedPath] = useState(false);
@@ -211,6 +216,10 @@ export function ItemDetailPanel({
 
   const plugin = previewRegistry.resolve(item);
   const PluginInspectorPreview = plugin.InspectorPreview;
+  const hostApi = createPreviewPluginHostAPI(item, (updated) => {
+    onItemUpdated?.(updated);
+    onFolderUpdated?.();
+  });
 
   const paletteColors =
     item.palette && item.palette.length > 0
@@ -236,7 +245,7 @@ export function ItemDetailPanel({
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}
         <div className="w-full flex items-center justify-center">
-          <PluginInspectorPreview item={item} onOpenPreview={onPreview} />
+          <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
         </div>
 
         {/* Dominant Color Palette Swatches (if extracted) */}

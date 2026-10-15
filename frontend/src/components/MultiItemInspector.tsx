@@ -83,7 +83,7 @@ export function MultiItemInspector({
               if (item.width && item.height && item.width > 0 && item.height > 0) {
                 return Math.max(0.55, Math.min(2.1, item.width / item.height));
               }
-              const category = getFileCategory(item.extension);
+              const category = getFileCategory(item.extension, item.mimeType);
               if (category === "document") return 0.75;
               if (category === "video") return 1.77;
               if (category === "audio") return 1.0;

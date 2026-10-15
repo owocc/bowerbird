@@ -194,7 +194,27 @@
     "exitFullscreenTooltip": "Exit Full Screen Preview (Space / Esc)",
     "fileAlt": "file",
     "nextTooltip": "Next (→)",
-    "previousTooltip": "Previous (←)"
+    "previousTooltip": "Previous (←)",
+    "video": {
+      "enterFullscreen": "Enter Full Screen (F)",
+      "exitFullscreen": "Exit Full Screen (F)",
+      "externalHint": "This container or codec may require an external player.",
+      "forward5s": "Forward 5s (L)",
+      "loopOff": "Loop: Off",
+      "loopOn": "Loop: On",
+      "mute": "Mute (M)",
+      "openDefaultApp": "Open in Default Player",
+      "pause": "Pause (K)",
+      "play": "Play (K)",
+      "playbackError": "Unable to decode video stream",
+      "progress": "{{current}} / {{duration}}",
+      "retryNative": "Retry Native Decoder",
+      "revealInFinder": "Reveal File",
+      "rewind5s": "Rewind 5s (J)",
+      "speed": "Playback Speed: {{speed}}x",
+      "unmute": "Unmute (M)",
+      "volume": "Volume: {{volume}}%"
+    }
   },
   "settings": {
     "appearance": {

@@ -382,3 +382,10 @@ func (s *Service) OpenWithDefaultApp(id string) error {
 	}
 	return s.mgr.OpenWithDefaultApp(id)
 }
+
+func (s *Service) SaveItemThumbnail(itemID string, base64Data string, videoWidth int, videoHeight int) (*Item, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.SaveItemThumbnail(itemID, base64Data, videoWidth, videoHeight)
+}

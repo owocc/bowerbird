@@ -113,11 +113,12 @@ export function JustifiedGallery({
     const MAX_RATIO = 3.5;
 
     const getItemRatio = (item: Item): number => {
-      const category = getFileCategory(item.extension);
-      const isImage = category === "image";
+      const category = getFileCategory(item.extension, item.mimeType);
+      const hasVisualRatio =
+        category === "image" || (category === "video" && item.hasThumbnail);
 
       if (
-        !isImage ||
+        !hasVisualRatio ||
         !item.width ||
         !item.height ||
         item.width <= 0 ||

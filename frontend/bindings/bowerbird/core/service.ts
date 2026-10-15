@@ -219,6 +219,10 @@ export function RevealInFinder(id: string): $CancellablePromise<void> {
     return $Call.ByID(1659303366, id);
 }
 
+export function SaveItemThumbnail(itemID: string, base64Data: string, videoWidth: number, videoHeight: number): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(446346362, itemID, base64Data, videoWidth, videoHeight);
+}
+
 export function SelectDirectory(): $CancellablePromise<string> {
     return $Call.ByID(3643486703);
 }

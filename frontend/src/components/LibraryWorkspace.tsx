@@ -423,7 +423,7 @@ export function LibraryWorkspace({
 
       // 1. Category / Type filter
       if (categoryFilter !== "all") {
-        if (getFileCategory(item.extension) !== categoryFilter) {
+        if (getFileCategory(item.extension, item.mimeType) !== categoryFilter) {
           return false;
         }
       }
@@ -1414,6 +1414,7 @@ export function LibraryWorkspace({
                   }}
                   sidebarOpen={sidebarOpen}
                   onToggleSidebar={() => setSidebarOpen(true)}
+                  onItemUpdated={refreshItems}
                 />
               )}
             </main>
@@ -1475,6 +1476,7 @@ export function LibraryWorkspace({
                     }
                     onFolderUpdated={handleFullRefresh}
                     onTagsUpdated={handleFullRefresh}
+                    onItemUpdated={refreshItems}
                   />
                 )}
               </ResizablePanel>
@@ -1495,6 +1497,7 @@ export function LibraryWorkspace({
           }}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(true)}
+          onItemUpdated={refreshItems}
         />
 
         {/* ENHANCED COMMAND CONTEXT MENU */}

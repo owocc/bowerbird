@@ -68,7 +68,7 @@ All file previews—both in the main/fullscreen modal (`UnifiedPreviewModal`) an
 | Plugin ID | Priority | Handled Formats | Capabilities |
 | :--- | :--- | :--- | :--- |
 | `builtin.image` | `100` | `png, jpg, jpeg, webp, gif, bmp, svg, ico, tiff, avif` | Damped trackpad zoom (`25%`–`800%`), 2-finger pan when zoomed in, interactive MiniMap (`>125%`), borderless inspector preview |
-| `builtin.video` | `90` | `mp4, mov, webm, mkv, avi, m4v` | Streaming HTML5 video player in modal & compact player in inspector |
+| `builtin.video` | `90` | `mp4, mov, qt, webm, mkv, avi, m4v, flv, f4v, ts, mts, m2ts, m3u8, m3u, mpd, ogv, ogm, 3gp, 3g2, wmv, asf, mpg, mpeg, m2v, vob, rmvb, rm` | Multi-engine player (**hls.js** + **mpegts.js** + **dash.js** + HTML5 Native), standalone shadcn UI bottom control bar (`0.25x`–`8x` speed menu, hover volume slider, ±5s seek, loop, fullscreen), cover/first-frame color palette extraction, and cover-only inspector preview |
 | `builtin.audio` | `85` | `mp3, wav, flac, aac, ogg, m4a, opus` | Audio player with artwork/icon header and native playback controls |
 | `builtin.document` | `70` | `pdf, txt, md, json, yaml, xml, csv, js, ts, go, py, rs, css, html, sql` | Embedded PDF viewer and live text/code preview |
 | `builtin.fallback` | `0` | `*` (catch-all fallback) | Native OS file icon rendering via `/asset/icon/<ext>` |

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"encoding/json"
+	"io"
 	"errors"
 	"fmt"
 	"log"
@@ -50,6 +52,15 @@ func (s *AssetServer) getPort() int {
 }
 
 func (s *AssetServer) handleAssetRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type, Accept")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/asset/item/"), "/")
 	if len(parts) < 2 {
 		http.NotFound(w, r)
@@ -66,6 +77,30 @@ func (s *AssetServer) handleAssetRequest(w http.ResponseWriter, r *http.Request)
 
 	itemDir := filepath.Join(active.Path, "items", itemID)
 	if assetKind == "thumbnail" {
+		if r.Method == http.MethodPost {
+			var req struct {
+				Base64Data string `json:"base64Data"`
+				Width      int    `json:"width"`
+				Height     int    `json:"height"`
+			}
+			body, err := io.ReadAll(io.LimitReader(r.Body, 16*1024*1024))
+			if err != nil {
+				http.Error(w, "failed to read request body", http.StatusBadRequest)
+				return
+			}
+			if err := json.Unmarshal(body, &req); err != nil || strings.TrimSpace(req.Base64Data) == "" {
+				http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+				return
+			}
+			updated, err := s.manager.SaveItemThumbnail(itemID, req.Base64Data, req.Width, req.Height)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(updated)
+			return
+		}
 		thumbPath := filepath.Join(itemDir, "thumbnail.jpg")
 		if _, err := os.Stat(thumbPath); err != nil {
 			item, err := s.manager.GetItem(itemID)
@@ -90,14 +125,19 @@ func (s *AssetServer) handleAssetRequest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	originalPath := filepath.Join(itemDir, item.Filename)
-	if item.MimeType != "" {
-		w.Header().Set("Content-Type", item.MimeType)
+	mimeType := item.MimeType
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		mimeType = DetectMimeType(originalPath, item.Extension)
+	}
+	if mimeType != "" {
+		w.Header().Set("Content-Type", mimeType)
 	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, originalPath)
 }
 
 func (s *AssetServer) handleDownloadRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	itemID := strings.TrimPrefix(r.URL.Path, "/asset/download/")
 	active := s.manager.GetActiveLibrary()
 	if active == nil {
@@ -118,6 +158,7 @@ func (s *AssetServer) handleDownloadRequest(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *AssetServer) handleSystemIconRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	ext := strings.TrimPrefix(r.URL.Path, "/asset/icon/")
 	ext = strings.TrimPrefix(ext, ".")
 	if ext == "" {

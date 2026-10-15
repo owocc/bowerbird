@@ -19,12 +19,48 @@ export function formatDate(timestampSeconds: number): string {
   });
 }
 
-export function getFileCategory(ext: string): "image" | "video" | "audio" | "document" | "archive" | "other" {
-  const e = ext.toLowerCase();
-  if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "tiff", "ico"].includes(e)) {
+export function getFileCategory(
+  ext: string,
+  mimeType?: string
+): "image" | "video" | "audio" | "document" | "archive" | "other" {
+  const e = (ext || "").toLowerCase();
+  const m = (mimeType || "").toLowerCase();
+  if (e === "ts") {
+    return m.startsWith("video/") ? "video" : "document";
+  }
+  if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "tiff", "tif", "avif", "ico"].includes(e)) {
     return "image";
   }
-  if (["mp4", "mov", "mkv", "avi", "webm", "m4v"].includes(e)) {
+  if (
+    [
+      "mp4",
+      "mov",
+      "qt",
+      "mkv",
+      "avi",
+      "webm",
+      "m4v",
+      "flv",
+      "f4v",
+      "ts",
+      "mts",
+      "m2ts",
+      "m3u8",
+      "mpd",
+      "ogv",
+      "ogm",
+      "3gp",
+      "3g2",
+      "wmv",
+      "asf",
+      "mpg",
+      "mpeg",
+      "m2v",
+      "vob",
+      "rmvb",
+      "rm",
+    ].includes(e)
+  ) {
     return "video";
   }
   if (["mp3", "wav", "flac", "aac", "ogg", "m4a", "opus"].includes(e)) {
@@ -36,10 +72,26 @@ export function getFileCategory(ext: string): "image" | "video" | "audio" | "doc
   if (["zip", "tar", "gz", "rar", "7z"].includes(e)) {
     return "archive";
   }
+  if (m.startsWith("video/")) return "video";
+  if (m.startsWith("image/")) return "image";
+  if (m.startsWith("audio/")) return "audio";
   return "other";
 }
 
 export function escapePathForShell(path: string): string {
   if (!path) return "";
   return path.replace(/([ \t\u00a0\u202f()\[\]{}'"\\$`!#&*?;<>~])/g, "\\$1");
+}
+
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+  const totalSeconds = Math.floor(seconds);
+  const hrs = Math.floor(totalSeconds / 3600);
+  const mins = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (hrs > 0) {
+    return `${hrs}:${pad(mins)}:${pad(secs)}`;
+  }
+  return `${pad(mins)}:${pad(secs)}`;
 }

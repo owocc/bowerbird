@@ -46,7 +46,7 @@ export function UniversalThumbnail({
 }: UniversalThumbnailProps) {
   const [imageError, setImageError] = useState(false);
   const [iconLoadError, setIconLoadError] = useState(false);
-  const category = getFileCategory(item.extension);
+  const category = getFileCategory(item.extension, item.mimeType);
   const isImage = category === "image";
 
   const serverOrigin = item.originalUrl

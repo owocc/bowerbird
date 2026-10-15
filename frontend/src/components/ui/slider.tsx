@@ -36,10 +36,10 @@ export function Slider({
       {...props}
     >
       <SliderPrimitive.Control className="relative flex w-full items-center wails-no-drag">
-        <SliderPrimitive.Track className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted/80 wails-no-drag">
-          <SliderPrimitive.Indicator className="h-full bg-primary rounded-full wails-no-drag" />
+        <SliderPrimitive.Track data-slot="slider-track" className="relative h-1.5 w-full grow overflow-hidden rounded-full bg-muted/80 wails-no-drag">
+          <SliderPrimitive.Indicator data-slot="slider-indicator" className="h-full bg-primary rounded-full wails-no-drag" />
         </SliderPrimitive.Track>
-        <SliderPrimitive.Thumb className="block size-3.5 rounded-full border-2 border-primary bg-background shadow-xs transition-transform hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-grab active:cursor-grabbing wails-no-drag" />
+        <SliderPrimitive.Thumb data-slot="slider-thumb" className="block size-3.5 rounded-full border-2 border-primary bg-background shadow-xs transition-transform hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 cursor-grab active:cursor-grabbing wails-no-drag" />
       </SliderPrimitive.Control>
     </SliderPrimitive.Root>
   )
