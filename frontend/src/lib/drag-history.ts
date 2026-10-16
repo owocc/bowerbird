@@ -147,9 +147,13 @@ export function installDragHistoryTracker(): void {
     droppedInApp = false;
   });
 
-  document.addEventListener("drop", () => {
-    droppedInApp = true;
-  });
+  document.addEventListener(
+    "drop",
+    () => {
+      droppedInApp = true;
+    },
+    true
+  );
 
   document.addEventListener("dragend", () => {
     if (pendingDragItemIds.length > 0 && !droppedInApp) {

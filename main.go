@@ -152,7 +152,7 @@ func main() {
 
 		// 1. Handle internal item drag-and-drop (Move to folder)
 		if len(internalItemIDs) > 0 {
-			if targetType == "folder" && targetFolderID != "" {
+			if (targetType == "folder" || targetType == "subfolder") && targetFolderID != "" {
 				for _, itID := range internalItemIDs {
 					_ = coreMgr.MoveItemToFolder(itID, "", targetFolderID)
 				}
@@ -219,6 +219,62 @@ func main() {
 					})
 					app.Event.Emit("library-items-updated", len(created))
 				}
+			}()
+			return
+		}
+		// 2b. Subfolder card drop in main workspace: import folders recursively or files flat into targetFolderID
+		if targetType == "subfolder" && targetFolderID != "" {
+			var folderPaths []string
+			var filePaths []string
+			for _, f := range externalFiles {
+				if fi, err := os.Stat(f); err == nil && fi.IsDir() {
+					folderPaths = append(folderPaths, f)
+				} else {
+					filePaths = append(filePaths, f)
+				}
+			}
+
+			app.Event.Emit("import-started", map[string]any{
+				"total": len(externalFiles),
+			})
+
+			go func() {
+				totalImported := 0
+				if len(folderPaths) > 0 {
+					created, err := coreMgr.ImportFoldersRecursivelyWithProgress(folderPaths, targetFolderID, func(current, total int, filename string) {
+						app.Event.Emit("import-progress", map[string]any{
+							"current":  current,
+							"total":    total,
+							"filename": filename,
+						})
+					})
+					if err != nil {
+						app.Event.Emit("import-error", err.Error())
+						return
+					}
+					totalImported += len(created)
+				}
+				if len(filePaths) > 0 {
+					imported, err := coreMgr.ImportFilesWithProgress(filePaths, func(current, total int, filename string) {
+						app.Event.Emit("import-progress", map[string]any{
+							"current":  current,
+							"total":    total,
+							"filename": filename,
+						})
+					})
+					if err != nil {
+						app.Event.Emit("import-error", err.Error())
+						return
+					}
+					for _, it := range imported {
+						_ = coreMgr.AddItemToFolder(it.ID, targetFolderID)
+					}
+					totalImported += len(imported)
+				}
+				app.Event.Emit("import-completed", map[string]any{
+					"count": totalImported,
+				})
+				app.Event.Emit("library-items-updated", totalImported)
 			}()
 			return
 		}

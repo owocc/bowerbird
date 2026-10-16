@@ -163,7 +163,8 @@ export function LibraryWorkspace({
   const [folderPaletteOpen, setFolderPaletteOpen] = useState(false);
   const [subfoldersCollapsed, setSubfoldersCollapsed] = useState(false);
   const [includeSubfolders, setIncludeSubfolders] = useState(false);
-
+  const [dragHoverSubfolderId, setDragHoverSubfolderId] = useState<string | null>(null);
+  const draggingItemIdsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -317,6 +318,8 @@ export function LibraryWorkspace({
     const cleanupActiveClasses = () => {
       setIsInternalDragging(false);
       setInternalDragActive(false);
+      setDragHoverSubfolderId(null);
+      draggingItemIdsRef.current = [];
       document.querySelectorAll(".file-drop-target-active").forEach((el) => {
         el.classList.remove("file-drop-target-active");
       });
@@ -698,6 +701,7 @@ export function LibraryWorkspace({
       .filter((u): u is string => Boolean(u));
 
     const itemIds = targetItems.map((i) => i.id);
+    draggingItemIdsRef.current = itemIds;
     e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
     e.dataTransfer.setData(
       "application/x-bowerbird-item-ids",
@@ -1009,11 +1013,31 @@ export function LibraryWorkspace({
     toFolderId: string
   ) => {
     try {
-      await MoveItemToFolder(itemId, fromFolderId, toFolderId);
+      const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
+      await MoveItemToFolder(itemId, cleanFrom, toFolderId);
       await handleFullRefresh();
       toast.success(t("workspace.itemMoved"));
     } catch (err) {
       console.error("Failed to move item:", err);
+    }
+  };
+
+  const handleBatchMoveItemsToFolder = async (
+    itemIds: string[],
+    fromFolderId: string,
+    toFolderId: string
+  ) => {
+    const uniqueIds = Array.from(new Set(itemIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+    try {
+      const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
+      for (const id of uniqueIds) {
+        await MoveItemToFolder(id, cleanFrom, toFolderId);
+      }
+      await handleFullRefresh();
+      toast.success(t("workspace.itemMoved"));
+    } catch (err) {
+      console.error("Failed to move items to folder:", err);
     }
   };
 
@@ -1380,9 +1404,11 @@ export function LibraryWorkspace({
                 : dragHandlers)}
             >
               {/* Pure 10% opacity mask + dashed border for main area dropzone (NO inner text/icons) */}
-              {dropState.status === "dragging-over" && !isInternalDragging && (
-                <div className="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-primary/80 bg-foreground/10 rounded-[inherit]" />
-              )}
+              {dropState.status === "dragging-over" &&
+                !isInternalDragging &&
+                !dragHoverSubfolderId && (
+                  <div className="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-primary/80 bg-foreground/10 rounded-[inherit]" />
+                )}
 
 
               <header className="w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag">
@@ -1638,61 +1664,137 @@ export function LibraryWorkspace({
                               const previewItems = subInfo?.previewItems ?? [];
                               const count =
                                 subInfo?.totalCount ?? sub.itemCount ?? 0;
+                              const isSubDragOver =
+                                dragHoverSubfolderId === sub.id;
                               return (
                                 <button
                                   key={sub.id}
                                   type="button"
+                                  data-file-drop-target="subfolder"
+                                  data-folder-id={sub.id}
                                   data-subfolder-id={sub.id}
+                                  data-drag-over={isSubDragOver ? "true" : undefined}
                                   onClick={() => {
                                     navigateToFolder(sub.id);
                                     setSelectedOrder([]);
                                     setActiveItemId(null);
                                   }}
+                                  onDragEnter={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setDragHoverSubfolderId(sub.id);
+                                  }}
                                   onDragOver={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    e.dataTransfer.dropEffect = "move";
+                                    e.dataTransfer.dropEffect = isInternalDragging
+                                      ? "move"
+                                      : "copy";
+                                    if (dragHoverSubfolderId !== sub.id) {
+                                      setDragHoverSubfolderId(sub.id);
+                                    }
+                                  }}
+                                  onDragLeave={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const nextEl = e.relatedTarget as Node | null;
+                                    if (
+                                      !nextEl ||
+                                      !e.currentTarget.contains(nextEl)
+                                    ) {
+                                      setDragHoverSubfolderId((prev) =>
+                                        prev === sub.id ? null : prev
+                                      );
+                                    }
                                   }}
                                   onDrop={async (e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
+                                    setDragHoverSubfolderId(null);
+
+                                    const fromId = isRealFolderId(activeFolderId)
+                                      ? activeFolderId
+                                      : "";
+
+                                    // 1. Check DataTransfer for internal item IDs
+                                    let droppedIds: string[] = [];
                                     const itemIdsJson = e.dataTransfer.getData(
                                       "application/x-bowerbird-item-ids"
                                     );
                                     if (itemIdsJson) {
                                       try {
-                                        const ids = JSON.parse(itemIdsJson);
-                                        if (Array.isArray(ids)) {
-                                          for (const id of ids) {
-                                            await handleMoveItemToFolder(
-                                              id,
-                                              activeFolderId || "",
-                                              sub.id
-                                            );
-                                          }
-                                          return;
+                                        const parsed = JSON.parse(itemIdsJson);
+                                        if (Array.isArray(parsed)) {
+                                          droppedIds = parsed.filter(
+                                            (id): id is string =>
+                                              typeof id === "string" && id.length > 0
+                                          );
                                         }
                                       } catch {
                                         // fallback
                                       }
                                     }
-                                    const singleId = e.dataTransfer.getData(
-                                      "application/x-bowerbird-item-id"
-                                    );
-                                    if (singleId) {
-                                      await handleMoveItemToFolder(
-                                        singleId,
-                                        activeFolderId || "",
+                                    if (droppedIds.length === 0) {
+                                      const singleId = e.dataTransfer.getData(
+                                        "application/x-bowerbird-item-id"
+                                      );
+                                      if (singleId) {
+                                        droppedIds = [singleId];
+                                      }
+                                    }
+                                    if (
+                                      droppedIds.length === 0 &&
+                                      draggingItemIdsRef.current.length > 0
+                                    ) {
+                                      droppedIds = [...draggingItemIdsRef.current];
+                                    }
+
+                                    if (droppedIds.length > 0) {
+                                      draggingItemIdsRef.current = [];
+                                      await handleBatchMoveItemsToFolder(
+                                        droppedIds,
+                                        fromId,
                                         sub.id
                                       );
+                                      return;
+                                    }
+
+                                    // 2. External files/folders dropped in browser or non-Wails host
+                                    const hostWin = window as Window & {
+                                      _wails?: { flags?: { enableFileDrop?: boolean } };
+                                    };
+                                    if (hostWin._wails?.flags?.enableFileDrop === true) {
+                                      return;
+                                    }
+                                    if (
+                                      e.dataTransfer.files &&
+                                      e.dataTransfer.files.length > 0
+                                    ) {
+                                      const importedIds = await importFileList(
+                                        e.dataTransfer.files
+                                      );
+                                      if (importedIds.length > 0) {
+                                        for (const id of importedIds) {
+                                          await AddItemToFolder(id, sub.id);
+                                        }
+                                        await handleFullRefresh();
+                                      }
                                     }
                                   }}
                                   className={cn(
-                                    "group/subcard flex flex-col rounded-xl border border-border/70 bg-card/50 hover:bg-accent/50 hover:border-primary/40 p-2 text-left transition-all cursor-pointer shadow-2xs"
+                                    "group/subcard relative flex flex-col rounded-xl border border-border/70 bg-card/50 hover:bg-accent/50 hover:border-primary/40 p-2 text-left transition-all cursor-pointer shadow-2xs overflow-hidden",
+                                    isSubDragOver &&
+                                      "border-primary bg-primary/10 ring-1 ring-primary/50"
                                   )}
                                 >
+                                  {/* Pure 10% opacity mask + dashed border when dragging over */}
+                                  {isSubDragOver && (
+                                    <div className="pointer-events-none absolute inset-0 z-30 rounded-xl border-2 border-dashed border-primary bg-foreground/10" />
+                                  )}
+                                  <div className="pointer-events-none absolute inset-0 z-30 hidden rounded-xl border-2 border-dashed border-primary bg-foreground/10 [.file-drop-target-active_&]:!block" />
+
                                   {/* Large folder cover preview area */}
-                                  <div className="relative w-full h-24 rounded-lg bg-muted/40 border border-border/40 overflow-hidden flex items-center justify-center mb-2">
+                                  <div className="relative w-full h-24 rounded-lg bg-muted/40 border border-border/40 overflow-hidden flex items-center justify-center mb-2 pointer-events-none">
                                     {previewItems.length === 0 ? (
                                       <FolderIcon className="size-10 text-primary/70 stroke-[1.5] transition-transform group-hover/subcard:scale-105" />
                                     ) : previewItems.length === 1 ? (
@@ -1734,7 +1836,7 @@ export function LibraryWorkspace({
                                     )}
                                   </div>
 
-                                  <div className="flex items-center justify-between gap-1.5 px-0.5">
+                                  <div className="flex items-center justify-between gap-1.5 px-0.5 pointer-events-none">
                                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                       <FolderIcon className="size-3.5 text-primary/80 shrink-0" />
                                       <span className="text-xs font-medium text-foreground truncate">

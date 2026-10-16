@@ -1015,8 +1015,6 @@ function FolderTreeItemNode({
     e.stopPropagation();
     onClearDragTarget();
 
-    if (isInternalDragActive(e)) return;
-
     const itemIdsJson = e.dataTransfer.getData(
       "application/x-bowerbird-item-ids"
     );
@@ -1038,8 +1036,7 @@ function FolderTreeItemNode({
       await onMoveItemToFolder(itemId, activeFolderId || "", folder.id);
       return;
     }
-
-    if (onDropFolderImport) {
+    if (!isInternalDragActive(e) && onDropFolderImport) {
       await onDropFolderImport(e, folder.id);
     }
   };

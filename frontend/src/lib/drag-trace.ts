@@ -201,7 +201,7 @@ export function installDragTrace(): void {
 
   document.addEventListener("dragstart", handleDragStart);
   document.addEventListener("dragenter", handleDragEnter);
-  document.addEventListener("drop", handleDrop);
+  document.addEventListener("drop", handleDrop, true);
   document.addEventListener("dragend", handleDragEnd);
 
   traceDrag("webview-ready", `platform=${platformName()} href=${location.href} ua=${collapse(navigator.userAgent)}`);
