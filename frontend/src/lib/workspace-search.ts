@@ -6,7 +6,7 @@ import type { SearchSchemaInput } from "@tanstack/react-router";
  * Typed query-parameter model for the `/browse` route.
  */
 
-export type WorkspaceView = "all" | "trash";
+export type WorkspaceView = "all" | "trash" | "untagged" | "uncategorized" | "history";
 export type WorkspaceCategory =
   | "all"
   | "image"
@@ -84,7 +84,13 @@ export function validateWorkspaceSearch(
   raw: WorkspaceSearchInput
 ): WorkspaceSearch {
   return {
-    view: raw.view === "trash" ? "trash" : "all",
+    view:
+      raw.view === "trash" ||
+      raw.view === "untagged" ||
+      raw.view === "uncategorized" ||
+      raw.view === "history"
+        ? raw.view
+        : "all",
     type: CATEGORIES.includes(raw.type as WorkspaceCategory)
       ? (raw.type as WorkspaceCategory)
       : "all",
@@ -107,21 +113,28 @@ export function validateWorkspaceSearch(
 }
 
 export const TRASH_FOLDER_ID = "__trash__";
+export const UNTAGGED_FOLDER_ID = "__untagged__";
+export const UNCATEGORIZED_FOLDER_ID = "__uncategorized__";
+export const HISTORY_FOLDER_ID = "__history__";
 
 export interface WorkspaceSearchApi extends WorkspaceSearch {
   activeFolderId: string | null;
   activeTag: string | null;
   isTrash: boolean;
-
+  isUntagged: boolean;
+  isUncategorized: boolean;
+  isHistory: boolean;
   selectAll: () => void;
   selectTrash: () => void;
+  selectUntagged: () => void;
+  selectUncategorized: () => void;
+  selectHistory: () => void;
   selectFolder: (folderId: string) => void;
   selectTag: (tag: string | null) => void;
   setCategory: (type: WorkspaceCategory) => void;
   setSort: (sort: WorkspaceSort) => void;
   setColorFilter: (color: string | null) => void;
   setFolderFilter: (folderId: string | null) => void;
-  setTagFilter: (tag: string | null) => void;
   setOrientationFilter: (orientation: WorkspaceOrientation) => void;
   clearAllFilters: () => void;
   setTagsPanel: (open: boolean) => void;
@@ -162,8 +175,22 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
   );
 
   const isTrash = search.view === "trash";
-  const activeFolderId = isTrash ? TRASH_FOLDER_ID : search.folder ?? null;
-  const activeTag = isTrash || search.folder ? null : search.tag ?? null;
+  const isUntagged = search.view === "untagged";
+  const isUncategorized = search.view === "uncategorized";
+  const isHistory = search.view === "history";
+  const activeFolderId = isTrash
+    ? TRASH_FOLDER_ID
+    : isUntagged
+    ? UNTAGGED_FOLDER_ID
+    : isUncategorized
+    ? UNCATEGORIZED_FOLDER_ID
+    : isHistory
+    ? HISTORY_FOLDER_ID
+    : search.folder ?? null;
+  const activeTag =
+    isTrash || isUntagged || isUncategorized || isHistory || search.folder
+      ? null
+      : search.tag ?? null;
   const previewOpen = Boolean(search.preview);
 
   return {
@@ -171,6 +198,9 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
     activeFolderId,
     activeTag,
     isTrash,
+    isUntagged,
+    isUncategorized,
+    isHistory,
 
     selectAll: () =>
       patch({
@@ -190,6 +220,33 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         preview: undefined,
         item: undefined,
       }),
+    selectUntagged: () =>
+      patch({
+        view: "untagged",
+        folder: undefined,
+        tag: undefined,
+        tags: false,
+        preview: undefined,
+        item: undefined,
+      }),
+    selectUncategorized: () =>
+      patch({
+        view: "uncategorized",
+        folder: undefined,
+        tag: undefined,
+        tags: false,
+        preview: undefined,
+        item: undefined,
+      }),
+    selectHistory: () =>
+      patch({
+        view: "history",
+        folder: undefined,
+        tag: undefined,
+        tags: false,
+        preview: undefined,
+        item: undefined,
+      }),
     selectFolder: (folderId) =>
       patch({
         view: "all",
@@ -202,6 +259,7 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
     selectTag: (tag) =>
       patch({
         view: "all",
+        tags: true,
         tag: tag ?? undefined,
         folder: undefined,
         preview: undefined,
@@ -211,7 +269,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
     setSort: (sort) => patch({ sort }),
     setColorFilter: (color) => patch({ color: color ?? undefined }),
     setFolderFilter: (folderId) => patch({ filterFolder: folderId ?? undefined }),
-    setTagFilter: (tag) => patch({ filterTag: tag ?? undefined }),
     setOrientationFilter: (orientation) => patch({ orientation }),
     clearAllFilters: () =>
       patch({
@@ -221,8 +278,24 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         filterTag: undefined,
         orientation: "all",
       }),
-    setTagsPanel: (open) => patch({ tags: open }),
-    toggleTagsPanel: () => patch({ tags: !search.tags }),
+    setTagsPanel: (open) =>
+      patch({
+        view: "all",
+        tags: open,
+        folder: undefined,
+        tag: open ? search.tag : undefined,
+        preview: undefined,
+        item: undefined,
+      }),
+    toggleTagsPanel: () =>
+      patch({
+        view: "all",
+        tags: !search.tags,
+        folder: undefined,
+        tag: !search.tags ? search.tag : undefined,
+        preview: undefined,
+        item: undefined,
+      }),
     closeTagsPanel: () =>
       patch({
         tags: false,
@@ -231,7 +304,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         preview: undefined,
         item: undefined,
       }),
-
     openPreview: (mode, itemId) =>
       patch({ preview: mode, item: itemId }, { replace: previewOpen }),
     setPreviewItem: (itemId) => patch({ item: itemId }, { replace: true }),

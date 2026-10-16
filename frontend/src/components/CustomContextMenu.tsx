@@ -10,15 +10,11 @@ import {
   CheckSquare,
   Square,
   Upload,
-  Folder as FolderIcon,
   FolderMinus,
   Edit2,
   ExternalLink,
   Star,
   RotateCcw,
-  Tag as TagIcon,
-  Check,
-  Plus,
 } from "lucide-react";
 import {
   Command,
@@ -30,7 +26,7 @@ import {
   CommandShortcut,
   CommandSeparator,
 } from "@/components/ui/command";
-import type { Folder as FolderModel, Tag as TagModel, Item } from "../../bindings/bowerbird/core/models";
+import type { Item } from "../../bindings/bowerbird/core/models";
 import { cn } from "cn";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { isMacOS } from "@/lib/macos";
@@ -47,8 +43,6 @@ export interface ContextMenuProps {
   selectedCount: number;
   isItemContext: boolean;
   activeFolderId: string | null;
-  allFolders: FolderModel[];
-  allTags?: TagModel[];
   targetItem?: Item | null;
   // Actions
   onPreview?: () => void;
@@ -60,10 +54,8 @@ export interface ContextMenuProps {
   onToggleFavorite?: () => void;
   onDelete?: () => void;
   onRestore?: () => void;
-  onAddToFolder?: (folderId: string) => void;
+  onOpenAddToFolderPalette?: () => void;
   onRemoveFromCurrentFolder?: () => void;
-  onAddTag?: (tag: string) => void;
-  onRemoveTag?: (tag: string) => void;
   onSelectAll?: () => void;
   onClearSelection?: () => void;
   onImportFiles?: () => void;
@@ -76,8 +68,6 @@ export function CustomContextMenu({
   selectedCount = 0,
   isItemContext,
   activeFolderId,
-  allFolders,
-  allTags = [],
   targetItem,
   onPreview,
   onRename,
@@ -88,10 +78,8 @@ export function CustomContextMenu({
   onToggleFavorite,
   onDelete,
   onRestore,
-  onAddToFolder,
+  onOpenAddToFolderPalette,
   onRemoveFromCurrentFolder,
-  onAddTag,
-  onRemoveTag,
   onSelectAll,
   onClearSelection,
   onImportFiles,
@@ -134,19 +122,6 @@ export function CustomContextMenu({
 
   if (!position) return null;
 
-  // Flatten folders tree for assignment
-  const flatFolders: { id: string; name: string }[] = [];
-  const collect = (list: FolderModel[], prefix = "") => {
-    for (const f of list) {
-      const name = prefix ? `${prefix} / ${f.name}` : f.name;
-      flatFolders.push({ id: f.id, name });
-      if (f.children && f.children.length > 0) {
-        collect(f.children, name);
-      }
-    }
-  };
-  collect(allFolders);
-
   // Position adjustments to stay within window boundaries (max 80% viewport height)
   const menuWidth = 256;
   const maxMenuHeight = window.innerHeight * 0.8;
@@ -154,6 +129,12 @@ export function CustomContextMenu({
   const adjustedX = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 12));
   const adjustedY = Math.max(8, Math.min(position.y, window.innerHeight - currentHeight - 12));
   const isTrashView = activeFolderId === "__trash__";
+  const isRealFolder =
+    Boolean(activeFolderId) &&
+    activeFolderId !== "__trash__" &&
+    activeFolderId !== "__untagged__" &&
+    activeFolderId !== "__uncategorized__" &&
+    activeFolderId !== "__history__";
   const itemTags = targetItem?.tags || [];
   const isFavorite = itemTags.includes(FAVORITE_TAG);
 
@@ -170,10 +151,10 @@ export function CustomContextMenu({
       (selectedCount === 1 &&
         (onRename || onOpenWithDefaultApp || onToggleFavorite))
   );
-  const hasFolderActions = flatFolders.length > 0 && Boolean(onAddToFolder);
-  const hasTagActions = allTags.length > 0 && Boolean(onAddTag || onRemoveTag);
+  const hasFolderActions = Boolean(
+    onOpenAddToFolderPalette || (isRealFolder && onRemoveFromCurrentFolder)
+  );
   const hasTrashAction = Boolean(onDelete);
-
   return (
     <div
       ref={menuRef}
@@ -198,26 +179,7 @@ export function CustomContextMenu({
 
         <CommandList className="max-h-[calc(80vh-44px)] p-1 overflow-y-auto flex-1">
           <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">
-            {search.trim() ? (
-              <div className="space-y-1">
-                <div>{t("contextMenu.noResults")}</div>
-                {onAddTag && isItemContext && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onAddTag(search.trim());
-                      onClose();
-                    }}
-                    className="text-primary hover:underline text-[11px] font-medium flex items-center justify-center gap-1 mx-auto cursor-pointer"
-                  >
-                    <Plus className="size-3" />
-                    <span>{t("contextMenu.createTag", { name: search.trim() })}</span>
-                  </button>
-                )}
-              </div>
-            ) : (
-              t("contextMenu.noResults")
-            )}
+            {t("contextMenu.noResults")}
           </CommandEmpty>
 
           {/* ================= TRASH CONTEXT ================= */}
@@ -360,22 +322,23 @@ export function CustomContextMenu({
               {hasPrimaryActions && hasFolderActions && <CommandSeparator className="my-1" />}
 
               {/* Folders Assignment */}
-              {flatFolders.length > 0 && onAddToFolder && (
+              {hasFolderActions && (
                 <CommandGroup>
-                  {flatFolders.slice(0, 10).map((f) => (
+                  {onOpenAddToFolderPalette && (
                     <CommandItem
-                      key={f.id}
                       onSelect={() => {
-                        onAddToFolder(f.id);
+                        onOpenAddToFolderPalette();
                         onClose();
                       }}
                       className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
                     >
-                      <FolderIcon className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate flex-1">{f.name}</span>
+                      <FolderPlus className="size-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate flex-1">
+                        {t("contextMenu.addToFolder")}
+                      </span>
                     </CommandItem>
-                  ))}
-                  {activeFolderId && onRemoveFromCurrentFolder && (
+                  )}
+                  {isRealFolder && onRemoveFromCurrentFolder && (
                     <CommandItem
                       onSelect={() => {
                         onRemoveFromCurrentFolder();
@@ -390,45 +353,9 @@ export function CustomContextMenu({
                 </CommandGroup>
               )}
 
-              {(hasPrimaryActions || hasFolderActions) && hasTagActions && (
+              {(hasPrimaryActions || hasFolderActions) && hasTrashAction && (
                 <CommandSeparator className="my-1" />
               )}
-
-              {/* Tags Assignment */}
-              {allTags.length > 0 && (onAddTag || onRemoveTag) && (
-                <CommandGroup>
-                  {allTags.map((tag) => {
-                    const hasTag = itemTags.includes(tag.name);
-                    return (
-                      <CommandItem
-                        key={tag.name}
-                        onSelect={() => {
-                          if (hasTag) {
-                            onRemoveTag?.(tag.name);
-                          } else {
-                            onAddTag?.(tag.name);
-                          }
-                          onClose();
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                      >
-                        <TagIcon className="size-3.5 text-muted-foreground shrink-0" />
-                        <span className="truncate flex-1">{tag.name}</span>
-                        {hasTag && (
-                          <CommandShortcut className="flex items-center text-primary">
-                            <Check className="size-3" />
-                          </CommandShortcut>
-                        )}
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              )}
-
-              {(hasPrimaryActions || hasFolderActions || hasTagActions) && hasTrashAction && (
-                <CommandSeparator className="my-1" />
-              )}
-
               {/* Move to Trash */}
               {onDelete && (
                 <CommandGroup>

@@ -18,6 +18,7 @@ import { StartDragItems } from "../../bindings/bowerbird/core/service";
 import { traceDrag } from "./drag-trace";
 import { setInternalDragActive } from "./drag-state";
 import { isWindows } from "./platform";
+import { recordDraggedItems } from "./drag-history";
 
 let installed = false;
 
@@ -59,6 +60,9 @@ function handleDragStart(e: DragEvent): void {
   // the Go side traces the resulting drop effect. No drag image is attached:
   // OLE would key a colour out of it, and the ghost used to damage the asset.
   void StartDragItems(itemIds)
+    .then(() => {
+      recordDraggedItems(itemIds);
+    })
     .catch((err: unknown) => traceDrag("drag-out-error", `items=${itemIds.length} ${String(err)}`))
     .finally(() => setInternalDragActive(false));
 }

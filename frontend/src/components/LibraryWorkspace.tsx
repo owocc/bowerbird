@@ -11,6 +11,12 @@ import {
   RotateCcw,
   Settings,
   Tag as TagIcon,
+  Folder as FolderIcon,
+  FolderX,
+  History,
+  Check,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +35,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Command,
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
 import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
 import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
 import { TagsSidebar } from "@/components/TagsSidebar";
@@ -45,7 +60,6 @@ import {
   FilterBar,
   itemMatchesColorFilter,
   UNCATEGORIZED_FOLDER_FILTER,
-  UNTAGGED_TAG_FILTER,
 } from "@/components/FilterBar";
 import { toast } from "sonner";
 import {
@@ -93,11 +107,22 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   useWorkspaceSearch,
   TRASH_FOLDER_ID,
+  UNTAGGED_FOLDER_ID,
+  UNCATEGORIZED_FOLDER_ID,
+  HISTORY_FOLDER_ID,
   type PreviewMode,
 } from "@/lib/workspace-search";
+import {
+  getDragHistory,
+  setActiveHistoryLibraryId,
+  subscribeDragHistory,
+  type DragHistoryEntry,
+} from "@/lib/drag-history";
 import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useTrackpadZoom } from "@/hooks/useTrackpadZoom";
+import { UniversalThumbnail } from "@/components/UniversalThumbnail";
+import { cn } from "@/lib/utils";
 
 export interface LibraryWorkspaceProps {
   library: LibraryInfo;
@@ -121,7 +146,6 @@ export function LibraryWorkspace({
   const sortOrder = ws.sort;
   const colorFilter = ws.color ?? null;
   const folderFilter = ws.filterFolder ?? null;
-  const tagFilter = ws.filterTag ?? null;
   const orientationFilter = ws.orientation;
   const inlinePreviewOpen = ws.preview === "inline";
   const fullWindowPreviewOpen = ws.preview === "full";
@@ -131,12 +155,19 @@ export function LibraryWorkspace({
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [trashCount, setTrashCount] = useState<number>(0);
+  const [historyEntries, setHistoryEntries] = useState<DragHistoryEntry[]>(() => {
+    const libKey = library.id || library.path;
+    setActiveHistoryLibraryId(libKey);
+    return getDragHistory(libKey);
+  });
+  const [folderPaletteOpen, setFolderPaletteOpen] = useState(false);
+  const [subfoldersCollapsed, setSubfoldersCollapsed] = useState(false);
+  const [includeSubfolders, setIncludeSubfolders] = useState(false);
 
   const [loading, setLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [rowHeight, setRowHeight] = useState<number>(80);
-
   // Ordered selection queue: earliest selected at index 0, most recently selected at the end.
   const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
   const selectedItemIds = useMemo(() => new Set(selectedOrder), [selectedOrder]);
@@ -158,6 +189,9 @@ export function LibraryWorkspace({
   const navigateToFolder = (id: string | null) => {
     if (id === null) ws.selectAll();
     else if (id === TRASH_FOLDER_ID) ws.selectTrash();
+    else if (id === UNTAGGED_FOLDER_ID) ws.selectUntagged();
+    else if (id === UNCATEGORIZED_FOLDER_ID) ws.selectUncategorized();
+    else if (id === HISTORY_FOLDER_ID) ws.selectHistory();
     else ws.selectFolder(id);
   };
 
@@ -295,6 +329,15 @@ export function LibraryWorkspace({
     };
   }, []);
 
+  useEffect(() => {
+    const libKey = library.id || library.path;
+    setActiveHistoryLibraryId(libKey);
+    setHistoryEntries(getDragHistory(libKey));
+    return subscribeDragHistory((entries) => {
+      setHistoryEntries(entries);
+    });
+  }, [library.id, library.path]);
+
   const previousLibraryPathRef = useRef(library.path);
   useEffect(() => {
     if (previousLibraryPathRef.current === library.path) return;
@@ -310,6 +353,13 @@ export function LibraryWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [library.path]);
 
+  const isRealFolderId = (id: string | null): id is string =>
+    Boolean(id) &&
+    id !== TRASH_FOLDER_ID &&
+    id !== UNTAGGED_FOLDER_ID &&
+    id !== UNCATEGORIZED_FOLDER_ID &&
+    id !== HISTORY_FOLDER_ID;
+
   const activeFolderIdRef = useRef<string | null>(activeFolderId);
   useEffect(() => {
     activeFolderIdRef.current = activeFolderId;
@@ -319,8 +369,7 @@ export function LibraryWorkspace({
     onRefresh: async (newlyImportedIds?: string[]) => {
       const targetFolderId = activeFolderIdRef.current;
       if (
-        targetFolderId &&
-        targetFolderId !== "__trash__" &&
+        isRealFolderId(targetFolderId) &&
         newlyImportedIds &&
         newlyImportedIds.length > 0
       ) {
@@ -408,8 +457,118 @@ export function LibraryWorkspace({
     [searchQuery]
   );
 
+  const untaggedCount = useMemo(
+    () => items.filter((it) => !it.tags || it.tags.length === 0).length,
+    [items]
+  );
+
+  const uncategorizedCount = useMemo(
+    () => items.filter((it) => !it.folders || it.folders.length === 0).length,
+    [items]
+  );
+
+  const historyItems = useMemo(() => {
+    const out: Item[] = [];
+    for (const entry of historyEntries) {
+      const found = itemsById.get(entry.itemId);
+      if (found && !found.inTrash) {
+        out.push(found);
+      }
+    }
+    return out;
+  }, [historyEntries, itemsById]);
+
+  const flatFolderList = useMemo(() => {
+    const out: { id: string; name: string; count: number }[] = [];
+    const walk = (list: Folder[], prefix = "") => {
+      for (const f of list) {
+        const display = prefix ? `${prefix} / ${f.name}` : f.name;
+        out.push({ id: f.id, name: display, count: f.itemCount ?? 0 });
+        if (f.children && f.children.length > 0) {
+          walk(f.children, display);
+        }
+      }
+    };
+    walk(folders);
+    return out;
+  }, [folders]);
+
+  const findFolderInTree = useCallback(
+    (list: Folder[], id: string): Folder | null => {
+      for (const f of list) {
+        if (f.id === id) return f;
+        if (f.children && f.children.length > 0) {
+          const found = findFolderInTree(f.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
+    },
+    []
+  );
+
+  const currentFolder = useMemo(
+    () =>
+      isRealFolderId(activeFolderId)
+        ? findFolderInTree(folders, activeFolderId)
+        : null,
+    [activeFolderId, folders, findFolderInTree]
+  );
+
+  const currentSubfolders = useMemo(
+    () => currentFolder?.children ?? [],
+    [currentFolder]
+  );
+
+  const collectDescendantFolderIds = useCallback((folder: Folder): Set<string> => {
+    const ids = new Set<string>([folder.id]);
+    const walk = (children?: Folder[] | null) => {
+      if (!children) return;
+      for (const ch of children) {
+        ids.add(ch.id);
+        walk(ch.children);
+      }
+    };
+    walk(folder.children);
+    return ids;
+  }, []);
+
+  const activeFolderMatchSet = useMemo(() => {
+    if (!currentFolder) return null;
+    if (includeSubfolders) {
+      return collectDescendantFolderIds(currentFolder);
+    }
+    return new Set<string>([currentFolder.id]);
+  }, [currentFolder, includeSubfolders, collectDescendantFolderIds]);
+
+  const subfolderPreviewData = useMemo(() => {
+    const map = new Map<string, { totalCount: number; previewItems: Item[] }>();
+    if (currentSubfolders.length === 0) return map;
+    for (const sub of currentSubfolders) {
+      const descIds = collectDescendantFolderIds(sub);
+      const matched: Item[] = [];
+      for (const it of items) {
+        if ((it.folders || []).some((fid) => descIds.has(fid))) {
+          matched.push(it);
+        }
+      }
+      map.set(sub.id, {
+        totalCount: matched.length,
+        previewItems: matched.slice(0, 4),
+      });
+    }
+    return map;
+  }, [currentSubfolders, items, collectDescendantFolderIds]);
+
   const filteredItems = useMemo(() => {
-    return items.filter((item) => {
+    const sourceItems =
+      activeFolderId === HISTORY_FOLDER_ID
+        ? sortOrder === "asc"
+          ? [...historyItems].reverse()
+          : historyItems
+        : items;
+
+    return sourceItems.filter((item) => {
       if (normalizedQuery) {
         const matchesName = item.name?.toLowerCase().includes(normalizedQuery);
         const matchesExt = item.extension?.toLowerCase().includes(normalizedQuery);
@@ -422,19 +581,34 @@ export function LibraryWorkspace({
         }
       }
 
-      if (activeFolderId !== "__trash__") {
-        // Sidebar folder selection
-        if (activeFolderId !== null) {
-          const itemFolders = item.folders || [];
-          if (!itemFolders.includes(activeFolderId)) {
-            return false;
-          }
-        }
-
-        // Sidebar tag selection
-        if (activeTag !== null) {
+      if (activeFolderId !== TRASH_FOLDER_ID) {
+        if (tagsSidebarOpen) {
+          // Standalone All Tags mode: only filter by the selected tag in TagsSidebar
           const itemTags = item.tags || [];
-          if (!itemTags.includes(activeTag)) {
+          if (activeTag !== null) {
+            if (!itemTags.includes(activeTag)) {
+              return false;
+            }
+          } else {
+            if (itemTags.length === 0) {
+              return false;
+            }
+          }
+        } else if (activeFolderId === UNTAGGED_FOLDER_ID) {
+          const itemTags = item.tags || [];
+          if (itemTags.length > 0) return false;
+        } else if (activeFolderId === UNCATEGORIZED_FOLDER_ID) {
+          const itemFolders = item.folders || [];
+          if (itemFolders.length > 0) return false;
+        } else if (activeFolderId === HISTORY_FOLDER_ID) {
+          // Already sourced from historyItems
+        } else if (activeFolderId !== null) {
+          const itemFolders = item.folders || [];
+          if (activeFolderMatchSet) {
+            if (!itemFolders.some((fid) => activeFolderMatchSet.has(fid))) {
+              return false;
+            }
+          } else if (!itemFolders.includes(activeFolderId)) {
             return false;
           }
         }
@@ -457,17 +631,7 @@ export function LibraryWorkspace({
         }
       }
 
-      // 3. Tag dropdown filter
-      if (tagFilter) {
-        const itemTags = item.tags || [];
-        if (tagFilter === UNTAGGED_TAG_FILTER) {
-          if (itemTags.length > 0) return false;
-        } else if (!itemTags.includes(tagFilter)) {
-          return false;
-        }
-      }
-
-      // 4. Orientation filter
+      // 3. Orientation filter
       if (orientationFilter !== "all") {
         const orient =
           item.meta?.orientation ||
@@ -483,7 +647,7 @@ export function LibraryWorkspace({
         }
       }
 
-      // 5. Color filter
+      // 4. Color filter
       if (colorFilter) {
         if (!itemMatchesColorFilter(item, colorFilter)) {
           return false;
@@ -494,12 +658,14 @@ export function LibraryWorkspace({
     });
   }, [
     items,
+    historyItems,
     normalizedQuery,
     activeFolderId,
+    activeFolderMatchSet,
+    tagsSidebarOpen,
     activeTag,
     categoryFilter,
     folderFilter,
-    tagFilter,
     orientationFilter,
     colorFilter,
   ]);
@@ -575,7 +741,7 @@ export function LibraryWorkspace({
       return;
     }
 
-    if (activeFolderId && activeFolderId !== "__trash__") {
+    if (isRealFolderId(activeFolderId)) {
       const multiRef = targets.some((it) => (it.folders || []).length > 1);
       if (multiRef) {
         setDeleteConfirmDialog({
@@ -770,6 +936,28 @@ export function LibraryWorkspace({
     }
   };
 
+  const handleBatchAddTag = async (tag: string) => {
+    try {
+      for (const id of selectedOrder) {
+        await AddTagToItem(id, tag);
+      }
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("Failed to add tag to items:", err);
+    }
+  };
+
+  const handleBatchRemoveTag = async (tag: string) => {
+    try {
+      for (const id of selectedOrder) {
+        await RemoveTagFromItem(id, tag);
+      }
+      await handleFullRefresh();
+    } catch (err) {
+      console.error("Failed to remove tag from items:", err);
+    }
+  };
+
   const handleCreateFolder = async (name: string, parentId?: string) => {
     try {
       await CreateFolder(name, parentId || "");
@@ -950,40 +1138,6 @@ export function LibraryWorkspace({
       console.error("Failed to delete tag:", err);
     }
   };
-
-  const handleAddTagToItem = async (itemId: string, tag: string) => {
-    try {
-      await AddTagToItem(itemId, tag);
-      await handleFullRefresh();
-    } catch (err) {
-      console.error("Failed to add tag:", err);
-    }
-  };
-
-  const handleRemoveTagFromItem = async (itemId: string, tag: string) => {
-    try {
-      await RemoveTagFromItem(itemId, tag);
-      await handleFullRefresh();
-    } catch (err) {
-      console.error("Failed to remove tag:", err);
-    }
-  };
-
-  const findFolderById = (list: Folder[], id: string): Folder | null => {
-    for (const f of list) {
-      if (f.id === id) return f;
-      if (f.children && f.children.length > 0) {
-        const found = findFolderById(f.children, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
-  const currentFolder =
-    activeFolderId && activeFolderId !== "__trash__"
-      ? findFolderById(folders, activeFolderId)
-      : null;
   const activeTagLabel =
     activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
   const totalSizeBytes = filteredItems.reduce(
@@ -1129,6 +1283,9 @@ export function LibraryWorkspace({
                   folders={folders}
                   activeFolderId={activeFolderId}
                   totalItemCount={items.length}
+                  untaggedCount={untaggedCount}
+                  uncategorizedCount={uncategorizedCount}
+                  historyCount={historyItems.length}
                   trashCount={trashCount}
                   tagsCount={tags.length}
                   tagsSidebarOpen={tagsSidebarOpen}
@@ -1174,11 +1331,7 @@ export function LibraryWorkspace({
                       tags={tags}
                       activeTag={activeTag}
                       onSelectTag={(tg) => {
-                        if (tg === null) {
-                          ws.closeTagsPanel();
-                        } else {
-                          ws.selectTag(tg);
-                        }
+                        ws.selectTag(tg);
                         setSelectedOrder([]);
                         setActiveItemId(null);
                       }}
@@ -1229,10 +1382,18 @@ export function LibraryWorkspace({
                     <HistoryNavButtons className="mr-1" />
 
                     <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
-                      {activeFolderId === "__trash__"
+                      {activeFolderId === TRASH_FOLDER_ID
                         ? t("workspace.trash")
-                        : activeTag
-                        ? t("workspace.tagWithValue", { tag: activeTagLabel })
+                        : tagsSidebarOpen
+                        ? activeTag
+                          ? t("workspace.tagWithValue", { tag: activeTagLabel })
+                          : t("sidebar.allTags")
+                        : activeFolderId === UNTAGGED_FOLDER_ID
+                        ? t("sidebar.untagged")
+                        : activeFolderId === UNCATEGORIZED_FOLDER_ID
+                        ? t("sidebar.uncategorized")
+                        : activeFolderId === HISTORY_FOLDER_ID
+                        ? t("sidebar.history")
                         : currentFolder
                         ? currentFolder.name
                         : t("workspace.all")}
@@ -1330,16 +1491,13 @@ export function LibraryWorkspace({
                     <FilterBar
                       items={items}
                       folders={folders}
-                      tags={tags}
                       categoryFilter={categoryFilter}
                       colorFilter={colorFilter}
                       folderFilter={folderFilter}
-                      tagFilter={tagFilter}
                       orientationFilter={orientationFilter}
                       onCategoryChange={(cat) => ws.setCategory(cat)}
                       onColorChange={(c) => ws.setColorFilter(c)}
                       onFolderChange={(f) => ws.setFolderFilter(f)}
-                      onTagChange={(tg) => ws.setTagFilter(tg)}
                       onOrientationChange={(o) => ws.setOrientationFilter(o)}
                       onClearAll={() => ws.clearAllFilters()}
                     />
@@ -1419,99 +1577,305 @@ export function LibraryWorkspace({
                   <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">
                     {t("workspace.loadingIndex")}
                   </div>
-                ) : filteredItems.length === 0 ? (
-                  <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
-                    {activeFolderId === "__trash__" ? (
-                      <>
-                        <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
-                          <Trash2 className="size-6 text-muted-foreground" />
-                        </div>
-                        <h3 className="font-semibold text-sm mb-1">
-                          {t("workspace.trashEmptyTitle")}
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          {t("workspace.trashEmptyDesc")}
-                        </p>
-                      </>
-                    ) : activeTag ? (
-                      <>
-                        <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
-                          <TagIcon className="size-6 text-muted-foreground" />
-                        </div>
-                        <h3 className="font-semibold text-sm mb-1">
-                          {t("workspace.tagEmptyTitle", { tag: activeTagLabel })}
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          {t("workspace.tagEmptyDesc")}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
-                          <Upload className="size-6 text-muted-foreground" />
-                        </div>
-                        <h3 className="font-semibold text-sm mb-1">
-                          {t("workspace.noFilesTitle")}
-                        </h3>
-                        <p className="text-xs text-muted-foreground mb-4">
-                          {t("workspace.noFilesDesc")}
-                        </p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => fileInputRef.current?.click()}
-                          className="text-xs cursor-pointer"
-                        >
-                          {t("workspace.chooseFiles")}
-                        </Button>
-                      </>
-                    )}
-                  </div>
                 ) : (
-                  <JustifiedGallery
-                    items={filteredItems}
-                    selectedOrder={selectedOrder}
-                    keyboardNavEnabled={
-                      !inlinePreviewOpen &&
-                      !fullWindowPreviewOpen &&
-                      !contextMenu &&
-                      !deleteConfirmDialog &&
-                      !renameDialog
-                    }
-                    targetRowHeight={rowHeight}
-                    onSelectionChange={(nextOrder, lastItem) => {
-                      setSelectedOrder(nextOrder);
-                      if (lastItem) {
-                        setActiveItemId(lastItem.id);
-                      } else if (nextOrder.length === 0) {
-                        setActiveItemId(null);
-                      } else {
-                        setActiveItemId(nextOrder[nextOrder.length - 1]);
-                      }
-                    }}
-                    onDoubleClickItem={(item) => {
-                      setActiveItemId(item.id);
-                      setSelectedOrder([item.id]);
-                      openPreview("inline", item.id);
-                    }}
-                    onDragStartItem={handleDragStart}
-                    onItemContextMenu={(e, item) => {
-                      if (!selectedItemIds.has(item.id)) {
-                        setSelectedOrder([item.id]);
-                        setActiveItemId(item.id);
-                      }
-                      setContextMenu({
-                        position: { x: e.clientX, y: e.clientY },
-                        isItemContext: true,
-                      });
-                    }}
-                    onCanvasContextMenu={(e) => {
-                      setContextMenu({
-                        position: { x: e.clientX, y: e.clientY },
-                        isItemContext: false,
-                      });
-                    }}
-                  />
+                  <>
+                    {/* Subfolders top panel (when the current folder has child folders) */}
+                    {currentSubfolders.length > 0 && (
+                      <section
+                        data-slot="subfolders-section"
+                        className="mb-4 shrink-0 select-none"
+                      >
+                        <div className="flex items-center justify-between gap-2 pb-2">
+                          <button
+                            type="button"
+                            onClick={() => setSubfoldersCollapsed((v) => !v)}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground/90 hover:text-foreground transition-colors cursor-pointer"
+                          >
+                            {subfoldersCollapsed ? (
+                              <ChevronRight className="size-3.5 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="size-3.5 text-muted-foreground" />
+                            )}
+                            <span>
+                              {t("workspace.subfoldersCount", {
+                                count: currentSubfolders.length,
+                              })}
+                            </span>
+                          </button>
+
+                          <label className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={includeSubfolders}
+                              onChange={(e) =>
+                                setIncludeSubfolders(e.target.checked)
+                              }
+                              className="size-3.5 rounded border-border accent-primary cursor-pointer"
+                            />
+                            <span>{t("workspace.includeSubfolders")}</span>
+                          </label>
+                        </div>
+
+                        {!subfoldersCollapsed && (
+                          <div className="grid grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3 pt-0.5">
+                            {currentSubfolders.map((sub) => {
+                              const subInfo = subfolderPreviewData.get(sub.id);
+                              const previewItems = subInfo?.previewItems ?? [];
+                              const count =
+                                subInfo?.totalCount ?? sub.itemCount ?? 0;
+                              return (
+                                <button
+                                  key={sub.id}
+                                  type="button"
+                                  data-subfolder-id={sub.id}
+                                  onClick={() => {
+                                    navigateToFolder(sub.id);
+                                    setSelectedOrder([]);
+                                    setActiveItemId(null);
+                                  }}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    e.dataTransfer.dropEffect = "move";
+                                  }}
+                                  onDrop={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const itemIdsJson = e.dataTransfer.getData(
+                                      "application/x-bowerbird-item-ids"
+                                    );
+                                    if (itemIdsJson) {
+                                      try {
+                                        const ids = JSON.parse(itemIdsJson);
+                                        if (Array.isArray(ids)) {
+                                          for (const id of ids) {
+                                            await handleMoveItemToFolder(
+                                              id,
+                                              activeFolderId || "",
+                                              sub.id
+                                            );
+                                          }
+                                          return;
+                                        }
+                                      } catch {
+                                        // fallback
+                                      }
+                                    }
+                                    const singleId = e.dataTransfer.getData(
+                                      "application/x-bowerbird-item-id"
+                                    );
+                                    if (singleId) {
+                                      await handleMoveItemToFolder(
+                                        singleId,
+                                        activeFolderId || "",
+                                        sub.id
+                                      );
+                                    }
+                                  }}
+                                  className={cn(
+                                    "group/subcard flex flex-col rounded-xl border border-border/70 bg-card/50 hover:bg-accent/50 hover:border-primary/40 p-2 text-left transition-all cursor-pointer shadow-2xs"
+                                  )}
+                                >
+                                  {/* Large folder cover preview area */}
+                                  <div className="relative w-full h-24 rounded-lg bg-muted/40 border border-border/40 overflow-hidden flex items-center justify-center mb-2">
+                                    {previewItems.length === 0 ? (
+                                      <FolderIcon className="size-10 text-primary/70 stroke-[1.5] transition-transform group-hover/subcard:scale-105" />
+                                    ) : previewItems.length === 1 ? (
+                                      <UniversalThumbnail
+                                        item={previewItems[0]}
+                                        width="100%"
+                                        height="100%"
+                                        objectFit="cover"
+                                        draggable={false}
+                                        borderless={true}
+                                        className="w-full h-full pointer-events-none"
+                                      />
+                                    ) : (
+                                      <div className="grid grid-cols-2 grid-rows-2 gap-0.5 w-full h-full">
+                                        {[0, 1, 2, 3].map((slotIdx) => {
+                                          const pItem = previewItems[slotIdx];
+                                          return (
+                                            <div
+                                              key={slotIdx}
+                                              className="w-full h-full bg-muted/50 overflow-hidden flex items-center justify-center"
+                                            >
+                                              {pItem ? (
+                                                <UniversalThumbnail
+                                                  item={pItem}
+                                                  width="100%"
+                                                  height="100%"
+                                                  objectFit="cover"
+                                                  draggable={false}
+                                                  borderless={true}
+                                                  className="w-full h-full pointer-events-none"
+                                                />
+                                              ) : (
+                                                <FolderIcon className="size-4 text-muted-foreground/30" />
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center justify-between gap-1.5 px-0.5">
+                                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                      <FolderIcon className="size-3.5 text-primary/80 shrink-0" />
+                                      <span className="text-xs font-medium text-foreground truncate">
+                                        {sub.name}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                                      {count}
+                                    </span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    )}
+
+                    {filteredItems.length === 0 ? (
+                      currentSubfolders.length === 0 ? (
+                        <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
+                          {activeFolderId === "__trash__" ? (
+                            <>
+                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                                <Trash2 className="size-6 text-muted-foreground" />
+                              </div>
+                              <h3 className="font-semibold text-sm mb-1">
+                                {t("workspace.trashEmptyTitle")}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {t("workspace.trashEmptyDesc")}
+                              </p>
+                            </>
+                          ) : tagsSidebarOpen ? (
+                            <>
+                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                                <TagIcon className="size-6 text-muted-foreground" />
+                              </div>
+                              <h3 className="font-semibold text-sm mb-1">
+                                {activeTag
+                                  ? t("workspace.tagEmptyTitle", {
+                                      tag: activeTagLabel,
+                                    })
+                                  : t("tags.empty")}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {t("workspace.tagEmptyDesc")}
+                              </p>
+                            </>
+                          ) : activeFolderId === UNTAGGED_FOLDER_ID ? (
+                            <>
+                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                                <TagIcon className="size-6 text-muted-foreground" />
+                              </div>
+                              <h3 className="font-semibold text-sm mb-1">
+                                {t("workspace.untaggedEmptyTitle")}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {t("workspace.untaggedEmptyDesc")}
+                              </p>
+                            </>
+                          ) : activeFolderId === UNCATEGORIZED_FOLDER_ID ? (
+                            <>
+                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                                <FolderX className="size-6 text-muted-foreground" />
+                              </div>
+                              <h3 className="font-semibold text-sm mb-1">
+                                {t("workspace.uncategorizedEmptyTitle")}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {t("workspace.uncategorizedEmptyDesc")}
+                              </p>
+                            </>
+                          ) : activeFolderId === HISTORY_FOLDER_ID ? (
+                            <>
+                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                                <History className="size-6 text-muted-foreground" />
+                              </div>
+                              <h3 className="font-semibold text-sm mb-1">
+                                {t("workspace.historyEmptyTitle")}
+                              </h3>
+                              <p className="text-xs text-muted-foreground">
+                                {t("workspace.historyEmptyDesc")}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                                <Upload className="size-6 text-muted-foreground" />
+                              </div>
+                              <h3 className="font-semibold text-sm mb-1">
+                                {t("workspace.noFilesTitle")}
+                              </h3>
+                              <p className="text-xs text-muted-foreground mb-4">
+                                {t("workspace.noFilesDesc")}
+                              </p>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="text-xs cursor-pointer"
+                              >
+                                {t("workspace.chooseFiles")}
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      ) : null
+                    ) : (
+                      <JustifiedGallery
+                        items={filteredItems}
+                        selectedOrder={selectedOrder}
+                        keyboardNavEnabled={
+                          !inlinePreviewOpen &&
+                          !fullWindowPreviewOpen &&
+                          !contextMenu &&
+                          !folderPaletteOpen &&
+                          !deleteConfirmDialog &&
+                          !renameDialog
+                        }
+                        targetRowHeight={rowHeight}
+                        onSelectionChange={(nextOrder, lastItem) => {
+                          setSelectedOrder(nextOrder);
+                          if (lastItem) {
+                            setActiveItemId(lastItem.id);
+                          } else if (nextOrder.length === 0) {
+                            setActiveItemId(null);
+                          } else {
+                            setActiveItemId(nextOrder[nextOrder.length - 1]);
+                          }
+                        }}
+                        onDoubleClickItem={(item) => {
+                          setActiveItemId(item.id);
+                          setSelectedOrder([item.id]);
+                          openPreview("inline", item.id);
+                        }}
+                        onDragStartItem={handleDragStart}
+                        onItemContextMenu={(e, item) => {
+                          if (!selectedItemIds.has(item.id)) {
+                            setSelectedOrder([item.id]);
+                            setActiveItemId(item.id);
+                          }
+                          setContextMenu({
+                            position: { x: e.clientX, y: e.clientY },
+                            isItemContext: true,
+                          });
+                        }}
+                        onCanvasContextMenu={(e) => {
+                          setContextMenu({
+                            position: { x: e.clientX, y: e.clientY },
+                            isItemContext: false,
+                          });
+                        }}
+                      />
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1554,6 +1918,7 @@ export function LibraryWorkspace({
                   <MultiItemInspector
                     selectedItems={selectedItems}
                     allFolders={folders}
+                    allTags={tags}
                     activeFolderId={activeFolderId}
                     onClearSelection={() => {
                       setSelectedOrder([]);
@@ -1566,6 +1931,8 @@ export function LibraryWorkspace({
                     onBatchRestore={() => handleRestore()}
                     onBatchAddToFolder={handleBatchAddToFolder}
                     onBatchRemoveFromFolder={handleBatchRemoveFromFolder}
+                    onBatchAddTag={handleBatchAddTag}
+                    onBatchRemoveTag={handleBatchRemoveTag}
                   />
                 ) : (
                   <ItemDetailPanel
@@ -1626,8 +1993,6 @@ export function LibraryWorkspace({
           selectedCount={selectedOrder.length}
           isItemContext={contextMenu?.isItemContext || false}
           activeFolderId={activeFolderId}
-          allFolders={folders}
-          allTags={tags}
           targetItem={activeItem}
           onPreview={() => openPreview("full")}
           onRename={() => activeItem && handleOpenRename(activeItem)}
@@ -1642,14 +2007,12 @@ export function LibraryWorkspace({
           }
           onDelete={() => handleRequestDelete()}
           onRestore={() => handleRestore()}
-          onAddToFolder={handleBatchAddToFolder}
+          onOpenAddToFolderPalette={() => setFolderPaletteOpen(true)}
           onRemoveFromCurrentFolder={() => {
-            if (activeFolderId) handleBatchRemoveFromFolder(activeFolderId);
+            if (isRealFolderId(activeFolderId)) {
+              handleBatchRemoveFromFolder(activeFolderId);
+            }
           }}
-          onAddTag={(tag) => activeItem && handleAddTagToItem(activeItem.id, tag)}
-          onRemoveTag={(tag) =>
-            activeItem && handleRemoveTagFromItem(activeItem.id, tag)
-          }
           onSelectAll={() => {
             setSelectedOrder(filteredItems.map((i) => i.id));
             if (filteredItems.length > 0) {
@@ -1663,6 +2026,59 @@ export function LibraryWorkspace({
           onImportFiles={() => fileInputRef.current?.click()}
           onCreateFolder={() => handleCreateFolder(t("workspace.newFolder"))}
         />
+
+        {/* COMMAND PALETTE FOR ADDING TO FOLDER */}
+        <CommandDialog
+          open={folderPaletteOpen}
+          onOpenChange={setFolderPaletteOpen}
+          title={t("contextMenu.addToFolder")}
+          description={t("contextMenu.searchFolderPlaceholder")}
+          className="max-w-sm rounded-xl! border border-border bg-popover text-popover-foreground shadow-2xl"
+        >
+          <Command className="rounded-xl bg-transparent p-0">
+            <CommandInput
+              placeholder={t("contextMenu.searchFolderPlaceholder")}
+              wrapperClassName="p-0"
+              groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-3 shadow-none ring-0!"
+              addonClassName="pl-0 pr-2 [&_svg]:size-3.5"
+              className="h-9 text-xs bg-transparent"
+            />
+            <CommandList className="max-h-64 p-1.5 overflow-y-auto">
+              <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                {flatFolderList.length === 0
+                  ? t("sidebar.noFolders")
+                  : t("contextMenu.noResults")}
+              </CommandEmpty>
+              <CommandGroup>
+                {flatFolderList.map((f) => {
+                  const allAssigned =
+                    selectedItems.length > 0 &&
+                    selectedItems.every((it) => (it.folders || []).includes(f.id));
+                  return (
+                    <CommandItem
+                      key={f.id}
+                      value={`${f.name} ${f.id}`}
+                      onSelect={async () => {
+                        setFolderPaletteOpen(false);
+                        await handleBatchAddToFolder(f.id);
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer"
+                    >
+                      <FolderIcon className="size-3.5 text-muted-foreground shrink-0" />
+                      <span className="truncate flex-1">{f.name}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground/70">
+                        {f.count}
+                      </span>
+                      {allAssigned && (
+                        <Check className="size-3.5 text-primary shrink-0" />
+                      )}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </CommandDialog>
 
         {/* MULTI-FOLDER DELETION & PERMANENT DELETION DIALOG */}
         {deleteConfirmDialog && (

@@ -15,6 +15,9 @@ import {
   ChevronsUpDown,
   Check,
   Tag,
+  Tags,
+  FolderX,
+  History,
 } from "lucide-react";
 import {
   SidebarHeader,
@@ -68,6 +71,9 @@ export interface SidebarDirectoryTreeProps {
   folders: Folder[];
   activeFolderId: string | null;
   totalItemCount: number;
+  untaggedCount?: number;
+  uncategorizedCount?: number;
+  historyCount?: number;
   trashCount?: number;
   tagsCount?: number;
   tagsSidebarOpen?: boolean;
@@ -108,6 +114,9 @@ export function SidebarDirectoryTree({
   folders,
   activeFolderId,
   totalItemCount,
+  untaggedCount = 0,
+  uncategorizedCount = 0,
+  historyCount = 0,
   trashCount = 0,
   tagsCount = 0,
   tagsSidebarOpen = false,
@@ -557,7 +566,82 @@ export function SidebarDirectoryTree({
                   </div>
                 </SidebarMenuItem>
 
-                {/* 2. Tags */}
+                {/* 2. Untagged */}
+                <SidebarMenuItem>
+                  <div className="flex items-center w-full">
+                    <div className="w-3 shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() => onSelectFolder("__untagged__")}
+                      className={cn(
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        activeFolderId === "__untagged__" && !tagsSidebarOpen
+                          ? "bg-primary/10 text-primary font-semibold shadow-2xs"
+                          : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
+                      )}
+                    >
+                      <Tag className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate flex-1 text-xs">
+                        {t("sidebar.untagged")}
+                      </span>
+                      <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                        {untaggedCount}
+                      </SidebarMenuBadge>
+                    </button>
+                  </div>
+                </SidebarMenuItem>
+
+                {/* 3. Uncategorized */}
+                <SidebarMenuItem>
+                  <div className="flex items-center w-full">
+                    <div className="w-3 shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() => onSelectFolder("__uncategorized__")}
+                      className={cn(
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        activeFolderId === "__uncategorized__" && !tagsSidebarOpen
+                          ? "bg-primary/10 text-primary font-semibold shadow-2xs"
+                          : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
+                      )}
+                    >
+                      <FolderX className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate flex-1 text-xs">
+                        {t("sidebar.uncategorized")}
+                      </span>
+                      <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                        {uncategorizedCount}
+                      </SidebarMenuBadge>
+                    </button>
+                  </div>
+                </SidebarMenuItem>
+
+                {/* 4. History (Recent Dragged-Out Items) */}
+                <SidebarMenuItem>
+                  <div className="flex items-center w-full">
+                    <div className="w-3 shrink-0" />
+                    <button
+                      type="button"
+                      onClick={() => onSelectFolder("__history__")}
+                      className={cn(
+                        "flex-1 flex items-center gap-2 min-w-0 h-8 pl-1 pr-2 rounded-lg text-left text-xs transition-colors cursor-pointer",
+                        activeFolderId === "__history__" && !tagsSidebarOpen
+                          ? "bg-primary/10 text-primary font-semibold shadow-2xs"
+                          : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
+                      )}
+                    >
+                      <History className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate flex-1 text-xs">
+                        {t("sidebar.history")}
+                      </span>
+                      <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
+                        {historyCount}
+                      </SidebarMenuBadge>
+                    </button>
+                  </div>
+                </SidebarMenuItem>
+
+                {/* 5. All Tags */}
                 <SidebarMenuItem>
                   <div className="flex items-center w-full">
                     <div className="w-3 shrink-0" />
@@ -571,9 +655,9 @@ export function SidebarDirectoryTree({
                           : "hover:bg-sidebar-accent/70 text-sidebar-foreground"
                       )}
                     >
-                      <Tag className="size-4 shrink-0 text-muted-foreground" />
+                      <Tags className="size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-xs">
-                        {t("sidebar.tags")}
+                        {t("sidebar.allTags")}
                       </span>
                       <SidebarMenuBadge className="text-[10px] font-mono px-1.5 py-0 bg-sidebar-accent/80">
                         {tagsCount}
@@ -581,7 +665,6 @@ export function SidebarDirectoryTree({
                     </button>
                   </div>
                 </SidebarMenuItem>
-
                 {/* 3. Trash */}
                 <SidebarMenuItem className="relative group/trash">
                   <div

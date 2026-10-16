@@ -10,8 +10,20 @@ import {
   Star,
   Tag as TagIcon,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
 import {
   Accordion,
   AccordionItem,
@@ -69,6 +81,7 @@ export function ItemDetailPanel({
   item,
   currentFolder,
   allFolders,
+  allTags = [],
   totalItemCount,
   totalSizeBytes = 0,
   isTrashView = false,
@@ -84,8 +97,8 @@ export function ItemDetailPanel({
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
-  const [showTagInput, setShowTagInput] = useState(false);
-  const [newTagText, setNewTagText] = useState("");
+  const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
+  const [tagSearch, setTagSearch] = useState("");
 
   // Flatten folder tree for selection
   const flattenFolders = (
@@ -371,49 +384,153 @@ export function ItemDetailPanel({
             <AccordionTrigger
               action={
                 !isTrashView ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowTagInput((v) => !v);
+                  <Popover
+                    open={tagPopoverOpen}
+                    onOpenChange={(open) => {
+                      setTagPopoverOpen(open);
+                      if (!open) setTagSearch("");
                     }}
-                    className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer"
                   >
-                    <Plus className="size-2.5" />
-                    <span>{t("inspector.add")}</span>
-                  </button>
+                    <PopoverTrigger
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] text-primary hover:underline flex items-center gap-0.5 cursor-pointer bg-transparent border-0 p-0"
+                    >
+                      <Plus className="size-2.5" />
+                      <span>{t("inspector.add")}</span>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="end"
+                      sideOffset={4}
+                      className="w-56 p-0 rounded-xl shadow-xl border border-border bg-popover text-popover-foreground z-50 overflow-hidden"
+                    >
+                      <Command className="rounded-xl bg-transparent p-0">
+                        <CommandInput
+                          value={tagSearch}
+                          onValueChange={setTagSearch}
+                          placeholder={t("inspector.searchOrCreateTagPlaceholder")}
+                          wrapperClassName="p-0"
+                          groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-2.5 shadow-none ring-0!"
+                          addonClassName="pl-0 pr-1.5 [&_svg]:size-3.5"
+                          className="h-8 text-xs bg-transparent"
+                          onKeyDown={async (e) => {
+                            if (e.key === "Enter") {
+                              const clean = tagSearch.trim();
+                              if (!clean) return;
+                              const exactExisting = allTags.find(
+                                (tg) => tg.name.toLowerCase() === clean.toLowerCase()
+                              );
+                              if (!exactExisting) {
+                                e.preventDefault();
+                                await AddTagToItem(item.id, clean);
+                                setTagSearch("");
+                                onTagsUpdated?.();
+                              }
+                            }
+                          }}
+                        />
+                        <CommandList className="max-h-56 p-1 overflow-y-auto">
+                          <CommandEmpty className="py-2.5 px-2 text-center text-xs text-muted-foreground">
+                            {tagSearch.trim() ? (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const clean = tagSearch.trim();
+                                  if (!clean) return;
+                                  await AddTagToItem(item.id, clean);
+                                  setTagSearch("");
+                                  onTagsUpdated?.();
+                                }}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-primary hover:bg-primary/10 transition-colors cursor-pointer text-left font-medium"
+                              >
+                                <Plus className="size-3.5 shrink-0" />
+                                <span className="truncate">
+                                  {t("inspector.createTag", {
+                                    name: tagSearch.trim(),
+                                  })}
+                                </span>
+                              </button>
+                            ) : (
+                              t("tags.empty")
+                            )}
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {tagSearch.trim() &&
+                              !allTags.some(
+                                (tg) =>
+                                  tg.name.toLowerCase() ===
+                                  tagSearch.trim().toLowerCase()
+                              ) && (
+                                <CommandItem
+                                  value={`__create__ ${tagSearch.trim()}`}
+                                  onSelect={async () => {
+                                    const clean = tagSearch.trim();
+                                    if (!clean) return;
+                                    await AddTagToItem(item.id, clean);
+                                    setTagSearch("");
+                                    onTagsUpdated?.();
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-primary font-medium cursor-pointer"
+                                >
+                                  <Plus className="size-3.5 shrink-0 text-primary" />
+                                  <span className="truncate flex-1">
+                                    {t("inspector.createTag", {
+                                      name: tagSearch.trim(),
+                                    })}
+                                  </span>
+                                </CommandItem>
+                              )}
+                            {allTags.map((tg) => {
+                              const hasTag = (item.tags || []).includes(tg.name);
+                              const isFav = tg.name === FAVORITE_TAG;
+                              const displayLabel = isFav
+                                ? t("common.favorites")
+                                : tg.name;
+                              return (
+                                <CommandItem
+                                  key={tg.name}
+                                  value={`${displayLabel} ${tg.name}`}
+                                  onSelect={async () => {
+                                    if (hasTag) {
+                                      await RemoveTagFromItem(item.id, tg.name);
+                                    } else {
+                                      await AddTagToItem(item.id, tg.name);
+                                    }
+                                    onTagsUpdated?.();
+                                  }}
+                                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer"
+                                >
+                                  {isFav ? (
+                                    <Star
+                                      className={cn(
+                                        "size-3.5 shrink-0",
+                                        hasTag
+                                          ? "text-amber-500 fill-amber-500"
+                                          : "text-amber-500/80"
+                                      )}
+                                    />
+                                  ) : (
+                                    <TagIcon className="size-3.5 text-muted-foreground shrink-0" />
+                                  )}
+                                  <span className="truncate flex-1">
+                                    {displayLabel}
+                                  </span>
+                                  {hasTag && (
+                                    <Check className="size-3.5 text-primary shrink-0" />
+                                  )}
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 ) : undefined
               }
             >
               {t("inspector.tagsCount", { count: item.tags?.length || 0 })}
             </AccordionTrigger>
             <AccordionContent className="space-y-2">
-              {showTagInput && !isTrashView && (
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    const clean = newTagText.trim();
-                    if (!clean) return;
-                    await AddTagToItem(item.id, clean);
-                    setNewTagText("");
-                    setShowTagInput(false);
-                    onTagsUpdated?.();
-                  }}
-                  className="flex items-center gap-1"
-                >
-                  <input
-                    autoFocus
-                    value={newTagText}
-                    onChange={(e) => setNewTagText(e.target.value)}
-                    placeholder={t("inspector.tagPlaceholder")}
-                    className="flex-1 h-6 px-2 text-[11px] rounded border border-border bg-card text-foreground"
-                  />
-                  <Button type="submit" size="xs" className="h-6 px-2 text-[10px]">
-                    {t("inspector.add")}
-                  </Button>
-                </form>
-              )}
-
               {!item.tags || item.tags.length === 0 ? (
                 <p className="text-[11px] text-muted-foreground">
                   {t("inspector.noTags")}

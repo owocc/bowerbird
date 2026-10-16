@@ -4,12 +4,10 @@ import {
   ChevronDown,
   Check,
   Palette,
-  Tag as TagIcon,
   Folder as FolderIcon,
   Layers,
   Ratio,
   X,
-  Star,
 } from "lucide-react";
 import {
   Popover,
@@ -18,14 +16,12 @@ import {
 } from "@/components/ui/popover";
 import type {
   Folder,
-  Tag,
   Item,
 } from "../../bindings/bowerbird/core/models";
 import type {
   WorkspaceCategory,
   WorkspaceOrientation,
 } from "@/lib/workspace-search";
-import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { cn } from "@/lib/utils";
 
 export const UNCATEGORIZED_FOLDER_FILTER = "__uncategorized__";
@@ -92,16 +88,13 @@ export function itemMatchesColorFilter(
 export interface FilterBarProps {
   items: Item[];
   folders: Folder[];
-  tags: Tag[];
   categoryFilter: WorkspaceCategory;
   colorFilter: string | null;
   folderFilter: string | null;
-  tagFilter: string | null;
   orientationFilter: WorkspaceOrientation;
   onCategoryChange: (cat: WorkspaceCategory) => void;
   onColorChange: (color: string | null) => void;
   onFolderChange: (folderId: string | null) => void;
-  onTagChange: (tag: string | null) => void;
   onOrientationChange: (orientation: WorkspaceOrientation) => void;
   onClearAll: () => void;
 }
@@ -109,23 +102,19 @@ export interface FilterBarProps {
 export function FilterBar({
   items,
   folders,
-  tags,
   categoryFilter,
   colorFilter,
   folderFilter,
-  tagFilter,
   orientationFilter,
   onCategoryChange,
   onColorChange,
   onFolderChange,
-  onTagChange,
   onOrientationChange,
   onClearAll,
 }: FilterBarProps) {
   const { t } = useTranslation();
   const [typeOpen, setTypeOpen] = useState(false);
   const [colorOpen, setColorOpen] = useState(false);
-  const [tagOpen, setTagOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [orientOpen, setOrientOpen] = useState(false);
 
@@ -192,12 +181,6 @@ export function FilterBar({
     );
   }, [folderFilter, flatFolders, t]);
 
-  const activeTagLabel = useMemo(() => {
-    if (!tagFilter) return t("filters.tag");
-    if (tagFilter === UNTAGGED_TAG_FILTER) return t("filters.untagged");
-    if (tagFilter === FAVORITE_TAG) return t("common.favorites");
-    return tagFilter;
-  }, [tagFilter, t]);
 
   const activeOrientationLabel =
     orientationFilter === "all"
@@ -209,7 +192,6 @@ export function FilterBar({
     categoryFilter !== "all" ||
     Boolean(colorFilter) ||
     Boolean(folderFilter) ||
-    Boolean(tagFilter) ||
     orientationFilter !== "all";
 
   const pillBaseClass =
@@ -362,101 +344,6 @@ export function FilterBar({
         </PopoverContent>
       </Popover>
 
-      {/* 3. Tag Filter Dropdown */}
-      <Popover open={tagOpen} onOpenChange={setTagOpen}>
-        <PopoverTrigger
-          className={cn(
-            pillBaseClass,
-            tagFilter ? pillActiveClass : pillInactiveClass
-          )}
-        >
-          <TagIcon className="size-3 shrink-0" />
-          <span className="max-w-24 truncate">{activeTagLabel}</span>
-          <ChevronDown className="size-3 opacity-70" />
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          sideOffset={4}
-          className="w-48 p-1 rounded-xl shadow-xl border border-border bg-popover text-popover-foreground z-50 text-xs max-h-64 overflow-y-auto"
-        >
-          <div className="space-y-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                onTagChange(null);
-                setTagOpen(false);
-              }}
-              className={cn(
-                "w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer",
-                !tagFilter
-                  ? "bg-primary/10 text-primary font-semibold"
-                  : "hover:bg-accent text-foreground"
-              )}
-            >
-              <span>{t("filters.allTags")}</span>
-              {!tagFilter && <Check className="size-3.5 text-primary" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                onTagChange(
-                  tagFilter === UNTAGGED_TAG_FILTER ? null : UNTAGGED_TAG_FILTER
-                );
-                setTagOpen(false);
-              }}
-              className={cn(
-                "w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer",
-                tagFilter === UNTAGGED_TAG_FILTER
-                  ? "bg-primary/10 text-primary font-semibold"
-                  : "hover:bg-accent text-muted-foreground"
-              )}
-            >
-              <span>{t("filters.untagged")}</span>
-              {tagFilter === UNTAGGED_TAG_FILTER && (
-                <Check className="size-3.5 text-primary" />
-              )}
-            </button>
-
-            {tags.length > 0 && <div className="my-1 h-px bg-border/50" />}
-
-            {tags.map((tg) => {
-              const isSelected = tagFilter === tg.name;
-              const isFav = tg.name === FAVORITE_TAG;
-              return (
-                <button
-                  key={tg.name}
-                  type="button"
-                  onClick={() => {
-                    onTagChange(isSelected ? null : tg.name);
-                    setTagOpen(false);
-                  }}
-                  className={cn(
-                    "w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer",
-                    isSelected
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "hover:bg-accent text-foreground"
-                  )}
-                >
-                  <span className="flex items-center gap-1.5 truncate">
-                    {isFav ? (
-                      <Star className="size-3 text-amber-500 fill-amber-500 shrink-0" />
-                    ) : (
-                      <TagIcon className="size-3 text-muted-foreground shrink-0" />
-                    )}
-                    <span className="truncate">
-                      {isFav ? t("common.favorites") : tg.name}
-                    </span>
-                  </span>
-                  <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                    {tg.itemCount}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </PopoverContent>
-      </Popover>
 
       {/* 4. Folder Filter Dropdown */}
       <Popover open={folderOpen} onOpenChange={setFolderOpen}>
