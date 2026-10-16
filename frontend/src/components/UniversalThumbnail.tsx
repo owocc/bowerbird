@@ -111,6 +111,7 @@ export function UniversalThumbnail({
           src={thumbnailSrc}
           alt={item.name}
           loading="lazy"
+          decoding="async"
           draggable={false}
           onError={() => setImageError(true)}
           style={{ objectFit }}
@@ -122,6 +123,7 @@ export function UniversalThumbnail({
             src={systemIconUrl}
             alt={item.extension || "file"}
             loading="lazy"
+            decoding="async"
             draggable={false}
             onError={() => setIconLoadError(true)}
             className="size-14 object-contain pointer-events-none drop-shadow-sm transition-transform group-hover:scale-105"

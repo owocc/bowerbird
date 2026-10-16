@@ -27,6 +27,9 @@ interface LayoutItem {
 interface LayoutRow {
   items: LayoutItem[];
   height: number;
+  rowTotalHeight: number;
+  top: number;
+  bottom: number;
 }
 
 interface MarqueeBox {
@@ -52,7 +55,10 @@ export function JustifiedGallery({
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
   const [lastClickedItemId, setLastClickedItemId] = useState<string | null>(null);
-
+  const [scrollState, setScrollState] = useState<{ scrollTop: number; viewportHeight: number }>({
+    scrollTop: 0,
+    viewportHeight: 900,
+  });
   const selectedSet = useMemo(() => new Set(selectedOrder), [selectedOrder]);
 
   // Marquee selection state in refs so listeners stay stable across frames
@@ -96,9 +102,35 @@ export function JustifiedGallery({
     };
 
     updateWidth();
-    const observer = new ResizeObserver(() => updateWidth());
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+      const host = containerRef.current?.parentElement;
+      if (host) {
+        setScrollState({
+          scrollTop: host.scrollTop,
+          viewportHeight: host.clientHeight || 900,
+        });
+      }
+    });
     observer.observe(containerRef.current);
+    const host = containerRef.current.parentElement;
+    if (host) observer.observe(host);
     return () => observer.disconnect();
+  }, []);
+
+  // Track scroll position on scroll host for row virtualization
+  useEffect(() => {
+    const host = containerRef.current?.parentElement;
+    if (!host) return;
+    const onScroll = () => {
+      setScrollState({
+        scrollTop: host.scrollTop,
+        viewportHeight: host.clientHeight || 900,
+      });
+    };
+    onScroll();
+    host.addEventListener("scroll", onScroll, { passive: true });
+    return () => host.removeEventListener("scroll", onScroll);
   }, []);
 
   // Compute justified rows layout with pixel-perfect row filling
@@ -160,7 +192,7 @@ export function JustifiedGallery({
           height: finalHeight,
         }));
 
-        computedRows.push({ items: layoutItems, height: finalHeight });
+        computedRows.push({ items: layoutItems, height: finalHeight, rowTotalHeight: 0, top: 0, bottom: 0 });
         currentRow = [];
         currentRatiosSum = 0;
       }
@@ -187,7 +219,7 @@ export function JustifiedGallery({
           width: widths[idx],
           height: finalHeight,
         }));
-        computedRows.push({ items: layoutItems, height: finalHeight });
+        computedRows.push({ items: layoutItems, height: finalHeight, rowTotalHeight: 0, top: 0, bottom: 0 });
       } else {
         const finalHeight = targetRowHeight;
         const layoutItems: LayoutItem[] = currentRow.map((entry) => ({
@@ -195,8 +227,18 @@ export function JustifiedGallery({
           width: Math.round(finalHeight * entry.ratio),
           height: finalHeight,
         }));
-        computedRows.push({ items: layoutItems, height: finalHeight });
+        computedRows.push({ items: layoutItems, height: finalHeight, rowTotalHeight: 0, top: 0, bottom: 0 });
       }
+    }
+    const LABEL_HEIGHT = 24;
+    const ROW_GAP = 16;
+    let yCursor = 0;
+    for (let r = 0; r < computedRows.length; r++) {
+      const rowTotalHeight = computedRows[r].height + LABEL_HEIGHT;
+      computedRows[r].rowTotalHeight = rowTotalHeight;
+      computedRows[r].top = yCursor;
+      computedRows[r].bottom = yCursor + rowTotalHeight;
+      yCursor += rowTotalHeight + ROW_GAP;
     }
 
     return computedRows;
@@ -249,6 +291,7 @@ export function JustifiedGallery({
       { flatIdx: number; rowIdx: number; colIdx: number; centerX: number }
     >();
     const rowCenters: { item: Item; flatIdx: number; centerX: number }[][] = [];
+    const boxes: { id: string; left: number; right: number; top: number; bottom: number }[] = [];
     let flatIdx = 0;
 
     for (let r = 0; r < rows.length; r++) {
@@ -265,13 +308,20 @@ export function JustifiedGallery({
           centerX,
         });
         centers.push({ item: entry.item, flatIdx, centerX });
+        boxes.push({
+          id: entry.item.id,
+          left: xCursor,
+          right: xCursor + entry.width,
+          top: row.top,
+          bottom: row.bottom,
+        });
         xCursor += entry.width + gap;
         flatIdx++;
       }
       rowCenters.push(centers);
     }
 
-    return { byId, rowCenters };
+    return { byId, rowCenters, boxes };
   }, [rows, gap]);
 
   // Remember the horizontal anchor X across consecutive ArrowUp / ArrowDown presses
@@ -402,11 +452,17 @@ export function JustifiedGallery({
 
       // Scroll the newly active card smoothly into the visible viewport if needed
       const container = containerRef.current;
-      if (container) {
-        const cardEl = container.querySelector<HTMLElement>(
-          `[data-asset-id="${CSS.escape(nextItem.id)}"]`
-        );
-        cardEl?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const host = container?.parentElement;
+      const nextPos = layoutIndex.byId.get(nextItem.id);
+      if (host && nextPos && rows[nextPos.rowIdx]) {
+        const targetRow = rows[nextPos.rowIdx];
+        const viewTop = host.scrollTop;
+        const viewBottom = viewTop + host.clientHeight;
+        if (targetRow.top < viewTop) {
+          host.scrollTop = Math.max(0, targetRow.top - 16);
+        } else if (targetRow.bottom > viewBottom) {
+          host.scrollTop = targetRow.bottom - host.clientHeight + 32;
+        }
       }
     };
 
@@ -472,24 +528,8 @@ export function JustifiedGallery({
       const pt = clientToContainerPoint(clientX, clientY);
       if (!container || !pt) return;
 
-      const containerRect = container.getBoundingClientRect();
-
-      // Cache card boxes in container-relative coordinates so scrolling during marquee stays accurate
-      cardBoxesRef.current = Array.from(
-        container.querySelectorAll<HTMLElement>("[data-asset-id]")
-      )
-        .map((el) => {
-          const r = el.getBoundingClientRect();
-          return {
-            id: el.dataset.assetId ?? "",
-            left: r.left - containerRect.left,
-            right: r.right - containerRect.left,
-            top: r.top - containerRect.top,
-            bottom: r.bottom - containerRect.top,
-          };
-        })
-        .filter((card) => card.id);
-
+      // Use precomputed layout boxes so marquee works across all virtualized rows
+      cardBoxesRef.current = layoutIndex.boxes;
       const box: MarqueeBox = {
         startX: pt.x,
         startY: pt.y,
@@ -511,7 +551,7 @@ export function JustifiedGallery({
       marqueeRef.current = box;
       setMarquee(box);
     },
-    [clientToContainerPoint]
+    [clientToContainerPoint, layoutIndex.boxes]
   );
 
   const queueMarqueeMove = useCallback(
@@ -710,6 +750,37 @@ export function JustifiedGallery({
     };
   }, [marquee]);
 
+  // Compute virtualized visible row slice with generous overscan
+  const { visibleRows, topSpacerHeight, bottomSpacerHeight } = useMemo(() => {
+    if (rows.length <= 24) {
+      return { visibleRows: rows, topSpacerHeight: 0, bottomSpacerHeight: 0 };
+    }
+    const overscan = 600;
+    const minY = Math.max(0, scrollState.scrollTop - overscan);
+    const maxY = scrollState.scrollTop + Math.max(600, scrollState.viewportHeight) + overscan;
+
+    let startIdx = 0;
+    while (startIdx < rows.length && rows[startIdx].bottom < minY) {
+      startIdx++;
+    }
+    let endIdx = startIdx;
+    while (endIdx < rows.length && rows[endIdx].top <= maxY) {
+      endIdx++;
+    }
+    startIdx = Math.max(0, startIdx - 1);
+    endIdx = Math.min(rows.length, endIdx + 1);
+
+    const topH = startIdx > 0 ? rows[startIdx].top : 0;
+    const lastRow = rows[rows.length - 1];
+    const endRow = endIdx > 0 ? rows[endIdx - 1] : null;
+    const bottomH = endRow && endIdx < rows.length ? Math.max(0, lastRow.bottom - endRow.bottom) : 0;
+
+    return {
+      visibleRows: rows.slice(startIdx, endIdx),
+      topSpacerHeight: topH,
+      bottomSpacerHeight: bottomH,
+    };
+  }, [rows, scrollState.scrollTop, scrollState.viewportHeight]);
   return (
     <div
       ref={containerRef}
@@ -735,9 +806,13 @@ export function JustifiedGallery({
         />
       )}
 
-      {rows.map((row, rowIdx) => (
+      {topSpacerHeight > 0 && (
+        <div style={{ height: `${topSpacerHeight}px`, marginBottom: "-16px" }} className="w-full shrink-0 pointer-events-none" />
+      )}
+
+      {visibleRows.map((row) => (
         <div
-          key={rowIdx}
+          key={row.top}
           style={{ gap: `${gap}px` }}
           className="flex flex-nowrap items-start w-full"
         >
@@ -760,6 +835,10 @@ export function JustifiedGallery({
           ))}
         </div>
       ))}
+
+      {bottomSpacerHeight > 0 && (
+        <div style={{ height: `${bottomSpacerHeight}px`, marginTop: "-16px" }} className="w-full shrink-0 pointer-events-none" />
+      )}
 
       {/* Flexible blank canvas filler at the bottom so clicking/dragging below the last row always hits containerRef */}
       <div className="flex-1 min-h-12 w-full" />

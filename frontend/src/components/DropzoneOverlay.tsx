@@ -37,31 +37,36 @@ export function DropzoneOverlay({ state, targetName }: DropzoneOverlayProps) {
         </div>
       )}
 
-      {/* 2. Importing Progress Modal: Active background importing feedback */}
+      {/* 2. Bottom Background Import Status Bar: Fixed at bottom of main content area, non-blocking */}
       {status === "importing" && (
-        <div className="absolute inset-0 z-50 bg-background/70 backdrop-blur-xs flex items-center justify-center p-4 pointer-events-none select-none animate-in fade-in duration-150">
-          <div className="w-full max-w-md p-5 rounded-2xl bg-card border border-border shadow-xl space-y-3 pointer-events-auto">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <Loader2 className="size-4 text-primary animate-spin" />
-                <span className="font-semibold text-xs tracking-tight">{t("dropzone.importing")}</span>
-              </div>
-              <span className="font-mono text-xs text-muted-foreground">
-                {current} / {total || 1} ({percent}%)
-              </span>
-            </div>
+        <div
+          data-import-status-bar="true"
+          className="w-full shrink-0 border-t border-border/80 bg-card/95 backdrop-blur-md px-3.5 py-2 flex items-center gap-3 z-30 select-none wails-no-drag animate-in slide-in-from-bottom-2 duration-150"
+        >
+          <div className="flex items-center gap-2 shrink-0">
+            <Loader2 className="size-3.5 text-primary animate-spin shrink-0" />
+            <span className="font-semibold text-xs text-foreground tracking-tight">
+              {t("dropzone.importing")}
+            </span>
+          </div>
 
-            {/* Progress bar */}
-            <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+          <p
+            className="text-[11px] text-muted-foreground truncate font-mono flex-1 min-w-0"
+            title={filename}
+          >
+            {message || filename || t("dropzone.processing")}
+          </p>
+
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="w-32 sm:w-44 h-1.5 rounded-full bg-muted overflow-hidden">
               <div
-                className="h-full bg-primary rounded-full transition-all duration-200 ease-out"
+                className="h-full bg-primary rounded-full transition-all duration-150 ease-out"
                 style={{ width: `${percent}%` }}
               />
             </div>
-
-            <p className="text-[11px] text-muted-foreground truncate font-mono" title={filename}>
-              {message || filename || t("dropzone.processing")}
-            </p>
+            <span className="font-mono text-[11px] text-muted-foreground tabular-nums min-w-[76px] text-right">
+              {current} / {total || 1} ({percent}%)
+            </span>
           </div>
         </div>
       )}

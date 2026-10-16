@@ -108,7 +108,27 @@ func (s *Service) ImportFiles(sourcePaths []string) ([]Item, error) {
 	if s.mgr == nil {
 		return nil, errors.New("core manager not initialized")
 	}
-	return s.mgr.ImportFiles(sourcePaths)
+	app := s.getApp()
+	if app != nil && len(sourcePaths) > 0 {
+		app.Event.Emit("import-started", map[string]any{"total": len(sourcePaths)})
+	}
+	items, err := s.mgr.ImportFilesWithProgress(sourcePaths, func(current, total int, filename string) {
+		if app != nil {
+			app.Event.Emit("import-progress", map[string]any{
+				"current":  current,
+				"total":    total,
+				"filename": filename,
+			})
+		}
+	})
+	if app != nil {
+		if err != nil {
+			app.Event.Emit("import-error", err.Error())
+		} else {
+			app.Event.Emit("import-completed", map[string]any{"count": len(items)})
+		}
+	}
+	return items, err
 }
 
 func (s *Service) ImportFromBase64(filename string, base64Data string) (*Item, error) {
@@ -320,14 +340,54 @@ func (s *Service) ImportFolderRecursively(dirPath string, parentFolderID string)
 	if s.mgr == nil {
 		return nil, errors.New("core manager not initialized")
 	}
-	return s.mgr.ImportFolderRecursively(dirPath, parentFolderID)
+	app := s.getApp()
+	if app != nil {
+		app.Event.Emit("import-started", map[string]any{"total": 1})
+	}
+	folder, err := s.mgr.ImportFolderRecursivelyWithProgress(dirPath, parentFolderID, func(current, total int, filename string) {
+		if app != nil {
+			app.Event.Emit("import-progress", map[string]any{
+				"current":  current,
+				"total":    total,
+				"filename": filename,
+			})
+		}
+	})
+	if app != nil {
+		if err != nil {
+			app.Event.Emit("import-error", err.Error())
+		} else {
+			app.Event.Emit("import-completed", map[string]any{"count": 1})
+		}
+	}
+	return folder, err
 }
 
 func (s *Service) ImportFoldersRecursively(dirPaths []string, parentFolderID string) ([]Folder, error) {
 	if s.mgr == nil {
 		return []Folder{}, errors.New("core manager not initialized")
 	}
-	return s.mgr.ImportFoldersRecursively(dirPaths, parentFolderID)
+	app := s.getApp()
+	if app != nil && len(dirPaths) > 0 {
+		app.Event.Emit("import-started", map[string]any{"total": len(dirPaths)})
+	}
+	folders, err := s.mgr.ImportFoldersRecursivelyWithProgress(dirPaths, parentFolderID, func(current, total int, filename string) {
+		if app != nil {
+			app.Event.Emit("import-progress", map[string]any{
+				"current":  current,
+				"total":    total,
+				"filename": filename,
+			})
+		}
+	})
+	if app != nil {
+		if err != nil {
+			app.Event.Emit("import-error", err.Error())
+		} else {
+			app.Event.Emit("import-completed", map[string]any{"count": len(folders)})
+		}
+	}
+	return folders, err
 }
 
 func (s *Service) GetTags() ([]Tag, error) {

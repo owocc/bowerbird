@@ -24,6 +24,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	_ "golang.org/x/image/bmp"
@@ -51,6 +52,24 @@ type LibraryManager struct {
 	db          *sql.DB
 	userData    *UserDataStore
 	assetServer *AssetServer
+
+	// High-speed in-memory index for sub-millisecond queries and searches
+	cacheMu     sync.RWMutex
+	cacheLoaded bool
+	itemsDesc   []Item          // non-trashed items sorted by ImportedAt DESC
+	trashDesc   []Item          // trashed items sorted by TrashedAt DESC, ImportedAt DESC
+	itemsByID   map[string]Item // O(1) lookup by ID or Hex (includes trashed & active)
+	searchIndex map[string]string
+
+	// Per-content-hash locks so concurrent imports of identical files never race on disk
+	itemLocks sync.Map
+}
+
+var ioCopyBufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, 256*1024)
+		return &buf
+	},
 }
 
 // NewLibraryManager initializes the manager, user data store, and asset server,
@@ -184,8 +203,8 @@ func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*Libra
 		CreatedAt: now,
 		ItemCount: 0,
 	}
+	m.invalidateCache()
 	m.mu.Unlock()
-
 	// Persist to user data store
 	if m.userData != nil {
 		_ = m.userData.SetActiveLibraryPath(fullLibPath)
@@ -239,7 +258,11 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 		CreatedAt: meta.CreatedAt,
 		ItemCount: count,
 	}
+	m.invalidateCache()
 	m.mu.Unlock()
+	go func() {
+		_ = m.ensureCacheLoaded()
+	}()
 
 	// Persist to user data store so next launch reloads automatically
 	if m.userData != nil {
@@ -262,7 +285,7 @@ func (m *LibraryManager) CloseLibrary() error {
 		m.db = nil
 	}
 	m.activeLib = nil
-
+	m.invalidateCache()
 	if m.userData != nil {
 		_ = m.userData.ClearActiveLibraryPath()
 	}
@@ -272,18 +295,261 @@ func (m *LibraryManager) CloseLibrary() error {
 // GetActiveLibrary returns the active library metadata.
 func (m *LibraryManager) GetActiveLibrary() *LibraryInfo {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.activeLib == nil {
+	active := m.activeLib
+	db := m.db
+	m.mu.RUnlock()
+	if active == nil {
 		return nil
 	}
 
-	if m.db != nil {
+	m.cacheMu.RLock()
+	loaded := m.cacheLoaded
+	cachedCount := int64(len(m.itemsDesc) + len(m.trashDesc))
+	m.cacheMu.RUnlock()
+
+	if loaded {
+		m.mu.Lock()
+		if m.activeLib != nil {
+			m.activeLib.ItemCount = cachedCount
+		}
+		m.mu.Unlock()
+		return active
+	}
+
+	if db != nil {
 		var count int64
-		if err := m.db.QueryRow("SELECT COUNT(*) FROM items").Scan(&count); err == nil {
-			m.activeLib.ItemCount = count
+		if err := db.QueryRow("SELECT COUNT(*) FROM items").Scan(&count); err == nil {
+			m.mu.Lock()
+			if m.activeLib != nil {
+				m.activeLib.ItemCount = count
+			}
+			m.mu.Unlock()
 		}
 	}
-	return m.activeLib
+	return active
+}
+
+func (m *LibraryManager) invalidateCache() {
+	m.cacheMu.Lock()
+	m.cacheLoaded = false
+	m.itemsDesc = nil
+	m.trashDesc = nil
+	m.itemsByID = nil
+	m.searchIndex = nil
+	m.cacheMu.Unlock()
+}
+
+func buildItemSearchKey(item *Item) string {
+	return strings.ToLower(item.Name + "\x00" + strings.Join(item.Tags, ",") + "\x00" + item.Extension + "\x00" + item.Hex)
+}
+
+func (m *LibraryManager) acquireItemLock(hexID string) *sync.Mutex {
+	val, _ := m.itemLocks.LoadOrStore(hexID, &sync.Mutex{})
+	mtx := val.(*sync.Mutex)
+	mtx.Lock()
+	return mtx
+}
+
+func (m *LibraryManager) ensureCacheLoaded() error {
+	m.cacheMu.RLock()
+	if m.cacheLoaded {
+		m.cacheMu.RUnlock()
+		return nil
+	}
+	m.cacheMu.RUnlock()
+
+	m.mu.RLock()
+	db := m.db
+	active := m.activeLib
+	port := m.GetAssetServerPort()
+	m.mu.RUnlock()
+
+	if db == nil || active == nil {
+		return nil
+	}
+
+	activePath := active.Path
+
+	folderMap := make(map[string][]string)
+	fRows, fErr := db.Query("SELECT item_id, folder_id FROM item_folders")
+	if fErr == nil {
+		for fRows.Next() {
+			var itID, fID string
+			if fRows.Scan(&itID, &fID) == nil {
+				folderMap[itID] = append(folderMap[itID], fID)
+			}
+		}
+		fRows.Close()
+	}
+
+	rows, err := db.Query("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, ''), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items ORDER BY imported_at DESC")
+	if err != nil {
+		return fmt.Errorf("failed to query items: %w", err)
+	}
+	defer rows.Close()
+
+	itemsDesc := make([]Item, 0, 256)
+	trashDesc := make([]Item, 0, 32)
+	itemsByID := make(map[string]Item, 256)
+	searchIndex := make(map[string]string, 256)
+
+	for rows.Next() {
+		var item Item
+		var tagsStr string
+		var hasThumbInt int
+		var inTrashInt int
+		var trashedAtInt int64
+		var trashedFoldersStr string
+		var paletteStr string
+		var metaJSONStr string
+		if err := rows.Scan(
+			&item.ID,
+			&item.Hex,
+			&item.Name,
+			&item.Extension,
+			&item.Filename,
+			&item.Size,
+			&item.MimeType,
+			&item.Width,
+			&item.Height,
+			&hasThumbInt,
+			&tagsStr,
+			&item.CreatedAt,
+			&item.ImportedAt,
+			&inTrashInt,
+			&trashedAtInt,
+			&trashedFoldersStr,
+			&item.DominantColor,
+			&paletteStr,
+			&metaJSONStr,
+		); err != nil {
+			continue
+		}
+		item.InTrash = inTrashInt == 1
+		item.TrashedAt = trashedAtInt
+		item.HasThumbnail = hasThumbInt == 1
+		if paletteStr != "" {
+			item.Palette = strings.Split(paletteStr, ",")
+		} else {
+			item.Palette = []string{}
+		}
+		if metaJSONStr != "" {
+			var meta ImageMeta
+			if json.Unmarshal([]byte(metaJSONStr), &meta) == nil {
+				item.Meta = &meta
+			}
+		}
+		if tagsStr != "" {
+			item.Tags = strings.Split(tagsStr, ",")
+		} else {
+			item.Tags = []string{}
+		}
+		if item.InTrash {
+			item.Folders = []string{}
+			if trashedFoldersStr != "" {
+				_ = json.Unmarshal([]byte(trashedFoldersStr), &item.Folders)
+			}
+			if item.Folders == nil {
+				item.Folders = []string{}
+			}
+		} else {
+			if fList, ok := folderMap[item.ID]; ok {
+				item.Folders = fList
+			} else {
+				item.Folders = []string{}
+			}
+		}
+		m.populateItemPaths(&item, activePath, port)
+
+		itemsByID[item.ID] = item
+		if item.Hex != "" && item.Hex != item.ID {
+			itemsByID[item.Hex] = item
+		}
+		searchIndex[item.ID] = buildItemSearchKey(&item)
+
+		if item.InTrash {
+			trashDesc = append(trashDesc, item)
+		} else {
+			itemsDesc = append(itemsDesc, item)
+		}
+	}
+
+	sort.Slice(trashDesc, func(i, j int) bool {
+		if trashDesc[i].TrashedAt != trashDesc[j].TrashedAt {
+			return trashDesc[i].TrashedAt > trashDesc[j].TrashedAt
+		}
+		return trashDesc[i].ImportedAt > trashDesc[j].ImportedAt
+	})
+
+	m.cacheMu.Lock()
+	m.itemsDesc = itemsDesc
+	m.trashDesc = trashDesc
+	m.itemsByID = itemsByID
+	m.searchIndex = searchIndex
+	m.cacheLoaded = true
+	m.cacheMu.Unlock()
+	return nil
+}
+
+func (m *LibraryManager) upsertItemsInCache(items []Item, folderID string) {
+	if len(items) == 0 {
+		return
+	}
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+	if !m.cacheLoaded {
+		return
+	}
+	updatedSet := make(map[string]Item, len(items))
+	for _, it := range items {
+		if folderID != "" {
+			hasFolder := false
+			for _, f := range it.Folders {
+				if f == folderID {
+					hasFolder = true
+					break
+				}
+			}
+			if !hasFolder {
+				it.Folders = append(append([]string{}, it.Folders...), folderID)
+			}
+		} else if existing, ok := m.itemsByID[it.ID]; ok && len(it.Folders) == 0 && len(existing.Folders) > 0 {
+			it.Folders = existing.Folders
+		}
+		if existing, ok := m.itemsByID[it.ID]; ok && len(it.Tags) == 0 && len(existing.Tags) > 0 {
+			it.Tags = existing.Tags
+		}
+		m.itemsByID[it.ID] = it
+		if it.Hex != "" {
+			m.itemsByID[it.Hex] = it
+		}
+		m.searchIndex[it.ID] = buildItemSearchKey(&it)
+		updatedSet[it.ID] = it
+	}
+
+	// Update existing entries in itemsDesc in place, and prepend brand new ones
+	seenExisting := make(map[string]bool, len(items))
+	for i := range m.itemsDesc {
+		if upd, ok := updatedSet[m.itemsDesc[i].ID]; ok {
+			if !upd.InTrash {
+				m.itemsDesc[i] = upd
+				seenExisting[upd.ID] = true
+			}
+		}
+	}
+	var newActive []Item
+	for _, it := range items {
+		if !it.InTrash && !seenExisting[it.ID] {
+			newActive = append(newActive, updatedSet[it.ID])
+			seenExisting[it.ID] = true
+		}
+	}
+	if len(newActive) > 0 {
+		sort.Slice(newActive, func(i, j int) bool {
+			return newActive[i].ImportedAt > newActive[j].ImportedAt
+		})
+		m.itemsDesc = append(newActive, m.itemsDesc...)
+	}
 }
 
 func (m *LibraryManager) initSchema(db *sql.DB) error {
@@ -350,116 +616,64 @@ func (m *LibraryManager) initSchema(db *sql.DB) error {
 	return nil
 }
 
-// GetItems queries items from the SQLite database.
+// GetItems queries items from the in-memory index (falling back to SQLite load on first access).
 func (m *LibraryManager) GetItems(query string, sortOrder string) ([]Item, error) {
 	m.mu.RLock()
 	db := m.db
 	active := m.activeLib
-	port := m.GetAssetServerPort()
 	m.mu.RUnlock()
 
 	if db == nil || active == nil {
 		return []Item{}, nil
 	}
 
-	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE (in_trash = 0 OR in_trash IS NULL)"
-	var args []any
-
-	trimmed := strings.TrimSpace(query)
-	if trimmed != "" {
-		sqlQuery += " AND (name LIKE ? OR tags LIKE ? OR extension LIKE ? OR hex LIKE ?)"
-		like := "%" + trimmed + "%"
-		args = append(args, like, like, like, like)
+	if err := m.ensureCacheLoaded(); err != nil {
+		return nil, err
 	}
 
-	if strings.ToLower(sortOrder) == "asc" {
-		sqlQuery += " ORDER BY imported_at ASC"
+	m.cacheMu.RLock()
+	defer m.cacheMu.RUnlock()
+
+	trimmed := strings.ToLower(strings.TrimSpace(query))
+	isAsc := strings.ToLower(sortOrder) == "asc"
+
+	n := len(m.itemsDesc)
+	if n == 0 {
+		return []Item{}, nil
+	}
+
+	if trimmed == "" {
+		result := make([]Item, n)
+		if !isAsc {
+			copy(result, m.itemsDesc)
+		} else {
+			for i := range n {
+				result[i] = m.itemsDesc[n-1-i]
+			}
+		}
+		return result, nil
+	}
+
+	result := make([]Item, 0, 64)
+	if !isAsc {
+		for i := range n {
+			it := m.itemsDesc[i]
+			if strings.Contains(m.searchIndex[it.ID], trimmed) {
+				result = append(result, it)
+			}
+		}
 	} else {
-		sqlQuery += " ORDER BY imported_at DESC"
-	}
-
-	rows, err := db.Query(sqlQuery, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query items: %w", err)
-	}
-	defer rows.Close()
-
-	folderMap := make(map[string][]string)
-	fRows, fErr := db.Query("SELECT item_id, folder_id FROM item_folders")
-	if fErr == nil {
-		for fRows.Next() {
-			var itID, fID string
-			if scanErr := fRows.Scan(&itID, &fID); scanErr == nil {
-				folderMap[itID] = append(folderMap[itID], fID)
+		for i := n - 1; i >= 0; i-- {
+			it := m.itemsDesc[i]
+			if strings.Contains(m.searchIndex[it.ID], trimmed) {
+				result = append(result, it)
 			}
 		}
-		fRows.Close()
 	}
-	var items []Item
-	for rows.Next() {
-		var item Item
-		var tagsStr string
-		var hasThumbInt int
-		var inTrashInt int
-		var trashedAtInt int64
-		var paletteStr string
-		var metaJSONStr string
-		if err := rows.Scan(
-			&item.ID,
-			&item.Hex,
-			&item.Name,
-			&item.Extension,
-			&item.Filename,
-			&item.Size,
-			&item.MimeType,
-			&item.Width,
-			&item.Height,
-			&hasThumbInt,
-			&tagsStr,
-			&item.CreatedAt,
-			&item.ImportedAt,
-			&inTrashInt,
-			&trashedAtInt,
-			&item.DominantColor,
-			&paletteStr,
-			&metaJSONStr,
-		); err != nil {
-			continue
-		}
-		item.InTrash = inTrashInt == 1
-		item.TrashedAt = trashedAtInt
-		item.HasThumbnail = hasThumbInt == 1
-		if paletteStr != "" {
-			item.Palette = strings.Split(paletteStr, ",")
-		} else {
-			item.Palette = []string{}
-		}
-		if metaJSONStr != "" {
-			var meta ImageMeta
-			if json.Unmarshal([]byte(metaJSONStr), &meta) == nil {
-				item.Meta = &meta
-			}
-		}
-		if tagsStr != "" {
-			item.Tags = strings.Split(tagsStr, ",")
-		} else {
-			item.Tags = []string{}
-		}
-		if fList, ok := folderMap[item.ID]; ok {
-			item.Folders = fList
-		} else {
-			item.Folders = []string{}
-		}
-		m.populateItemPaths(&item, active.Path, port)
-		items = append(items, item)
-	}
-	if items == nil {
-		items = []Item{}
-	}
-	return items, nil
+	return result, nil
 }
 
-// GetItem retrieves a single item by ID or Hex.
+// GetItem retrieves a single item by ID or Hex in O(1) from the in-memory index.
 func (m *LibraryManager) GetItem(id string) (*Item, error) {
 	m.mu.RLock()
 	db := m.db
@@ -470,6 +684,18 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 	if db == nil || active == nil {
 		return nil, errors.New("no active library")
 	}
+
+	m.cacheMu.RLock()
+	if m.cacheLoaded {
+		if it, ok := m.itemsByID[id]; ok {
+			copyIt := it
+			m.cacheMu.RUnlock()
+			return &copyIt, nil
+		}
+		m.cacheMu.RUnlock()
+		return nil, sql.ErrNoRows
+	}
+	m.cacheMu.RUnlock()
 
 	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE id = ? OR hex = ?", id, id)
 	var item Item
@@ -543,7 +769,8 @@ func (m *LibraryManager) ImportFiles(sourcePaths []string) ([]Item, error) {
 	return m.ImportFilesWithProgress(sourcePaths, nil)
 }
 
-// ImportFilesWithProgress imports files with real-time progress callbacks for UI feedback.
+// ImportFilesWithProgress imports files concurrently using a bounded Go worker pool
+// and batched SQLite transactions with real-time progress callbacks.
 func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgress ProgressCallback) ([]Item, error) {
 	m.mu.RLock()
 	active := m.activeLib
@@ -553,6 +780,8 @@ func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgres
 	if active == nil || db == nil {
 		return nil, errors.New("no active library")
 	}
+
+	_ = m.ensureCacheLoaded()
 
 	// 1. Flatten directories to count total files for accurate progress
 	var allFiles []string
@@ -564,7 +793,13 @@ func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgres
 
 		if info.IsDir() {
 			_ = filepath.WalkDir(srcPath, func(path string, d os.DirEntry, walkErr error) error {
-				if walkErr != nil || d.IsDir() {
+				if walkErr != nil {
+					return nil
+				}
+				if d.IsDir() {
+					if path != srcPath && strings.HasPrefix(d.Name(), ".") {
+						return filepath.SkipDir
+					}
 					return nil
 				}
 				if strings.HasPrefix(d.Name(), ".") {
@@ -579,24 +814,192 @@ func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgres
 	}
 
 	total := len(allFiles)
-	var imported []Item
-	for i, path := range allFiles {
-		if onProgress != nil {
-			onProgress(i+1, total, filepath.Base(path))
+	if total == 0 {
+		return []Item{}, nil
+	}
+
+	jobs := make([]importJob, total)
+	for i, p := range allFiles {
+		jobs[i] = importJob{index: i, srcPath: p}
+	}
+	return m.runConcurrentImportJobs(jobs, onProgress)
+}
+
+type importJob struct {
+	index    int
+	srcPath  string
+	folderID string
+}
+
+type preparedImportResult struct {
+	index      int
+	item       *Item
+	folderID   string
+	isExisting bool
+	hasThumb   int
+	paletteStr string
+	metaJSON   string
+	err        error
+	srcPath    string
+}
+
+func importWorkerCount(total int) int {
+	workers := runtime.NumCPU()
+	if workers < 4 {
+		workers = 4
+	}
+	if workers > 8 {
+		workers = 8
+	}
+	if total < workers {
+		workers = total
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	return workers
+}
+
+func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress ProgressCallback) ([]Item, error) {
+	total := len(jobs)
+	if total == 0 {
+		return []Item{}, nil
+	}
+
+	workers := importWorkerCount(total)
+	jobCh := make(chan importJob, min(total, workers*4))
+	resCh := make(chan preparedImportResult, min(total, workers*4))
+
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				res := m.prepareSingleFileImport(job)
+				resCh <- res
+			}
+		}()
+	}
+
+	go func() {
+		for _, j := range jobs {
+			jobCh <- j
 		}
-		item, err := m.importSingleFile(path)
-		if err != nil {
-			// Import failures used to be dropped on the floor, so a file that could
-			// not be imported looked like nothing happened at all.
-			LogDragTrace("import-failed", fmt.Sprintf("%s: %v", path, err))
+		close(jobCh)
+		wg.Wait()
+		close(resCh)
+	}()
+
+	orderedItems := make([]*Item, total)
+	var pendingBatch []preparedImportResult
+	const batchSize = 32
+
+	flushBatch := func() {
+		if len(pendingBatch) == 0 {
+			return
+		}
+		m.commitImportBatch(pendingBatch)
+		pendingBatch = pendingBatch[:0]
+	}
+
+	var processed int32
+	var lastEmitNano int64
+
+	for res := range resCh {
+		curr := int(atomic.AddInt32(&processed, 1))
+		if onProgress != nil {
+			nowNano := time.Now().UnixNano()
+			prevNano := atomic.LoadInt64(&lastEmitNano)
+			if curr == 1 || curr == total || nowNano-prevNano >= int64(25*time.Millisecond) {
+				atomic.StoreInt64(&lastEmitNano, nowNano)
+				onProgress(curr, total, filepath.Base(res.srcPath))
+			}
+		}
+		if res.err != nil {
+			LogDragTrace("import-failed", fmt.Sprintf("%s: %v", res.srcPath, res.err))
 			continue
 		}
-		if item != nil {
-			imported = append(imported, *item)
+		if res.item != nil {
+			orderedItems[res.index] = res.item
+			pendingBatch = append(pendingBatch, res)
+			if len(pendingBatch) >= batchSize {
+				flushBatch()
+			}
+		}
+	}
+	flushBatch()
+
+	imported := make([]Item, 0, total)
+	for _, it := range orderedItems {
+		if it != nil {
+			imported = append(imported, *it)
+		}
+	}
+	return imported, nil
+}
+
+func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
+	m.mu.RLock()
+	db := m.db
+	m.mu.RUnlock()
+	if db == nil || len(batch) == 0 {
+		return
+	}
+
+	tx, err := db.Begin()
+	if err == nil {
+		itemStmt, itemStmtErr := tx.Prepare(`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+			hex = excluded.hex,
+			name = excluded.name,
+			extension = excluded.extension,
+			filename = excluded.filename,
+			size = excluded.size,
+			mime_type = excluded.mime_type,
+			width = excluded.width,
+			height = excluded.height,
+			has_thumbnail = excluded.has_thumbnail,
+			dominant_color = excluded.dominant_color,
+			palette = excluded.palette,
+			meta_json = excluded.meta_json`)
+		folderStmt, folderStmtErr := tx.Prepare(`INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)`)
+
+		now := time.Now().Unix()
+		for _, r := range batch {
+			if r.item == nil {
+				continue
+			}
+			if !r.isExisting && itemStmtErr == nil {
+				_, _ = itemStmt.Exec(
+					r.item.ID, r.item.Hex, r.item.Name, r.item.Extension, r.item.Filename, r.item.Size, r.item.MimeType,
+					r.item.Width, r.item.Height, r.hasThumb, r.item.DominantColor, r.paletteStr, r.metaJSON, "", r.item.CreatedAt, r.item.ImportedAt,
+				)
+			}
+			if r.folderID != "" && folderStmtErr == nil {
+				_, _ = folderStmt.Exec(r.item.ID, r.folderID, now)
+			}
+		}
+		if itemStmt != nil {
+			_ = itemStmt.Close()
+		}
+		if folderStmt != nil {
+			_ = folderStmt.Close()
+		}
+		_ = tx.Commit()
+	}
+
+	// Update in-memory cache immediately so live queries during background import see new items
+	for _, r := range batch {
+		if r.item != nil {
+			m.upsertItemsInCache([]Item{*r.item}, r.folderID)
 		}
 	}
 
-	return imported, nil
+	if m.app != nil && len(batch) > 1 {
+		m.app.Event.Emit("library-items-updated", len(batch))
+	}
 }
 
 // ensureItemDir creates the content-addressed item directory if needed.
@@ -627,13 +1030,72 @@ func itemPayloadPresent(item *Item) bool {
 // imported through two drop paths at once (the webview drop handler and the native
 // drop handler), and a library can live on a synced or virtual drive where writes
 // take longer, so "database is locked" is a routine event rather than a bug.
-const sqliteDSNOptions = "?_pragma=busy_timeout(5000)"
+const sqliteDSNOptions = "?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)&_pragma=temp_store(MEMORY)"
 
 func openLibraryDB(dbPath string) (*sql.DB, error) {
 	return sql.Open("sqlite", dbPath+sqliteDSNOptions)
 }
 
-func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
+func copyAndHashFile(srcPath, tempDestPath string) (string, int64, []byte, error) {
+	srcFile, err := os.Open(srcPath)
+	if err != nil {
+		return "", 0, nil, err
+	}
+	defer srcFile.Close()
+
+	destFile, err := os.Create(tempDestPath)
+	if err != nil {
+		return "", 0, nil, err
+	}
+
+	hasher := sha256.New()
+	bufPtr := ioCopyBufPool.Get().(*[]byte)
+	buf := *bufPtr
+	defer ioCopyBufPool.Put(bufPtr)
+
+	var header [512]byte
+	headerLen := 0
+	var totalSize int64
+
+	for {
+		nr, rErr := srcFile.Read(buf)
+		if nr > 0 {
+			chunk := buf[:nr]
+			if headerLen < len(header) {
+				copied := copy(header[headerLen:], chunk)
+				headerLen += copied
+			}
+			_, _ = hasher.Write(chunk)
+			nw, wErr := destFile.Write(chunk)
+			if wErr != nil {
+				_ = destFile.Close()
+				return "", 0, nil, wErr
+			}
+			if nw != nr {
+				_ = destFile.Close()
+				return "", 0, nil, io.ErrShortWrite
+			}
+			totalSize += int64(nw)
+		}
+		if rErr != nil {
+			if rErr == io.EOF {
+				break
+			}
+			_ = destFile.Close()
+			return "", 0, nil, rErr
+		}
+	}
+
+	if err := destFile.Close(); err != nil {
+		return "", 0, nil, err
+	}
+
+	contentHex := strings.ToUpper(hex.EncodeToString(hasher.Sum(nil)))
+	return contentHex, totalSize, header[:headerLen], nil
+}
+
+func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportResult {
+	srcPath := job.srcPath
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -641,57 +1103,127 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 	m.mu.RUnlock()
 
 	if active == nil || db == nil {
-		return nil, errors.New("no active library")
+		return preparedImportResult{index: job.index, srcPath: srcPath, err: errors.New("no active library")}
 	}
 
 	stat, err := os.Stat(srcPath)
 	if err != nil {
-		return nil, err
+		return preparedImportResult{index: job.index, srcPath: srcPath, err: err}
 	}
 
-	// Content-addressed deduplication via SHA-256 uppercase hex
-	contentHex, err := ComputeFileSHA256(srcPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute file hash: %w", err)
+	itemsRoot := filepath.Join(active.Path, "items")
+	tempFile, tempErr := os.CreateTemp(itemsRoot, ".import_*")
+	var contentHex string
+	var size int64
+	var headerBytes []byte
+	var tempPath string
+
+	if tempErr == nil {
+		tempPath = tempFile.Name()
+		_ = tempFile.Close()
+		contentHex, size, headerBytes, err = copyAndHashFile(srcPath, tempPath)
+		if err != nil {
+			_ = os.Remove(tempPath)
+			return preparedImportResult{index: job.index, srcPath: srcPath, err: fmt.Errorf("failed to copy/hash file: %w", err)}
+		}
+	} else {
+		contentHex, err = ComputeFileSHA256(srcPath)
+		if err != nil {
+			return preparedImportResult{index: job.index, srcPath: srcPath, err: fmt.Errorf("failed to compute file hash: %w", err)}
+		}
 	}
+
+	itemLock := m.acquireItemLock(contentHex)
+	defer itemLock.Unlock()
 
 	existing, err := m.GetItem(contentHex)
 	if err == nil && existing != nil && itemPayloadPresent(existing) {
-		return existing, nil
+		if tempPath != "" {
+			_ = os.Remove(tempPath)
+		}
+		if job.folderID != "" {
+			hasFolder := false
+			for _, f := range existing.Folders {
+				if f == job.folderID {
+					hasFolder = true
+					break
+				}
+			}
+			if !hasFolder {
+				existing.Folders = append(append([]string{}, existing.Folders...), job.folderID)
+			}
+		}
+		return preparedImportResult{
+			index:      job.index,
+			item:       existing,
+			folderID:   job.folderID,
+			isExisting: true,
+			srcPath:    srcPath,
+		}
 	}
 
 	itemID := contentHex
 	itemDir := filepath.Join(active.Path, "items", itemID)
 	if err := ensureItemDir(itemDir); err != nil {
-		return nil, err
+		if tempPath != "" {
+			_ = os.Remove(tempPath)
+		}
+		return preparedImportResult{index: job.index, srcPath: srcPath, err: err}
 	}
-
-	srcFile, err := os.Open(srcPath)
-	if err != nil {
-		return nil, err
-	}
-	defer srcFile.Close()
 
 	originalFilename := filepath.Base(srcPath)
 	destPath := filepath.Join(itemDir, originalFilename)
-	destFile, err := os.Create(destPath)
-	if err != nil {
-		return nil, err
-	}
 
-	size, err := io.Copy(destFile, srcFile)
-	_ = destFile.Close()
-	if err != nil {
-		return nil, err
+	if tempPath != "" {
+		if err := os.Rename(tempPath, destPath); err != nil {
+			_ = os.Remove(tempPath)
+			// Fallback copy if rename failed
+			srcFile, oErr := os.Open(srcPath)
+			if oErr != nil {
+				return preparedImportResult{index: job.index, srcPath: srcPath, err: oErr}
+			}
+			destFile, cErr := os.Create(destPath)
+			if cErr != nil {
+				_ = srcFile.Close()
+				return preparedImportResult{index: job.index, srcPath: srcPath, err: cErr}
+			}
+			size, err = io.Copy(destFile, srcFile)
+			_ = srcFile.Close()
+			_ = destFile.Close()
+			if err != nil {
+				return preparedImportResult{index: job.index, srcPath: srcPath, err: err}
+			}
+		}
+	} else {
+		srcFile, oErr := os.Open(srcPath)
+		if oErr != nil {
+			return preparedImportResult{index: job.index, srcPath: srcPath, err: oErr}
+		}
+		destFile, cErr := os.Create(destPath)
+		if cErr != nil {
+			_ = srcFile.Close()
+			return preparedImportResult{index: job.index, srcPath: srcPath, err: cErr}
+		}
+		size, err = io.Copy(destFile, srcFile)
+		_ = srcFile.Close()
+		_ = destFile.Close()
+		if err != nil {
+			return preparedImportResult{index: job.index, srcPath: srcPath, err: err}
+		}
 	}
 
 	now := time.Now().Unix()
 	createdAt := stat.ModTime().Unix()
 	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(originalFilename), "."))
 	nameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
-	mimeType := DetectMimeType(destPath, ext)
+	mimeType := DetectMimeTypeWithHeader(destPath, ext, headerBytes)
 
 	width, height, hasThumbnail, dominantColor, palette, imgMeta := m.processImageThumbnail(destPath, itemDir, ext)
+
+	folders := []string{}
+	if job.folderID != "" {
+		folders = []string{job.folderID}
+	}
 
 	item := Item{
 		ID:            itemID,
@@ -708,12 +1240,13 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 		Palette:       palette,
 		Meta:          imgMeta,
 		Tags:          []string{},
+		Folders:       folders,
 		CreatedAt:     createdAt,
 		ImportedAt:    now,
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
-	metaBytes, _ := json.MarshalIndent(ItemMetadata{
+	metaBytes, _ := json.Marshal(ItemMetadata{
 		ID:            item.ID,
 		Hex:           item.Hex,
 		Name:          item.Name,
@@ -728,9 +1261,10 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 		Palette:       item.Palette,
 		Meta:          item.Meta,
 		Tags:          item.Tags,
+		Folders:       item.Folders,
 		CreatedAt:     item.CreatedAt,
 		ImportedAt:    item.ImportedAt,
-	}, "", "  ")
+	})
 	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
 
 	hasThumbInt := 0
@@ -738,34 +1272,33 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 		hasThumbInt = 1
 	}
 	paletteStr := strings.Join(palette, ",")
-	metaJSONBytes, _ := json.Marshal(imgMeta)
 	metaJSONStr := ""
 	if imgMeta != nil {
+		metaJSONBytes, _ := json.Marshal(imgMeta)
 		metaJSONStr = string(metaJSONBytes)
 	}
-	_, err = db.Exec(
-		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET
-			hex = excluded.hex,
-			name = excluded.name,
-			extension = excluded.extension,
-			filename = excluded.filename,
-			size = excluded.size,
-			mime_type = excluded.mime_type,
-			width = excluded.width,
-			height = excluded.height,
-			has_thumbnail = excluded.has_thumbnail,
-			dominant_color = excluded.dominant_color,
-			palette = excluded.palette,
-			meta_json = excluded.meta_json`,
-		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
-		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr, "", item.CreatedAt, item.ImportedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert item into SQLite: %w", err)
+
+	return preparedImportResult{
+		index:      job.index,
+		item:       &item,
+		folderID:   job.folderID,
+		isExisting: false,
+		hasThumb:   hasThumbInt,
+		paletteStr: paletteStr,
+		metaJSON:   metaJSONStr,
+		srcPath:    srcPath,
 	}
-	return &item, nil
+}
+
+func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
+	res := m.prepareSingleFileImport(importJob{index: 0, srcPath: srcPath})
+	if res.err != nil {
+		return nil, res.err
+	}
+	if res.item != nil {
+		m.commitImportBatch([]preparedImportResult{res})
+	}
+	return res.item, nil
 }
 
 // ImportFromBase64 imports binary payload from browser drops or clipboard paste.
@@ -892,6 +1425,7 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	if err != nil {
 		return nil, err
 	}
+	m.upsertItemsInCache([]Item{item}, "")
 	return &item, nil
 }
 
@@ -1149,6 +1683,7 @@ func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, vid
 	item.Palette = palette
 	item.Meta = imgMeta
 	m.populateItemPaths(item, active.Path, port)
+	m.upsertItemsInCache([]Item{*item}, "")
 
 	if m.app != nil {
 		m.app.Event.Emit("library-items-updated", 1)
@@ -1192,57 +1727,121 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 	}
 
 	updatedCount := 0
+	workers := max(1, min(4, len(list)))
+	jobCh := make(chan pendingItem, len(list))
+	type backfillRes struct {
+		p             pendingItem
+		w, h          int
+		hasThumb      bool
+		dominantColor string
+		palette       []string
+		imgMeta       *ImageMeta
+	}
+	resCh := make(chan backfillRes, len(list))
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for p := range jobCh {
+				m.mu.RLock()
+				currLib := m.activeLib
+				m.mu.RUnlock()
+				if currLib == nil || currLib.Path != libPath {
+					return
+				}
+				itemDir := filepath.Join(libPath, "items", p.id)
+				origPath := filepath.Join(itemDir, p.filename)
+				w, h, hasThumb, dominantColor, palette, imgMeta := m.processImageThumbnail(origPath, itemDir, p.ext)
+				if dominantColor == "" && !hasThumb {
+					continue
+				}
+				resCh <- backfillRes{
+					p:             p,
+					w:             w,
+					h:             h,
+					hasThumb:      hasThumb,
+					dominantColor: dominantColor,
+					palette:       palette,
+					imgMeta:       imgMeta,
+				}
+			}
+		}()
+	}
 	for _, p := range list {
-		m.mu.RLock()
-		currLib := m.activeLib
-		currDB := m.db
-		m.mu.RUnlock()
-		if currDB == nil || currLib == nil || currLib.Path != libPath {
-			return
-		}
+		jobCh <- p
+	}
+	close(jobCh)
+	wg.Wait()
+	close(resCh)
 
-		itemDir := filepath.Join(libPath, "items", p.id)
-		origPath := filepath.Join(itemDir, p.filename)
-		w, h, hasThumb, dominantColor, palette, imgMeta := m.processImageThumbnail(origPath, itemDir, p.ext)
-		if dominantColor == "" && !hasThumb {
-			continue
-		}
-		hasThumbInt := p.hasThumb
-		if hasThumb {
+	m.mu.RLock()
+	currLib := m.activeLib
+	currDB := m.db
+	m.mu.RUnlock()
+	if currDB == nil || currLib == nil || currLib.Path != libPath {
+		return
+	}
+
+	tx, txErr := currDB.Begin()
+	var updStmt *sql.Stmt
+	if txErr == nil {
+		updStmt, _ = tx.Prepare("UPDATE items SET width = CASE WHEN ? > 0 THEN ? ELSE width END, height = CASE WHEN ? > 0 THEN ? ELSE height END, has_thumbnail = ?, dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?")
+	}
+
+	for r := range resCh {
+		hasThumbInt := r.p.hasThumb
+		if r.hasThumb {
 			hasThumbInt = 1
 		}
-		paletteStr := strings.Join(palette, ",")
-		metaBytes, _ := json.Marshal(imgMeta)
-		_, err = currDB.Exec(
-			"UPDATE items SET width = CASE WHEN ? > 0 THEN ? ELSE width END, height = CASE WHEN ? > 0 THEN ? ELSE height END, has_thumbnail = ?, dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?",
-			w, w, h, h, hasThumbInt, dominantColor, paletteStr, string(metaBytes), p.id,
-		)
-		if err == nil {
+		paletteStr := strings.Join(r.palette, ",")
+		metaBytes, _ := json.Marshal(r.imgMeta)
+		var execErr error
+		if updStmt != nil {
+			_, execErr = updStmt.Exec(r.w, r.w, r.h, r.h, hasThumbInt, r.dominantColor, paletteStr, string(metaBytes), r.p.id)
+		} else {
+			_, execErr = currDB.Exec(
+				"UPDATE items SET width = CASE WHEN ? > 0 THEN ? ELSE width END, height = CASE WHEN ? > 0 THEN ? ELSE height END, has_thumbnail = ?, dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?",
+				r.w, r.w, r.h, r.h, hasThumbInt, r.dominantColor, paletteStr, string(metaBytes), r.p.id,
+			)
+		}
+		if execErr == nil {
 			updatedCount++
+			itemDir := filepath.Join(libPath, "items", r.p.id)
 			metaPath := filepath.Join(itemDir, "metadata.json")
 			if raw, rErr := os.ReadFile(metaPath); rErr == nil {
 				var meta ItemMetadata
 				if json.Unmarshal(raw, &meta) == nil {
-					if w > 0 && h > 0 {
-						meta.Width = w
-						meta.Height = h
+					if r.w > 0 && r.h > 0 {
+						meta.Width = r.w
+						meta.Height = r.h
 					}
-					if hasThumb {
+					if r.hasThumb {
 						meta.HasThumbnail = true
 					}
-					meta.DominantColor = dominantColor
-					meta.Palette = palette
-					meta.Meta = imgMeta
-					if out, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+					meta.DominantColor = r.dominantColor
+					meta.Palette = r.palette
+					meta.Meta = r.imgMeta
+					if out, mErr := json.Marshal(meta); mErr == nil {
 						_ = os.WriteFile(metaPath, out, 0644)
 					}
 				}
 			}
 		}
 	}
+	if updStmt != nil {
+		_ = updStmt.Close()
+	}
+	if tx != nil {
+		_ = tx.Commit()
+	}
 
-	if updatedCount > 0 && m.app != nil {
-		m.app.Event.Emit("library-items-updated", updatedCount)
+	if updatedCount > 0 {
+		m.invalidateCache()
+		_ = m.ensureCacheLoaded()
+		if m.app != nil {
+			m.app.Event.Emit("library-items-updated", updatedCount)
+		}
 	}
 }
 
@@ -1262,6 +1861,7 @@ func (m *LibraryManager) DeleteItem(id string) error {
 
 	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
 	_, err := db.Exec("DELETE FROM items WHERE id = ? OR hex = ?", id, id)
+	m.invalidateCache()
 	return err
 }
 
@@ -1359,6 +1959,10 @@ func IsVideoExtension(ext string) bool {
 }
 
 func DetectMimeType(filePath string, ext string) string {
+	return DetectMimeTypeWithHeader(filePath, ext, nil)
+}
+
+func DetectMimeTypeWithHeader(filePath string, ext string, header []byte) string {
 	switch strings.ToLower(ext) {
 	case "png":
 		return "image/png"
@@ -1387,19 +1991,25 @@ func DetectMimeType(filePath string, ext string) string {
 	case "mts", "m2ts":
 		return "video/mp2t"
 	case "ts":
-		if f, err := os.Open(filePath); err == nil {
-			defer f.Close()
-			buf := make([]byte, 376)
-			if n, _ := f.Read(buf); n >= 188 && buf[0] == 0x47 && (n < 189 || buf[188] == 0x47) {
-				return "video/mp2t"
-			} else if n > 0 {
-				for i := 0; i < n; i++ {
-					if buf[i] == 0 {
-						return "video/mp2t"
-					}
-				}
-				return "text/typescript"
+		buf := header
+		if len(buf) == 0 && filePath != "" {
+			if f, err := os.Open(filePath); err == nil {
+				tmp := make([]byte, 376)
+				n, _ := f.Read(tmp)
+				_ = f.Close()
+				buf = tmp[:n]
 			}
+		}
+		n := len(buf)
+		if n >= 188 && buf[0] == 0x47 && (n < 189 || buf[188] == 0x47) {
+			return "video/mp2t"
+		} else if n > 0 {
+			for i := range n {
+				if buf[i] == 0 {
+					return "video/mp2t"
+				}
+			}
+			return "text/typescript"
 		}
 		return "text/typescript"
 	case "m3u8", "m3u":
@@ -1431,13 +2041,18 @@ func DetectMimeType(filePath string, ext string) string {
 	case "txt", "md":
 		return "text/plain"
 	default:
-		f, err := os.Open(filePath)
-		if err == nil {
-			defer f.Close()
-			buf := make([]byte, 512)
-			n, _ := f.Read(buf)
-			if n > 0 {
-				return http.DetectContentType(buf[:n])
+		if len(header) > 0 {
+			return http.DetectContentType(header)
+		}
+		if filePath != "" {
+			f, err := os.Open(filePath)
+			if err == nil {
+				defer f.Close()
+				buf := make([]byte, 512)
+				n, _ := f.Read(buf)
+				if n > 0 {
+					return http.DetectContentType(buf[:n])
+				}
 			}
 		}
 		return "application/octet-stream"
@@ -1460,24 +2075,37 @@ func (m *LibraryManager) GetFolders() ([]Folder, error) {
 		return []Folder{}, nil
 	}
 
-	// 1. Get counts of items in each folder
+	// 1. Get counts of items in each folder (prefer in-memory index when loaded)
 	counts := make(map[string]int)
-	cRows, err := db.Query(`
-		SELECT item_folders.folder_id, COUNT(DISTINCT item_folders.item_id)
-		FROM item_folders
-		JOIN items ON item_folders.item_id = items.id
-		WHERE (items.in_trash = 0 OR items.in_trash IS NULL)
-		GROUP BY item_folders.folder_id
-	`)
-	if err == nil {
-		for cRows.Next() {
-			var fID string
-			var count int
-			if scanErr := cRows.Scan(&fID, &count); scanErr == nil {
-				counts[fID] = count
+	m.cacheMu.RLock()
+	cacheReady := m.cacheLoaded
+	if cacheReady {
+		for i := range m.itemsDesc {
+			for _, fID := range m.itemsDesc[i].Folders {
+				counts[fID]++
 			}
 		}
-		cRows.Close()
+	}
+	m.cacheMu.RUnlock()
+
+	if !cacheReady {
+		cRows, err := db.Query(`
+			SELECT item_folders.folder_id, COUNT(DISTINCT item_folders.item_id)
+			FROM item_folders
+			JOIN items ON item_folders.item_id = items.id
+			WHERE (items.in_trash = 0 OR items.in_trash IS NULL)
+			GROUP BY item_folders.folder_id
+		`)
+		if err == nil {
+			for cRows.Next() {
+				var fID string
+				var count int
+				if scanErr := cRows.Scan(&fID, &count); scanErr == nil {
+					counts[fID] = count
+				}
+			}
+			cRows.Close()
+		}
 	}
 
 	// 2. Query all folders
@@ -1625,7 +2253,7 @@ func (m *LibraryManager) DeleteFolder(id string) error {
 		_, _ = db.Exec("DELETE FROM item_folders WHERE folder_id = ?", fID)
 		_, _ = db.Exec("DELETE FROM folders WHERE id = ?", fID)
 	}
-
+	m.invalidateCache()
 	return nil
 }
 
@@ -1642,6 +2270,7 @@ func (m *LibraryManager) AddItemToFolder(itemID string, folderID string) error {
 	_, err := db.Exec("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)",
 		itemID, folderID, time.Now().Unix(),
 	)
+	m.invalidateCache()
 	return err
 }
 
@@ -1656,6 +2285,7 @@ func (m *LibraryManager) RemoveItemFromFolder(itemID string, folderID string) er
 	}
 
 	_, err := db.Exec("DELETE FROM item_folders WHERE item_id = ? AND folder_id = ?", itemID, folderID)
+	m.invalidateCache()
 	return err
 }
 
@@ -1695,7 +2325,9 @@ func (m *LibraryManager) SetItemFolders(itemID string, folderIDs []string) error
 		}
 	}
 
-	return tx.Commit()
+	err = tx.Commit()
+	m.invalidateCache()
+	return err
 }
 
 // PermanentDeleteItem permanently removes an item directory from disk and database.
@@ -1758,6 +2390,7 @@ func (m *LibraryManager) MoveToTrash(id string) error {
 		}
 	}
 
+	m.invalidateCache()
 	return nil
 }
 
@@ -1820,6 +2453,7 @@ func (m *LibraryManager) RestoreFromTrash(id string) error {
 		}
 	}
 
+	m.invalidateCache()
 	return nil
 }
 
@@ -1868,105 +2502,55 @@ func (m *LibraryManager) GetTrashItems(query string, sortOrder string) ([]Item, 
 	m.mu.RLock()
 	db := m.db
 	active := m.activeLib
-	port := m.GetAssetServerPort()
 	m.mu.RUnlock()
 
 	if db == nil || active == nil {
 		return []Item{}, nil
 	}
 
-	sqlQuery := "SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, ''), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE in_trash = 1"
-	var args []any
-
-	trimmed := strings.TrimSpace(query)
-	if trimmed != "" {
-		sqlQuery += " AND (name LIKE ? OR tags LIKE ? OR extension LIKE ? OR hex LIKE ?)"
-		like := "%" + trimmed + "%"
-		args = append(args, like, like, like, like)
+	if err := m.ensureCacheLoaded(); err != nil {
+		return nil, err
 	}
 
-	if strings.ToLower(sortOrder) == "asc" {
-		sqlQuery += " ORDER BY trashed_at ASC, imported_at ASC"
-	} else {
-		sqlQuery += " ORDER BY trashed_at DESC, imported_at DESC"
+	m.cacheMu.RLock()
+	defer m.cacheMu.RUnlock()
+
+	trimmed := strings.ToLower(strings.TrimSpace(query))
+	isAsc := strings.ToLower(sortOrder) == "asc"
+	n := len(m.trashDesc)
+	if n == 0 {
+		return []Item{}, nil
 	}
 
-	rows, err := db.Query(sqlQuery, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query trash items: %w", err)
-	}
-	defer rows.Close()
-
-	var items []Item
-	for rows.Next() {
-		var item Item
-		var tagsStr string
-		var hasThumbInt int
-		var inTrashInt int
-		var trashedAtInt int64
-		var trashedFoldersStr string
-		var paletteStr string
-		var metaJSONStr string
-		if err := rows.Scan(
-			&item.ID,
-			&item.Hex,
-			&item.Name,
-			&item.Extension,
-			&item.Filename,
-			&item.Size,
-			&item.MimeType,
-			&item.Width,
-			&item.Height,
-			&hasThumbInt,
-			&tagsStr,
-			&item.CreatedAt,
-			&item.ImportedAt,
-			&inTrashInt,
-			&trashedAtInt,
-			&trashedFoldersStr,
-			&item.DominantColor,
-			&paletteStr,
-			&metaJSONStr,
-		); err != nil {
-			continue
-		}
-
-		item.HasThumbnail = hasThumbInt == 1
-		item.InTrash = inTrashInt == 1
-		item.TrashedAt = trashedAtInt
-		if paletteStr != "" {
-			item.Palette = strings.Split(paletteStr, ",")
+	if trimmed == "" {
+		result := make([]Item, n)
+		if !isAsc {
+			copy(result, m.trashDesc)
 		} else {
-			item.Palette = []string{}
-		}
-		if metaJSONStr != "" {
-			var meta ImageMeta
-			if json.Unmarshal([]byte(metaJSONStr), &meta) == nil {
-				item.Meta = &meta
+			for i := range n {
+				result[i] = m.trashDesc[n-1-i]
 			}
 		}
-		if tagsStr != "" {
-			item.Tags = strings.Split(tagsStr, ",")
-		} else {
-			item.Tags = []string{}
-		}
-
-		item.Folders = []string{}
-		if trashedFoldersStr != "" {
-			_ = json.Unmarshal([]byte(trashedFoldersStr), &item.Folders)
-		}
-		if item.Folders == nil {
-			item.Folders = []string{}
-		}
-
-		m.populateItemPaths(&item, active.Path, port)
-		items = append(items, item)
+		return result, nil
 	}
 
-	if items == nil {
-		items = []Item{}
+	result := make([]Item, 0, 16)
+	if !isAsc {
+		for i := range n {
+			it := m.trashDesc[i]
+			if strings.Contains(m.searchIndex[it.ID], trimmed) {
+				result = append(result, it)
+			}
+		}
+	} else {
+		for i := n - 1; i >= 0; i-- {
+			it := m.trashDesc[i]
+			if strings.Contains(m.searchIndex[it.ID], trimmed) {
+				result = append(result, it)
+			}
+		}
 	}
-	return items, nil
+	return result, nil
 }
 
 // GetTrashCount returns the number of items currently in the recycle bin.
@@ -1978,6 +2562,14 @@ func (m *LibraryManager) GetTrashCount() (int, error) {
 	if db == nil {
 		return 0, nil
 	}
+
+	m.cacheMu.RLock()
+	if m.cacheLoaded {
+		c := len(m.trashDesc)
+		m.cacheMu.RUnlock()
+		return c, nil
+	}
+	m.cacheMu.RUnlock()
 
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM items WHERE in_trash = 1").Scan(&count)
@@ -2021,12 +2613,19 @@ func (m *LibraryManager) MoveItemToFolder(itemID string, fromFolderID string, to
 		}
 	}
 
-	return tx.Commit()
+	err = tx.Commit()
+	m.invalidateCache()
+	return err
 }
 
 // ImportFolderRecursively imports an external directory into the library, creating matching virtual folders
-// and importing files into the library flatly while associating them with their respective virtual folders.
+// and importing files into the library concurrently while associating them with their respective virtual folders.
 func (m *LibraryManager) ImportFolderRecursively(dirPath string, parentFolderID string) (*Folder, error) {
+	return m.ImportFolderRecursivelyWithProgress(dirPath, parentFolderID, nil)
+}
+
+// ImportFolderRecursivelyWithProgress imports a directory hierarchy concurrently with progress callbacks.
+func (m *LibraryManager) ImportFolderRecursivelyWithProgress(dirPath string, parentFolderID string, onProgress ProgressCallback) (*Folder, error) {
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -2044,12 +2643,15 @@ func (m *LibraryManager) ImportFolderRecursively(dirPath string, parentFolderID 
 		return nil, fmt.Errorf("%s is not a directory", dirPath)
 	}
 
+	_ = m.ensureCacheLoaded()
+
 	folderName := filepath.Base(dirPath)
 	rootFolder, err := m.CreateFolder(folderName, parentFolderID)
 	if err != nil {
 		return nil, err
 	}
 
+	var jobs []importJob
 	var walkDir func(currentPath string, currentFolderID string)
 	walkDir = func(currentPath string, currentFolderID string) {
 		entries, err := os.ReadDir(currentPath)
@@ -2070,27 +2672,86 @@ func (m *LibraryManager) ImportFolderRecursively(dirPath string, parentFolderID 
 					walkDir(fullPath, subFolder.ID)
 				}
 			} else {
-				item, err := m.importSingleFile(fullPath)
-				if err == nil && item != nil {
-					_ = m.AddItemToFolder(item.ID, currentFolderID)
-				}
+				jobs = append(jobs, importJob{
+					index:    len(jobs),
+					srcPath:  fullPath,
+					folderID: currentFolderID,
+				})
 			}
 		}
 	}
 
 	walkDir(dirPath, rootFolder.ID)
+	if len(jobs) > 0 {
+		_, _ = m.runConcurrentImportJobs(jobs, onProgress)
+	}
 	return rootFolder, nil
 }
 
 // ImportFoldersRecursively imports multiple external directories into the library.
 func (m *LibraryManager) ImportFoldersRecursively(dirPaths []string, parentFolderID string) ([]Folder, error) {
+	return m.ImportFoldersRecursivelyWithProgress(dirPaths, parentFolderID, nil)
+}
+
+// ImportFoldersRecursivelyWithProgress imports multiple external directories concurrently with progress callbacks.
+func (m *LibraryManager) ImportFoldersRecursivelyWithProgress(dirPaths []string, parentFolderID string, onProgress ProgressCallback) ([]Folder, error) {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return []Folder{}, errors.New("no active library")
+	}
+
+	_ = m.ensureCacheLoaded()
+
 	var created []Folder
-	for _, p := range dirPaths {
-		f, err := m.ImportFolderRecursively(p, parentFolderID)
-		if err == nil && f != nil {
-			created = append(created, *f)
+	var jobs []importJob
+
+	var walkDir func(currentPath string, currentFolderID string)
+	walkDir = func(currentPath string, currentFolderID string) {
+		entries, err := os.ReadDir(currentPath)
+		if err != nil {
+			return
+		}
+		for _, entry := range entries {
+			entryName := entry.Name()
+			if strings.HasPrefix(entryName, ".") {
+				continue
+			}
+			fullPath := filepath.Join(currentPath, entryName)
+			if entry.IsDir() {
+				subFolder, err := m.CreateFolder(entryName, currentFolderID)
+				if err == nil && subFolder != nil {
+					walkDir(fullPath, subFolder.ID)
+				}
+			} else {
+				jobs = append(jobs, importJob{
+					index:    len(jobs),
+					srcPath:  fullPath,
+					folderID: currentFolderID,
+				})
+			}
 		}
 	}
+
+	for _, p := range dirPaths {
+		stat, err := os.Stat(p)
+		if err != nil || !stat.IsDir() {
+			continue
+		}
+		f, err := m.CreateFolder(filepath.Base(p), parentFolderID)
+		if err == nil && f != nil {
+			created = append(created, *f)
+			walkDir(p, f.ID)
+		}
+	}
+
+	if len(jobs) > 0 {
+		_, _ = m.runConcurrentImportJobs(jobs, onProgress)
+	}
+
 	return created, nil
 }
 
@@ -2126,25 +2787,45 @@ func (m *LibraryManager) GetTags() ([]Tag, error) {
 		tagSet[FavoriteTagName] = time.Now().Unix()
 	}
 
-	// 2. Count non-trashed items for each tag
+	// 2. Count non-trashed items for each tag (prefer in-memory index when loaded)
 	tagCounts := make(map[string]int)
-	iRows, err := db.Query("SELECT tags FROM items WHERE (in_trash = 0 OR in_trash IS NULL) AND tags != ''")
-	if err == nil {
-		for iRows.Next() {
-			var tagsStr string
-			if iRows.Scan(&tagsStr) == nil && tagsStr != "" {
-				for _, t := range strings.Split(tagsStr, ",") {
-					t = strings.TrimSpace(t)
-					if t != "" {
-						tagCounts[t]++
-						if _, ok := tagSet[t]; !ok {
-							tagSet[t] = time.Now().Unix()
-						}
+	m.cacheMu.RLock()
+	cacheReady := m.cacheLoaded
+	if cacheReady {
+		nowUnix := time.Now().Unix()
+		for i := range m.itemsDesc {
+			for _, t := range m.itemsDesc[i].Tags {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					tagCounts[t]++
+					if _, ok := tagSet[t]; !ok {
+						tagSet[t] = nowUnix
 					}
 				}
 			}
 		}
-		iRows.Close()
+	}
+	m.cacheMu.RUnlock()
+
+	if !cacheReady {
+		iRows, err := db.Query("SELECT tags FROM items WHERE (in_trash = 0 OR in_trash IS NULL) AND tags != ''")
+		if err == nil {
+			for iRows.Next() {
+				var tagsStr string
+				if iRows.Scan(&tagsStr) == nil && tagsStr != "" {
+					for _, t := range strings.Split(tagsStr, ",") {
+						t = strings.TrimSpace(t)
+						if t != "" {
+							tagCounts[t]++
+							if _, ok := tagSet[t]; !ok {
+								tagSet[t] = time.Now().Unix()
+							}
+						}
+					}
+				}
+			}
+			iRows.Close()
+		}
 	}
 
 	var tags []Tag
@@ -2253,7 +2934,7 @@ func (m *LibraryManager) DeleteTag(name string) error {
 			}
 		}
 	}
-
+	m.invalidateCache()
 	return nil
 }
 
@@ -2310,7 +2991,7 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
-
+	m.invalidateCache()
 	return nil
 }
 
@@ -2357,7 +3038,7 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
-
+	m.invalidateCache()
 	return nil
 }
 
@@ -2402,7 +3083,7 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
-
+	m.invalidateCache()
 	return nil
 }
 
@@ -2496,6 +3177,7 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 	item.Name = displayName
 	item.Filename = newFilename
 	m.populateItemPaths(item, active.Path, port)
+	m.invalidateCache()
 	return item, nil
 }
 

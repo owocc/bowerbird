@@ -202,7 +202,13 @@ func main() {
 			})
 
 			go func() {
-				created, err := coreMgr.ImportFoldersRecursively(folderPaths, targetFolderID)
+				created, err := coreMgr.ImportFoldersRecursivelyWithProgress(folderPaths, targetFolderID, func(current, total int, filename string) {
+					app.Event.Emit("import-progress", map[string]any{
+						"current":  current,
+						"total":    total,
+						"filename": filename,
+					})
+				})
 				if err != nil {
 					core.LogDragTrace("native-drop", fmt.Sprintf("error importing folders recursively: %v", err))
 					app.Event.Emit("import-error", err.Error())

@@ -2,10 +2,13 @@ package core_test
 
 import (
 	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"bowerbird/core"
 )
@@ -109,4 +112,70 @@ func TestReimportRestoresMissingPayload(t *testing.T) {
 	if _, err := os.Stat(items[0].FilePath); err != nil {
 		t.Fatalf("re-import did not restore the payload: %v", err)
 	}
+}
+
+func TestConcurrentFolderImportAndMillisecondSearch(t *testing.T) {
+	mgr := newRaceLibrary(t, "BulkPerf")
+	rootDir := filepath.Join(t.TempDir(), "BulkFolder")
+
+	const subFolders = 5
+	const filesPerFolder = 40
+	const totalFiles = subFolders * filesPerFolder
+
+	for s := range subFolders {
+		dir := filepath.Join(rootDir, fmt.Sprintf("category_%d", s))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		for f := range filesPerFolder {
+			name := fmt.Sprintf("asset_%d_%d.txt", s, f)
+			content := fmt.Sprintf("unique-payload-%d-%d", s, f)
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+		}
+	}
+
+	var progressCalls atomic.Int32
+	var lastTotal atomic.Int32
+	startImport := time.Now()
+	folder, err := mgr.ImportFolderRecursivelyWithProgress(rootDir, "", func(current, total int, filename string) {
+		progressCalls.Add(1)
+		lastTotal.Store(int32(total))
+	})
+	importElapsed := time.Since(startImport)
+	if err != nil {
+		t.Fatalf("ImportFolderRecursivelyWithProgress: %v", err)
+	}
+	if folder == nil {
+		t.Fatal("expected non-nil root folder")
+	}
+	if progressCalls.Load() == 0 || int(lastTotal.Load()) != totalFiles {
+		t.Fatalf("expected progress callbacks with total=%d, got calls=%d total=%d", totalFiles, progressCalls.Load(), lastTotal.Load())
+	}
+
+	// Verify all items are indexed and searchable in sub-millisecond latency
+	startQuery := time.Now()
+	allItems, err := mgr.GetItems("", "desc")
+	queryElapsed := time.Since(startQuery)
+	if err != nil {
+		t.Fatalf("GetItems: %v", err)
+	}
+	if len(allItems) != totalFiles {
+		t.Fatalf("expected %d imported items, got %d", totalFiles, len(allItems))
+	}
+
+	startSearch := time.Now()
+	matched, err := mgr.GetItems("asset_3_17", "desc")
+	searchElapsed := time.Since(startSearch)
+	if err != nil {
+		t.Fatalf("GetItems search: %v", err)
+	}
+	if len(matched) != 1 || matched[0].Name != "asset_3_17" {
+		t.Fatalf("expected 1 match for asset_3_17, got %d", len(matched))
+	}
+	if searchElapsed > 10*time.Millisecond {
+		t.Errorf("expected millisecond-level search latency, got %v", searchElapsed)
+	}
+	t.Logf("Imported %d files across %d folders in %v; GetItems=%v; Search=%v", totalFiles, subFolders, importElapsed, queryElapsed, searchElapsed)
 }

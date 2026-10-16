@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events } from "@wailsio/runtime";
-import { ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
+import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
 import { isInternalDragActive } from "../lib/drag-state";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -88,6 +88,8 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
   });
 
   const resetTimer = useRef<number | null>(null);
+  const refreshThrottleTimer = useRef<number | null>(null);
+  const lastRefreshTs = useRef<number>(0);
   const dragCounter = useRef(0);
 
   const clearTimer = () => {
@@ -97,12 +99,29 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     }
   };
 
+  const clearRefreshThrottle = () => {
+    if (refreshThrottleTimer.current !== null) {
+      window.clearTimeout(refreshThrottleTimer.current);
+      refreshThrottleTimer.current = null;
+    }
+  };
+
+  function extractEventPayload(event: unknown): Record<string, unknown> {
+    if (event && typeof event === "object") {
+      if ("data" in event && event.data && typeof event.data === "object") {
+        return event.data as Record<string, unknown>;
+      }
+      return event as Record<string, unknown>;
+    }
+    return {};
+  }
+
   // Listen to Wails native events emitted by Go backend
   useEffect(() => {
-    const unsubStarted = Events.On("import-started", (event: any) => {
+    const unsubStarted = Events.On("import-started", (event: unknown) => {
       clearTimer();
-      const data = event?.data ?? event ?? {};
-      const total = typeof data === "object" && data && "total" in data ? Number(data.total) : 1;
+      const data = extractEventPayload(event);
+      const total = "total" in data ? Number(data.total) : 1;
       setState({
         status: "importing",
         total,
@@ -112,11 +131,11 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       });
     });
 
-    const unsubProgress = Events.On("import-progress", (event: any) => {
-      const data = event?.data ?? event ?? {};
-      const current = typeof data === "object" && data && "current" in data ? Number(data.current) : 0;
-      const total = typeof data === "object" && data && "total" in data ? Number(data.total) : 1;
-      const filename = typeof data === "object" && data && "filename" in data ? String(data.filename) : "";
+    const unsubProgress = Events.On("import-progress", (event: unknown) => {
+      const data = extractEventPayload(event);
+      const current = "current" in data ? Number(data.current) : 0;
+      const total = "total" in data ? Number(data.total) : 1;
+      const filename = "filename" in data ? String(data.filename) : "";
       setState((prev) => ({
         ...prev,
         status: "importing",
@@ -127,10 +146,13 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       }));
     });
 
-    const unsubCompleted = Events.On("import-completed", (event: any) => {
-      const data = event?.data ?? event ?? {};
-      const count = typeof data === "object" && data && "count" in data ? Number(data.count) : 0;
-      const ids = typeof data === "object" && data && "ids" in data && Array.isArray(data.ids) ? data.ids : undefined;
+    const unsubCompleted = Events.On("import-completed", (event: unknown) => {
+      const data = extractEventPayload(event);
+      const count = "count" in data ? Number(data.count) : 0;
+      const ids =
+        "ids" in data && Array.isArray(data.ids)
+          ? data.ids.filter((id): id is string => typeof id === "string")
+          : undefined;
       setState({
         status: "idle",
         total: 0,
@@ -145,8 +167,13 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       clearTimer();
     });
 
-    const unsubError = Events.On("import-error", (event: any) => {
-      const msg = typeof event?.data === "string" ? event.data : typeof event === "string" ? event : t("importing.unknownError");
+    const unsubError = Events.On("import-error", (event: unknown) => {
+      let msg = t("importing.unknownError");
+      if (typeof event === "string") {
+        msg = event;
+      } else if (event && typeof event === "object" && "data" in event && typeof event.data === "string") {
+        msg = event.data;
+      }
       setState({
         status: "idle",
         total: 0,
@@ -159,7 +186,18 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     });
 
     const unsubUpdated = Events.On("library-items-updated", () => {
-      onRefresh();
+      const now = Date.now();
+      const elapsed = now - lastRefreshTs.current;
+      if (elapsed >= 350) {
+        lastRefreshTs.current = now;
+        void onRefresh();
+      } else if (refreshThrottleTimer.current === null) {
+        refreshThrottleTimer.current = window.setTimeout(() => {
+          refreshThrottleTimer.current = null;
+          lastRefreshTs.current = Date.now();
+          void onRefresh();
+        }, 350 - elapsed);
+      }
     });
 
     return () => {
@@ -169,6 +207,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       unsubError();
       unsubUpdated();
       clearTimer();
+      clearRefreshThrottle();
     };
   }, [onRefresh, t]);
   // Window-level listener: whenever external files are dragged over the window,
@@ -243,13 +282,57 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     return promise;
   }, []);
 
-  // Batch import File objects
+  // Batch import File objects (uses native Go multi-goroutine path import if disk paths are available)
   const importFileList = useCallback(
     async (fileList: FileList | globalThis.File[]): Promise<string[]> => {
       const files = Array.from(fileList);
       if (files.length === 0) return [];
 
       clearTimer();
+
+      // Fast path: if File objects expose local filesystem paths, delegate directly to Go worker pool
+      const nativePaths: string[] = [];
+      for (const f of files) {
+        const p = "path" in f && typeof f.path === "string" ? f.path.trim() : "";
+        if (p) nativePaths.push(p);
+      }
+
+      if (nativePaths.length === files.length) {
+        setState({
+          status: "importing",
+          total: nativePaths.length,
+          current: 0,
+          filename: files[0].name,
+          message: t("importing.importingFiles", { count: nativePaths.length }),
+        });
+        try {
+          const imported = await ImportFiles(nativePaths);
+          const ids = (imported || []).map((it) => it.id);
+          setState({
+            status: "idle",
+            total: 0,
+            current: 0,
+            filename: "",
+            message: null,
+          });
+          if (ids.length > 0) {
+            toast.success(t("importing.importedAssets", { count: ids.length }));
+            await onRefresh(ids);
+          }
+          return ids;
+        } catch (err) {
+          setState({
+            status: "idle",
+            total: 0,
+            current: 0,
+            filename: "",
+            message: null,
+          });
+          toast.error(t("importing.failed", { error: String(err) }));
+          return [];
+        }
+      }
+
       setState({
         status: "importing",
         total: files.length,
@@ -259,18 +342,33 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       });
 
       const importedIds: string[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        setState({
-          status: "importing",
-          total: files.length,
-          current: i + 1,
-          filename: file.name,
-          message: t("importing.processing", { current: i + 1, total: files.length, filename: file.name }),
-        });
-        const itemId = await importFileObject(file);
-        if (itemId) importedIds.push(itemId);
-      }
+      let completedCount = 0;
+      let cursor = 0;
+      const concurrency = Math.min(4, files.length);
+
+      const runWorker = async () => {
+        while (cursor < files.length) {
+          const idx = cursor++;
+          const file = files[idx];
+          const itemId = await importFileObject(file);
+          completedCount++;
+          if (itemId) importedIds.push(itemId);
+          setState({
+            status: "importing",
+            total: files.length,
+            current: completedCount,
+            filename: file.name,
+            message: t("importing.processing", {
+              current: completedCount,
+              total: files.length,
+              filename: file.name,
+            }),
+          });
+        }
+      };
+
+      await Promise.all(Array.from({ length: concurrency }, () => runWorker()));
+
       if (importedIds.length > 0) {
         setState({
           status: "success",

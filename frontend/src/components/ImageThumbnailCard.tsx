@@ -13,7 +13,7 @@ export interface ImageThumbnailCardProps {
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export function ImageThumbnailCard({
+export const ImageThumbnailCard = React.memo(function ImageThumbnailCard({
   item,
   isSelected = false,
   cardWidth,
@@ -72,4 +72,9 @@ export function ImageThumbnailCard({
       </div>
     </div>
   );
-}
+}, (prev, next) =>
+  prev.item === next.item &&
+  prev.isSelected === next.isSelected &&
+  prev.cardWidth === next.cardWidth &&
+  prev.cardHeight === next.cardHeight
+);

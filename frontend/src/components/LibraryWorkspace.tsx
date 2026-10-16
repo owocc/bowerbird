@@ -210,10 +210,10 @@ export function LibraryWorkspace({
   const refreshItems = useCallback(async () => {
     try {
       if (activeFolderId === "__trash__") {
-        const data = await GetTrashItems(searchQuery, sortOrder);
+        const data = await GetTrashItems("", sortOrder);
         setItems(data || []);
       } else {
-        const data = await GetItems(searchQuery, sortOrder);
+        const data = await GetItems("", sortOrder);
         setItems(data || []);
       }
     } catch (err) {
@@ -221,7 +221,7 @@ export function LibraryWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [activeFolderId, searchQuery, sortOrder]);
+  }, [activeFolderId, sortOrder]);
 
   const refreshFolders = useCallback(async () => {
     try {
@@ -402,9 +402,26 @@ export function LibraryWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, ws.preview, previewActiveItem]);
 
-  // Multi-dimensional filtering: sidebar folder/tag + FilterBar (type, color, tag, folder, orientation)
+  // Multi-dimensional filtering: instant in-memory search + sidebar folder/tag + FilterBar (type, color, tag, folder, orientation)
+  const normalizedQuery = useMemo(
+    () => searchQuery.trim().toLowerCase(),
+    [searchQuery]
+  );
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      if (normalizedQuery) {
+        const matchesName = item.name?.toLowerCase().includes(normalizedQuery);
+        const matchesExt = item.extension?.toLowerCase().includes(normalizedQuery);
+        const matchesHex = item.hex?.toLowerCase().includes(normalizedQuery);
+        const matchesTag = (item.tags || []).some((t) =>
+          t.toLowerCase().includes(normalizedQuery)
+        );
+        if (!matchesName && !matchesExt && !matchesHex && !matchesTag) {
+          return false;
+        }
+      }
+
       if (activeFolderId !== "__trash__") {
         // Sidebar folder selection
         if (activeFolderId !== null) {
@@ -477,6 +494,7 @@ export function LibraryWorkspace({
     });
   }, [
     items,
+    normalizedQuery,
     activeFolderId,
     activeTag,
     categoryFilter,
@@ -843,6 +861,12 @@ export function LibraryWorkspace({
     e.preventDefault();
     e.stopPropagation();
 
+    const hostWin = window as Window & {
+      _wails?: { flags?: { enableFileDrop?: boolean } };
+    };
+    if (hostWin._wails?.flags?.enableFileDrop === true) {
+      return;
+    }
     const folderPaths: string[] = [];
     const folderEntries: FileSystemEntry[] = [];
 
@@ -1193,9 +1217,6 @@ export function LibraryWorkspace({
                 <div className="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-primary/80 bg-foreground/10 rounded-[inherit]" />
               )}
 
-              {!isInternalDragging && dropState.status === "importing" && (
-                <DropzoneOverlay state={dropState} />
-              )}
 
               <header className="w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag">
                 {/* Row 1: Titlebar height row — parent is strictly wails-no-drag; ONLY the middle spacer is wails-drag */}
@@ -1371,12 +1392,6 @@ export function LibraryWorkspace({
                       </>
                     ) : null}
 
-                    {dropState.status === "importing" && dropState.message && (
-                      <span className="text-[11px] text-primary font-medium animate-pulse font-mono truncate max-w-xs">
-                        {dropState.message}
-                      </span>
-                    )}
-
                     <button
                       type="button"
                       onClick={() =>
@@ -1500,6 +1515,11 @@ export function LibraryWorkspace({
                 )}
               </div>
 
+
+              {/* Fixed Bottom Background Import Progress Bar inside main content area */}
+              {!isInternalDragging && dropState.status === "importing" && (
+                <DropzoneOverlay state={dropState} />
+              )}
               {inlinePreviewOpen && previewActiveItem && (
                 <UnifiedPreviewModal
                   open={inlinePreviewOpen}
