@@ -220,6 +220,8 @@ export function LibraryWorkspace({
     type: "multi-folder" | "permanent";
   } | null>(null);
 
+  const [emptyTrashConfirmOpen, setEmptyTrashConfirmOpen] = useState(false);
+  const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
   const [renameDialog, setRenameDialog] = useState<{
     isOpen: boolean;
     item: Item | null;
@@ -787,14 +789,25 @@ export function LibraryWorkspace({
     }
   };
 
-  const handleEmptyTrash = async () => {
+  const handleRequestEmptyTrash = () => {
+    if (trashCount <= 0 && filteredItems.length <= 0) return;
+    setEmptyTrashConfirmOpen(true);
+  };
+
+  const handleConfirmEmptyTrash = async () => {
+    if (isEmptyingTrash) return;
+    setIsEmptyingTrash(true);
     try {
       await EmptyTrash();
+      setEmptyTrashConfirmOpen(false);
       setSelectedOrder([]);
       setActiveItemId(null);
       await handleFullRefresh();
+      toast.success(t("workspace.emptyTrashSuccess"));
     } catch (err) {
       console.error("Failed to empty trash:", err);
+    } finally {
+      setIsEmptyingTrash(false);
     }
   };
 
@@ -1307,6 +1320,7 @@ export function LibraryWorkspace({
                     await handleFullRefresh();
                     toast.success(t("workspace.movedToTrash"));
                   }}
+                  onEmptyTrash={handleRequestEmptyTrash}
                   onCloseLibrary={async () => {
                     await CloseLibrary();
                     onLibraryClosed();
@@ -1536,17 +1550,18 @@ export function LibraryWorkspace({
                               </span>
                             </Button>
                           </div>
-                        ) : filteredItems.length > 0 ? (
+                        ) : null}
+                        {(trashCount > 0 || filteredItems.length > 0) && (
                           <Button
                             variant="outline"
                             size="xs"
-                            onClick={handleEmptyTrash}
+                            onClick={handleRequestEmptyTrash}
                             className="h-6.5 text-[11px] gap-1 text-destructive hover:text-destructive cursor-pointer"
                           >
                             <Trash2 className="size-3" />
                             <span>{t("workspace.emptyTrash")}</span>
                           </Button>
-                        ) : null}
+                        )}
                       </>
                     ) : null}
 
@@ -1838,6 +1853,7 @@ export function LibraryWorkspace({
                           !contextMenu &&
                           !folderPaletteOpen &&
                           !deleteConfirmDialog &&
+                          !emptyTrashConfirmOpen &&
                           !renameDialog
                         }
                         targetRowHeight={rowHeight}
@@ -2006,6 +2022,11 @@ export function LibraryWorkspace({
             activeItem && handleToggleFavorite(activeItem)
           }
           onDelete={() => handleRequestDelete()}
+          onEmptyTrash={
+            trashCount > 0 || filteredItems.length > 0
+              ? handleRequestEmptyTrash
+              : undefined
+          }
           onRestore={() => handleRestore()}
           onOpenAddToFolderPalette={() => setFolderPaletteOpen(true)}
           onRemoveFromCurrentFolder={() => {
@@ -2172,6 +2193,50 @@ export function LibraryWorkspace({
             </DialogContent>
           </Dialog>
         )}
+
+        {/* EMPTY TRASH CONFIRMATION DIALOG */}
+        <Dialog
+          open={emptyTrashConfirmOpen}
+          onOpenChange={(open) => !isEmptyingTrash && setEmptyTrashConfirmOpen(open)}
+        >
+          <DialogContent className="max-w-sm text-xs">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold flex items-center gap-2 text-destructive">
+                <Trash2 className="size-4 shrink-0" />
+                <span>{t("workspace.emptyTrashConfirmTitle")}</span>
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-2 text-muted-foreground text-xs leading-relaxed">
+              <p>
+                {t("workspace.emptyTrashConfirmMessage", {
+                  count: trashCount || filteredItems.length,
+                })}
+              </p>
+            </div>
+            <DialogFooter className="flex flex-row justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={isEmptyingTrash}
+                onClick={() => setEmptyTrashConfirmOpen(false)}
+                className="cursor-pointer"
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={isEmptyingTrash}
+                onClick={handleConfirmEmptyTrash}
+                className="cursor-pointer"
+              >
+                {t("workspace.emptyTrash")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* FILE RENAME DIALOG */}
         {renameDialog && (

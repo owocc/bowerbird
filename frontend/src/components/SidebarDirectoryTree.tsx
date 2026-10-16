@@ -97,6 +97,7 @@ export interface SidebarDirectoryTreeProps {
     targetFolderId?: string
   ) => Promise<void>;
   onDropItemOnTrash?: (itemIds: string[]) => Promise<void>;
+  onEmptyTrash?: () => void;
   onCloseLibrary: () => void;
   onLibraryChanged?: (newLib: LibraryInfo) => void;
   onToggleCollapse?: () => void;
@@ -128,6 +129,7 @@ export function SidebarDirectoryTree({
   onMoveItemToFolder,
   onDropFolderImport,
   onDropItemOnTrash,
+  onEmptyTrash,
   onCloseLibrary,
   onLibraryChanged,
   onToggleCollapse,
@@ -156,8 +158,8 @@ export function SidebarDirectoryTree({
   const [folderContextMenu, setFolderContextMenu] = useState<{
     position: { x: number; y: number };
     folder: Folder | null;
+    isTrash?: boolean;
   } | null>(null);
-
   const [deleteFolderDialog, setDeleteFolderDialog] = useState<{
     isOpen: boolean;
     folderId: string;
@@ -686,6 +688,16 @@ export function SidebarDirectoryTree({
                         }
                       }
                     }}
+                    onContextMenu={(e) => {
+                      if (!onEmptyTrash || trashCount <= 0) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFolderContextMenu({
+                        position: { x: e.clientX, y: e.clientY },
+                        folder: null,
+                        isTrash: true,
+                      });
+                    }}
                     className="flex items-center w-full relative rounded-lg overflow-hidden"
                   >
                     <div className="w-3 shrink-0" />
@@ -887,6 +899,7 @@ export function SidebarDirectoryTree({
       <FolderContextMenu
         position={folderContextMenu?.position || null}
         folder={folderContextMenu?.folder || null}
+        isTrash={folderContextMenu?.isTrash}
         onClose={() => setFolderContextMenu(null)}
         onCreateSubfolder={(parentId) => handleOpenCreateSub(parentId)}
         onCreateRootFolder={handleOpenCreateRoot}
@@ -898,6 +911,7 @@ export function SidebarDirectoryTree({
             folderName: name,
           });
         }}
+        onEmptyTrash={onEmptyTrash}
       />
 
       {/* Dialog for deleting folder */}
@@ -1128,21 +1142,25 @@ function FolderTreeItemNode({
 interface FolderContextMenuProps {
   position: { x: number; y: number } | null;
   folder: Folder | null;
+  isTrash?: boolean;
   onClose: () => void;
   onCreateSubfolder: (parentId: string) => void;
   onCreateRootFolder: () => void;
   onRenameFolder: (folder: Folder) => void;
   onDeleteFolder: (folderId: string, folderName: string) => Promise<void>;
+  onEmptyTrash?: () => void;
 }
 
 function FolderContextMenu({
   position,
   folder,
+  isTrash,
   onClose,
   onCreateSubfolder,
   onCreateRootFolder,
   onRenameFolder,
   onDeleteFolder,
+  onEmptyTrash,
 }: FolderContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -1180,7 +1198,19 @@ function FolderContextMenu({
       style={{ left: `${Math.max(8, x)}px`, top: `${Math.max(8, y)}px` }}
       className="fixed z-50 min-w-[145px] rounded-xl border border-border bg-popover/95 p-1 text-popover-foreground shadow-xl backdrop-blur-md select-none wails-no-drag"
     >
-      {folder ? (
+      {isTrash ? (
+        <button
+          type="button"
+          onClick={() => {
+            onEmptyTrash?.();
+            onClose();
+          }}
+          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-destructive hover:bg-destructive/10 text-left transition-colors cursor-pointer"
+        >
+          <Trash2 className="size-3.5 text-destructive" />
+          <span>{t("workspace.emptyTrash")}</span>
+        </button>
+      ) : folder ? (
         <>
           <button
             type="button"

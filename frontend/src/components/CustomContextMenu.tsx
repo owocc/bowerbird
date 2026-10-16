@@ -53,6 +53,7 @@ export interface ContextMenuProps {
   onCopyPath?: () => void;
   onToggleFavorite?: () => void;
   onDelete?: () => void;
+  onEmptyTrash?: () => void;
   onRestore?: () => void;
   onOpenAddToFolderPalette?: () => void;
   onRemoveFromCurrentFolder?: () => void;
@@ -77,6 +78,7 @@ export function CustomContextMenu({
   onCopyPath,
   onToggleFavorite,
   onDelete,
+  onEmptyTrash,
   onRestore,
   onOpenAddToFolderPalette,
   onRemoveFromCurrentFolder,
@@ -184,32 +186,94 @@ export function CustomContextMenu({
 
           {/* ================= TRASH CONTEXT ================= */}
           {isTrashView ? (
-            <CommandGroup>
-              {onRestore && (
-                <CommandItem
-                  onSelect={() => {
-                    onRestore();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                >
-                  <RotateCcw className="size-3.5 text-primary shrink-0" />
-                  <span>{t("contextMenu.restore")}</span>
-                </CommandItem>
-              )}
-              {onDelete && (
-                <CommandItem
-                  onSelect={() => {
-                    onDelete();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="size-3.5 shrink-0" />
-                  <span>{t("contextMenu.deletePermanently")}</span>
-                </CommandItem>
-              )}
-            </CommandGroup>
+            isItemContext ? (
+              <CommandGroup>
+                {onRestore && (
+                  <CommandItem
+                    onSelect={() => {
+                      onRestore();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <RotateCcw className="size-3.5 text-primary shrink-0" />
+                    <span>{t("contextMenu.restore")}</span>
+                  </CommandItem>
+                )}
+                {onDelete && (
+                  <CommandItem
+                    onSelect={() => {
+                      onDelete();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="size-3.5 shrink-0" />
+                    <span>{t("contextMenu.deletePermanently")}</span>
+                  </CommandItem>
+                )}
+                {onEmptyTrash && (
+                  <>
+                    <CommandSeparator className="my-1" />
+                    <CommandItem
+                      onSelect={() => {
+                        onEmptyTrash();
+                        onClose();
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-3.5 shrink-0" />
+                      <span>{t("workspace.emptyTrash")}</span>
+                    </CommandItem>
+                  </>
+                )}
+              </CommandGroup>
+            ) : (
+              <CommandGroup>
+                {onSelectAll && (
+                  <CommandItem
+                    onSelect={() => {
+                      onSelectAll();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1">{t("contextMenu.selectAll")}</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">
+                      {selectAllShortcutLabel}
+                    </CommandShortcut>
+                  </CommandItem>
+                )}
+                {onClearSelection && selectedCount > 0 && (
+                  <CommandItem
+                    onSelect={() => {
+                      onClearSelection();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <Square className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1">{t("contextMenu.deselectAll")}</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">
+                      Esc
+                    </CommandShortcut>
+                  </CommandItem>
+                )}
+                {onEmptyTrash && (
+                  <CommandItem
+                    onSelect={() => {
+                      onEmptyTrash();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="size-3.5 shrink-0" />
+                    <span>{t("workspace.emptyTrash")}</span>
+                  </CommandItem>
+                )}
+              </CommandGroup>
+            )
           ) : isItemContext ? (
             /* ================= ITEM CONTEXT ================= */
             <>
