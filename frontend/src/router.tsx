@@ -47,7 +47,7 @@ function RootLayout() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="bowerbird-ui-theme">
       <LibraryProvider>
-        <div className="min-h-screen bg-background text-foreground antialiased font-sans flex flex-col">
+        <div className="h-screen w-screen overflow-hidden bg-background text-foreground antialiased font-sans flex flex-col">
           <Outlet />
         </div>
         <Toaster position="bottom-right" richColors />
@@ -69,7 +69,7 @@ function EmptyLibraryPlaceholder() {
   }, []);
 
   return (
-    <div className="relative min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none">
+    <div className="relative h-screen w-screen overflow-hidden bg-background flex flex-col items-center justify-center p-6 select-none">
       <div className="absolute top-0 left-0 right-0 h-(--titlebar-height) flex items-center px-3 z-10 wails-drag">
         <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
         <div className="flex-1 h-full" />

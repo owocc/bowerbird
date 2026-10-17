@@ -107,7 +107,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
   };
 
   return (
-    <div className="relative min-h-screen bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
+    <div className="relative h-screen w-screen overflow-hidden bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
       {/* Top titlebar drag area */}
       <div className="absolute top-0 left-0 right-0 h-(--titlebar-height) flex items-center px-3 z-10 wails-drag">
         <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
