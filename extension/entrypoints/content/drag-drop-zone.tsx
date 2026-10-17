@@ -24,7 +24,7 @@ let shadowHost: HTMLElement | null = null;
 let reactRoot: ReactDOM.Root | null = null;
 let hideTimer: number | null = null;
 let cachedFolders: FlatFolder[] = [];
-let cachedStatus: AppRunningStatus | null = null;
+let cachedStatus: AppRunningStatus = { running: false, hasActiveLibrary: false };
 let lastStatusCheckTime = 0;
 
 /**
@@ -38,9 +38,10 @@ export function initMediaDragDropZone() {
     let mediaUrl = "";
     let mediaName = "";
 
-    if (target instanceof HTMLImageElement) {
-      mediaUrl = target.currentSrc || target.src;
-      mediaName = target.alt || target.title || document.title || "Dragged Image";
+    const imgEl = target instanceof HTMLImageElement ? target : (target.querySelector?.("img") || target.closest?.("picture")?.querySelector("img"));
+    if (imgEl && (imgEl.currentSrc || imgEl.src)) {
+      mediaUrl = imgEl.currentSrc || imgEl.src;
+      mediaName = imgEl.alt || imgEl.title || document.title || "Dragged Image";
     } else if (target instanceof HTMLAnchorElement) {
       const childImg = target.querySelector("img");
       if (childImg && (childImg.currentSrc || childImg.src)) {
@@ -112,40 +113,44 @@ function hideDropZone() {
   }
 }
 
+function ensureShadowHost() {
+  if (shadowHost) return;
+  shadowHost = document.createElement("div");
+  shadowHost.id = "bowerbird-drag-drop-host";
+  shadowHost.style.cssText = `
+    position: fixed; right: 24px; top: 50%; transform: translateY(-50%);
+    z-index: 2147483646; pointer-events: auto;
+  `;
+
+  const shadow = shadowHost.attachShadow({ mode: "open" });
+  const styleEl = document.createElement("style");
+  styleEl.textContent = contentStyle;
+  shadow.appendChild(styleEl);
+
+  const mountPoint = document.createElement("div");
+  shadow.appendChild(mountPoint);
+  (document.body || document.documentElement).appendChild(shadowHost);
+
+  reactRoot = ReactDOM.createRoot(mountPoint);
+}
+
 async function showDropZone() {
   clearTimeout(hideTimer ?? undefined);
   hideTimer = null;
 
+  ensureShadowHost();
+  renderPanel();
+
   const now = Date.now();
-  if (!cachedStatus || now - lastStatusCheckTime > 5000) {
-    cachedStatus = await getAppStatus();
+  if (now - lastStatusCheckTime > 3000) {
     lastStatusCheckTime = now;
-    if (cachedStatus.running) {
+    const status = await getAppStatus();
+    cachedStatus = status;
+    if (status.running) {
       cachedFolders = await getFoldersList();
     }
+    renderPanel();
   }
-
-  if (!shadowHost) {
-    shadowHost = document.createElement("div");
-    shadowHost.id = "bowerbird-drag-drop-host";
-    shadowHost.style.cssText = `
-      position: fixed; right: 24px; top: 50%; transform: translateY(-50%);
-      z-index: 2147483646; pointer-events: auto;
-    `;
-
-    const shadow = shadowHost.attachShadow({ mode: "open" });
-    const styleEl = document.createElement("style");
-    styleEl.textContent = contentStyle;
-    shadow.appendChild(styleEl);
-
-    const mountPoint = document.createElement("div");
-    shadow.appendChild(mountPoint);
-    document.body.appendChild(shadowHost);
-
-    reactRoot = ReactDOM.createRoot(mountPoint);
-  }
-
-  renderPanel();
 }
 
 function renderPanel() {
