@@ -38,7 +38,7 @@ export const ImageThumbnailCard = React.memo(function ImageThumbnailCard({
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       style={cardWidth ? { width: `${cardWidth}px` } : undefined}
-      className="flex flex-col cursor-pointer select-none draggable-asset-card wails-no-drag"
+      className="flex flex-col shrink-0 cursor-pointer select-none draggable-asset-card wails-no-drag"
     >
       {/* Thumbnail Container */}
       <div className="relative w-full rounded-sm overflow-hidden">

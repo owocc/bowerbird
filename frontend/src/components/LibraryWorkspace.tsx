@@ -1822,7 +1822,8 @@ export function LibraryWorkspace({
               {/* Center Main Scrollable Area with Justified Gallery & Trackpad Zoom */}
               <div
                 ref={galleryViewportRef}
-                className="flex-1 overflow-y-auto p-4 flex flex-col wails-no-drag"
+                style={{ scrollbarGutter: "stable" }}
+                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 flex flex-col wails-no-drag"
               >
                 {loading ? (
                   <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">

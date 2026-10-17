@@ -93,35 +93,104 @@ export function JustifiedGallery({
     onSelectionChangeRef.current = onSelectionChange;
   }, [onSelectionChange]);
 
-  // Measure container width responsively
-  useEffect(() => {
-    if (!containerRef.current) return;
+  // Track previous width & scroll metrics in refs to prevent ResizeObserver feedback loops
+  // (e.g. vertical scrollbar toggling between W and W-scrollbarWidth when content height crosses viewportHeight)
+  const prevWidthRef = useRef<number>(800);
+  const prevWidthBeforeRef = useRef<number>(800);
+  const lastOscillationTsRef = useRef<number>(0);
+  const lockedScrollbarPairRef = useRef<{ narrow: number; wide: number } | null>(null);
 
-    const updateWidth = () => {
-      if (containerRef.current) {
-        const width = containerRef.current.clientWidth;
-        if (width > 0) {
-          setContainerWidth(width);
+  // Measure container width responsively with scrollbar-oscillation damping
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    let rafId: number | null = null;
+
+    const syncLayoutMetrics = () => {
+      rafId = null;
+      const el = containerRef.current;
+      if (!el) return;
+      const host = el.parentElement;
+
+      // Prefer clientWidth on container; floor to integer to avoid subpixel jitter
+      const rawWidth = Math.floor(el.clientWidth || el.getBoundingClientRect().width);
+      if (rawWidth > 0) {
+        const locked = lockedScrollbarPairRef.current;
+        if (
+          locked &&
+          rawWidth !== locked.narrow &&
+          rawWidth !== locked.wide
+        ) {
+          // Genuine container resize (window or panel drag): clear scrollbar bounce lock
+          lockedScrollbarPairRef.current = null;
         }
+
+        if (lockedScrollbarPairRef.current) {
+          const stableWidth = lockedScrollbarPairRef.current.narrow;
+          if (prevWidthRef.current !== stableWidth) {
+            prevWidthRef.current = stableWidth;
+            setContainerWidth(stableWidth);
+          }
+        } else if (rawWidth !== prevWidthRef.current) {
+          const now = performance.now();
+          const delta = Math.abs(rawWidth - prevWidthRef.current);
+          const isScrollbarBounce =
+            rawWidth === prevWidthBeforeRef.current &&
+            delta > 0 &&
+            delta <= 20 &&
+            now - lastOscillationTsRef.current < 400;
+
+          if (isScrollbarBounce) {
+            // Break the ResizeObserver <-> scrollbar cycle by locking to the narrower (scrollbar-present) width
+            const narrow = Math.min(rawWidth, prevWidthRef.current);
+            const wide = Math.max(rawWidth, prevWidthRef.current);
+            lockedScrollbarPairRef.current = { narrow, wide };
+            prevWidthBeforeRef.current = prevWidthRef.current;
+            prevWidthRef.current = narrow;
+            setContainerWidth(narrow);
+          } else {
+            lastOscillationTsRef.current = now;
+            prevWidthBeforeRef.current = prevWidthRef.current;
+            prevWidthRef.current = rawWidth;
+            setContainerWidth(rawWidth);
+          }
+        }
+      }
+
+      if (host) {
+        const nextScrollTop = host.scrollTop;
+        const nextViewportHeight = host.clientHeight || 900;
+        const nextOffsetTop = el.offsetTop || 0;
+        setScrollState((prev) => {
+          if (
+            prev.scrollTop === nextScrollTop &&
+            prev.viewportHeight === nextViewportHeight &&
+            prev.offsetTop === nextOffsetTop
+          ) {
+            return prev;
+          }
+          return {
+            scrollTop: nextScrollTop,
+            viewportHeight: nextViewportHeight,
+            offsetTop: nextOffsetTop,
+          };
+        });
       }
     };
 
-    updateWidth();
+    syncLayoutMetrics();
     const observer = new ResizeObserver(() => {
-      updateWidth();
-      const host = containerRef.current?.parentElement;
-      if (host && containerRef.current) {
-        setScrollState({
-          scrollTop: host.scrollTop,
-          viewportHeight: host.clientHeight || 900,
-          offsetTop: containerRef.current.offsetTop || 0,
-        });
-      }
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(syncLayoutMetrics);
     });
-    observer.observe(containerRef.current);
-    const host = containerRef.current.parentElement;
+    observer.observe(container);
+    const host = container.parentElement;
     if (host) observer.observe(host);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   // Track scroll position on scroll host for row virtualization (rAF throttled)
@@ -132,10 +201,22 @@ export function JustifiedGallery({
     const syncScroll = () => {
       scrollRaf = null;
       if (!containerRef.current) return;
-      setScrollState({
-        scrollTop: host.scrollTop,
-        viewportHeight: host.clientHeight || 900,
-        offsetTop: containerRef.current.offsetTop || 0,
+      const nextScrollTop = host.scrollTop;
+      const nextViewportHeight = host.clientHeight || 900;
+      const nextOffsetTop = containerRef.current.offsetTop || 0;
+      setScrollState((prev) => {
+        if (
+          prev.scrollTop === nextScrollTop &&
+          prev.viewportHeight === nextViewportHeight &&
+          prev.offsetTop === nextOffsetTop
+        ) {
+          return prev;
+        }
+        return {
+          scrollTop: nextScrollTop,
+          viewportHeight: nextViewportHeight,
+          offsetTop: nextOffsetTop,
+        };
       });
     };
     const onScroll = () => {
@@ -150,10 +231,17 @@ export function JustifiedGallery({
     };
   }, []);
 
+  // Clear scrollbar bounce lock when items or targetRowHeight change so fresh layouts can use full width if appropriate
+  useEffect(() => {
+    lockedScrollbarPairRef.current = null;
+  }, [items.length, targetRowHeight]);
+
   // Compute justified rows layout with pixel-perfect row filling
   const rows = useMemo(() => {
     if (!items || items.length === 0) return [];
 
+    const safeContainerWidth = Math.max(100, Math.floor(containerWidth));
+    const safeTargetHeight = Math.max(40, Math.round(targetRowHeight));
     const computedRows: LayoutRow[] = [];
     let currentRow: { item: Item; ratio: number }[] = [];
     let currentRatiosSum = 0;
@@ -180,6 +268,55 @@ export function JustifiedGallery({
       return Math.max(MIN_RATIO, Math.min(MAX_RATIO, rawRatio));
     };
 
+    const buildFilledRow = (
+      rowEntries: { item: Item; ratio: number }[],
+      availableWidth: number,
+      projectedHeight: number,
+      maxHeight: number
+    ): LayoutRow => {
+      const finalHeight = Math.max(40, Math.min(maxHeight, Math.round(projectedHeight)));
+      const widths = rowEntries.map((entry) =>
+        Math.max(1, Math.floor(finalHeight * entry.ratio))
+      );
+      const currentTotal = widths.reduce((a, b) => a + b, 0);
+      const diff = availableWidth - currentTotal;
+
+      // Only distribute positive remainder when row was not capped by maxHeight
+      if (diff > 0 && projectedHeight <= maxHeight && widths.length > 0) {
+        for (let k = 0; k < diff; k++) {
+          widths[k % widths.length] += 1;
+        }
+      } else if (diff < 0 && widths.length > 0) {
+        // Never let a row exceed availableWidth and cause horizontal overflow
+        let excess = -diff;
+        let guard = 0;
+        while (excess > 0 && guard < widths.length * 4) {
+          const idx = guard % widths.length;
+          if (widths[idx] > 24) {
+            widths[idx] -= 1;
+            excess -= 1;
+          }
+          guard++;
+        }
+      }
+
+      const layoutItems: LayoutItem[] = rowEntries.map((entry, idx) => ({
+        item: entry.item,
+        width: widths[idx],
+        height: finalHeight,
+      }));
+
+      return {
+        items: layoutItems,
+        height: finalHeight,
+        rowTotalHeight: 0,
+        top: 0,
+        bottom: 0,
+      };
+    };
+
+    const maxRowHeightCap = Math.round(safeTargetHeight * 1.35);
+
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       const ratio = getItemRatio(item);
@@ -188,28 +325,13 @@ export function JustifiedGallery({
       currentRatiosSum += ratio;
 
       const gapsTotal = (currentRow.length - 1) * gap;
-      const availableWidth = Math.max(100, containerWidth - gapsTotal);
+      const availableWidth = Math.max(100, safeContainerWidth - gapsTotal);
       const projectedHeight = availableWidth / currentRatiosSum;
 
-      if (projectedHeight <= targetRowHeight * 1.25) {
-        const finalHeight = Math.round(projectedHeight);
-        const widths = currentRow.map((entry) =>
-          Math.floor(finalHeight * entry.ratio)
+      if (projectedHeight <= safeTargetHeight * 1.25) {
+        computedRows.push(
+          buildFilledRow(currentRow, availableWidth, projectedHeight, maxRowHeightCap)
         );
-        const currentTotal = widths.reduce((a, b) => a + b, 0);
-        const diff = availableWidth - currentTotal;
-
-        for (let k = 0; k < diff; k++) {
-          widths[k % widths.length] += 1;
-        }
-
-        const layoutItems: LayoutItem[] = currentRow.map((entry, idx) => ({
-          item: entry.item,
-          width: widths[idx],
-          height: finalHeight,
-        }));
-
-        computedRows.push({ items: layoutItems, height: finalHeight, rowTotalHeight: 0, top: 0, bottom: 0 });
         currentRow = [];
         currentRatiosSum = 0;
       }
@@ -217,34 +339,27 @@ export function JustifiedGallery({
 
     if (currentRow.length > 0) {
       const gapsTotal = (currentRow.length - 1) * gap;
-      const availableWidth = Math.max(100, containerWidth - gapsTotal);
+      const availableWidth = Math.max(100, safeContainerWidth - gapsTotal);
       const projectedHeight = availableWidth / currentRatiosSum;
 
-      if (projectedHeight <= targetRowHeight * 1.35) {
-        const finalHeight = Math.round(projectedHeight);
-        const widths = currentRow.map((entry) =>
-          Math.floor(finalHeight * entry.ratio)
+      if (projectedHeight <= safeTargetHeight * 1.35) {
+        computedRows.push(
+          buildFilledRow(currentRow, availableWidth, projectedHeight, maxRowHeightCap)
         );
-        const currentTotal = widths.reduce((a, b) => a + b, 0);
-        const diff = availableWidth - currentTotal;
-        for (let k = 0; k < diff; k++) {
-          widths[k % widths.length] += 1;
-        }
-
-        const layoutItems: LayoutItem[] = currentRow.map((entry, idx) => ({
-          item: entry.item,
-          width: widths[idx],
-          height: finalHeight,
-        }));
-        computedRows.push({ items: layoutItems, height: finalHeight, rowTotalHeight: 0, top: 0, bottom: 0 });
       } else {
-        const finalHeight = targetRowHeight;
+        const finalHeight = safeTargetHeight;
         const layoutItems: LayoutItem[] = currentRow.map((entry) => ({
           item: entry.item,
-          width: Math.round(finalHeight * entry.ratio),
+          width: Math.min(availableWidth, Math.max(1, Math.round(finalHeight * entry.ratio))),
           height: finalHeight,
         }));
-        computedRows.push({ items: layoutItems, height: finalHeight, rowTotalHeight: 0, top: 0, bottom: 0 });
+        computedRows.push({
+          items: layoutItems,
+          height: finalHeight,
+          rowTotalHeight: 0,
+          top: 0,
+          bottom: 0,
+        });
       }
     }
     const LABEL_HEIGHT = 24;
@@ -773,9 +888,16 @@ export function JustifiedGallery({
       return { visibleRows: rows, topSpacerHeight: 0, bottomSpacerHeight: 0 };
     }
     const overscan = 600;
-    const relativeScrollTop = Math.max(0, scrollState.scrollTop - scrollState.offsetTop);
+    const lastRow = rows[rows.length - 1];
+    const totalContentHeight = lastRow ? lastRow.bottom : 0;
+    const effectiveViewportHeight = Math.max(600, scrollState.viewportHeight);
+    const rawRelativeScrollTop = Math.max(0, scrollState.scrollTop - scrollState.offsetTop);
+    // Clamp scrollTop to valid scrollable range so deleting items while scrolled near the bottom
+    // never produces an out-of-bounds slice before the browser clamps host.scrollTop
+    const maxValidScrollTop = Math.max(0, totalContentHeight - effectiveViewportHeight);
+    const relativeScrollTop = Math.min(rawRelativeScrollTop, maxValidScrollTop);
     const minY = Math.max(0, relativeScrollTop - overscan);
-    const maxY = relativeScrollTop + Math.max(600, scrollState.viewportHeight) + overscan;
+    const maxY = relativeScrollTop + effectiveViewportHeight + overscan;
     let startIdx = 0;
     while (startIdx < rows.length && rows[startIdx].bottom < minY) {
       startIdx++;
@@ -788,7 +910,6 @@ export function JustifiedGallery({
     endIdx = Math.min(rows.length, endIdx + 1);
 
     const topH = startIdx > 0 ? rows[startIdx].top : 0;
-    const lastRow = rows[rows.length - 1];
     const endRow = endIdx > 0 ? rows[endIdx - 1] : null;
     const bottomH = endRow && endIdx < rows.length ? Math.max(0, lastRow.bottom - endRow.bottom) : 0;
 
@@ -813,7 +934,7 @@ export function JustifiedGallery({
         e.preventDefault();
         onCanvasContextMenu(e);
       }}
-      className="relative w-full min-h-full flex-1 flex flex-col gap-4 select-none"
+      className="relative w-full flex-1 flex flex-col gap-4 select-none overflow-x-hidden"
     >
       {marqueeStyle && (
         <div
@@ -829,9 +950,9 @@ export function JustifiedGallery({
 
       {visibleRows.map((row) => (
         <div
-          key={row.top}
+          key={row.items[0]?.item.id ?? row.top}
           style={{ gap: `${gap}px` }}
-          className="flex flex-nowrap items-start w-full"
+          className="flex flex-nowrap items-start w-full shrink-0"
         >
           {row.items.map(({ item, width, height }) => (
             <ImageThumbnailCard
@@ -858,7 +979,7 @@ export function JustifiedGallery({
       )}
 
       {/* Flexible blank canvas filler at the bottom so clicking/dragging below the last row always hits containerRef */}
-      <div className="flex-1 min-h-12 w-full" />
+      <div className="flex-1 min-h-4 w-full pointer-events-none" />
     </div>
   );
 }
