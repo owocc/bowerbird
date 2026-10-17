@@ -43,6 +43,24 @@ export function useAppShortcuts() {
         return;
       }
 
+      // Screenshot shortcuts on Windows/Linux: Alt+A (area), Alt+S (fullscreen), Alt+W (window)
+      if (altKey && !ctrlKey && !shiftKey) {
+        switch (code) {
+          case "KeyA":
+            event.preventDefault();
+            void runAppMenuAction(APP_MENU_ACTION.captureArea);
+            return;
+          case "KeyS":
+            event.preventDefault();
+            void runAppMenuAction(APP_MENU_ACTION.captureFullscreen);
+            return;
+          case "KeyW":
+            event.preventDefault();
+            void runAppMenuAction(APP_MENU_ACTION.captureWindow);
+            return;
+        }
+      }
+
       if (!ctrlKey || altKey) return;
 
       switch (code) {

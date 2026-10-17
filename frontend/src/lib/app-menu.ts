@@ -12,6 +12,10 @@ import type { AppMenuItem } from "../../bindings/bowerbird/core/models";
  */
 export const APP_MENU_ACTION = {
   // Application-scoped: executed by the Go bridge.
+  captureArea: "capture-area",
+  captureFullscreen: "capture-fullscreen",
+  captureWindow: "capture-window",
+  openMainWindow: "open-main-window",
   settings: "settings",
   logs: "logs",
   about: "about",

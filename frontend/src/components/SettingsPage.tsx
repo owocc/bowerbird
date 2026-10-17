@@ -20,8 +20,12 @@ import {
   Camera,
   Bookmark,
   MousePointerClick,
+  Keyboard,
+  Crop,
+  AppWindow,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
+import { isMacOS } from "@/lib/macos";
 import { useTheme, type Theme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,7 +46,7 @@ import {
 } from "@/plugins/preview/registry";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "plugins" | "extension";
+type SettingsSectionId = "general" | "shortcuts" | "plugins" | "extension";
 
 interface ThemeOption {
   value: Theme;
@@ -297,6 +301,11 @@ export function SettingsPage() {
       icon: Settings2,
     },
     {
+      id: "shortcuts",
+      label: t("settings.nav.shortcuts"),
+      icon: Keyboard,
+    },
+    {
       id: "plugins",
       label: t("settings.nav.plugins"),
       icon: Blocks,
@@ -308,7 +317,6 @@ export function SettingsPage() {
       icon: Globe,
     },
   ];
-
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-background text-foreground antialiased select-none">
       {/* Left Navigation Sidebar */}
@@ -474,6 +482,79 @@ export function SettingsPage() {
                       );
                     }
                   )}
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeSection === "shortcuts" && (
+            <div className="max-w-xl space-y-6">
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">
+                    {t("settings.shortcuts.title")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.shortcuts.description")}
+                  </p>
+                </div>
+
+                <div className="grid gap-2.5">
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 p-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Crop className="size-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium">{t("settings.shortcuts.areaTitle")}</div>
+                        <div className="text-[10px] text-muted-foreground">{t("settings.shortcuts.areaDesc")}</div>
+                      </div>
+                    </div>
+                    <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-2xs">
+                      {isMacOS() ? "⌥A" : "Alt+A"}
+                    </kbd>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 p-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <AppWindow className="size-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium">{t("settings.shortcuts.windowTitle")}</div>
+                        <div className="text-[10px] text-muted-foreground">{t("settings.shortcuts.windowDesc")}</div>
+                      </div>
+                    </div>
+                    <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-2xs">
+                      {isMacOS() ? "⌥W" : "Alt+W"}
+                    </kbd>
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 p-3.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Monitor className="size-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-medium">{t("settings.shortcuts.fullscreenTitle")}</div>
+                        <div className="text-[10px] text-muted-foreground">{t("settings.shortcuts.fullscreenDesc")}</div>
+                      </div>
+                    </div>
+                    <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-2xs">
+                      {isMacOS() ? "⌥S" : "Alt+S"}
+                    </kbd>
+                  </div>
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">
+                    {t("settings.shortcuts.menuBarTitle")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.shortcuts.menuBarDesc")}
+                  </p>
                 </div>
               </section>
             </div>

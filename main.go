@@ -74,7 +74,7 @@ func main() {
 			Handler: application.AssetFileServerFS(assets),
 		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 	})
 
@@ -109,7 +109,70 @@ func main() {
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})
-	coreMgr.SetWindow(window)
+
+	// Intercept window close so the menu bar / tray icon stays alive
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		event.Cancel()
+		window.Hide()
+	})
+	// Set up menu bar / system tray display
+	tray := app.SystemTray.New()
+	tray.SetIcon(appIcon)
+	tray.SetTooltip("Bowerbird")
+
+	isZh := coreService.GetLanguage() == "zh"
+	trayMenu := core.BuildTrayMenu("Bowerbird", isZh, func(action string) {
+		if action == core.AppMenuOpenMainWindow {
+			window.Show().Focus()
+			return
+		}
+		if err := coreService.InvokeAppMenu(action); err != nil {
+			log.Printf("[TrayMenu] %v", err)
+		}
+	})
+	tray.SetMenu(trayMenu)
+	tray.OnDoubleClick(func() {
+		window.Show().Focus()
+	})
+
+	// Listen for language changes to update tray menu localization
+	app.Event.On(core.LanguageChangedEvent, func(event *application.CustomEvent) {
+		lang, _ := event.Data.(string)
+		tray.SetMenu(core.BuildTrayMenu("Bowerbird", lang == "zh", func(action string) {
+			if action == core.AppMenuOpenMainWindow {
+				window.Show().Focus()
+				return
+			}
+			if err := coreService.InvokeAppMenu(action); err != nil {
+				log.Printf("[TrayMenu] %v", err)
+			}
+		}))
+	})
+
+	// Register global shortcuts for screen capture (Option+A/S/W on Mac, Alt+A/S/W on Windows/Linux)
+	if err := app.GlobalShortcut.Register("OptionOrAlt+A", func() {
+		if _, err := coreService.CaptureArea(); err != nil {
+			log.Printf("[Capture] Area capture error: %v", err)
+		}
+	}); err != nil {
+		log.Printf("[GlobalShortcut] OptionOrAlt+A registration error: %v", err)
+	}
+
+	if err := app.GlobalShortcut.Register("OptionOrAlt+S", func() {
+		if _, err := coreService.CaptureFullscreen(); err != nil {
+			log.Printf("[Capture] Fullscreen capture error: %v", err)
+		}
+	}); err != nil {
+		log.Printf("[GlobalShortcut] OptionOrAlt+S registration error: %v", err)
+	}
+
+	if err := app.GlobalShortcut.Register("OptionOrAlt+W", func() {
+		if _, err := coreService.CaptureWindow(); err != nil {
+			log.Printf("[Capture] Window capture error: %v", err)
+		}
+	}); err != nil {
+		log.Printf("[GlobalShortcut] OptionOrAlt+W registration error: %v", err)
+	}
 
 	// Listen for native OS file drops (macOS Finder / Windows Explorer)
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {

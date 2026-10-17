@@ -6,10 +6,14 @@
   },
   "appMenu": {
     "about": "关于 Bowerbird",
+    "captureArea": "区域截图",
+    "captureFullscreen": "全屏截图",
+    "captureWindow": "窗口截图",
     "devtools": "开发者工具",
     "fullscreen": "切换全屏",
     "label": "应用程序菜单",
     "logs": "运行日志…",
+    "openMainWindow": "显示主窗口",
     "quit": "退出 Bowerbird",
     "reload": "重新加载",
     "settings": "偏好设置…"
@@ -296,8 +300,21 @@
       "en": "English",
       "enDescription": "English"
     },
+    "shortcuts": {
+      "title": "快捷键与屏幕截图",
+      "description": "通过全局快捷键或系统菜单栏/托盘快速截取屏幕，截图将自动保存至当前资源库。",
+      "areaTitle": "区域截图",
+      "areaDesc": "自由框选屏幕区域并导入资源库",
+      "windowTitle": "窗口截图",
+      "windowDesc": "点击任意窗口进行捕获并导入资源库",
+      "fullscreenTitle": "全屏截图",
+      "fullscreenDesc": "捕获完整屏幕并导入资源库",
+      "menuBarTitle": "菜单栏与系统托盘快速使用",
+      "menuBarDesc": "应用在系统菜单栏/托盘常驻显示图标，点击即可快速调用截图、打开主窗口或偏好设置。"
+    },
     "nav": {
       "general": "通用设置",
+      "shortcuts": "快捷键与截图",
       "plugins": "插件管理",
       "extension": "浏览器插件"
     },

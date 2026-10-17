@@ -6,10 +6,14 @@
   },
   "appMenu": {
     "about": "About Bowerbird",
+    "captureArea": "Area Capture",
+    "captureFullscreen": "Fullscreen Capture",
+    "captureWindow": "Window Capture",
     "devtools": "Developer Tools",
     "fullscreen": "Toggle Full Screen",
     "label": "Application menu",
     "logs": "Logs…",
+    "openMainWindow": "Show Main Window",
     "quit": "Quit Bowerbird",
     "reload": "Reload",
     "settings": "Settings…"
@@ -296,8 +300,21 @@
       "en": "English",
       "enDescription": "English"
     },
+    "shortcuts": {
+      "title": "Shortcuts & Screen Capture",
+      "description": "Capture screen via global shortcuts or menu bar/tray, screenshots are automatically saved to active library.",
+      "areaTitle": "Area Capture",
+      "areaDesc": "Drag to select any screen area and save to library",
+      "windowTitle": "Window Capture",
+      "windowDesc": "Click any window to capture and save to library",
+      "fullscreenTitle": "Fullscreen Capture",
+      "fullscreenDesc": "Capture entire screen and save to library",
+      "menuBarTitle": "Menu Bar & System Tray Quick Access",
+      "menuBarDesc": "Bowerbird lives in the system menu bar / tray. Click it to trigger screen captures, show the main window, or access settings."
+    },
     "nav": {
       "general": "General",
+      "shortcuts": "Shortcuts & Capture",
       "plugins": "Plugins",
       "extension": "Browser Extension"
     },

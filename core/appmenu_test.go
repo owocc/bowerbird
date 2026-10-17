@@ -9,6 +9,9 @@ import (
 
 // Actions every platform must offer through the app's own menu.
 var expectedMenuActions = []string{
+	core.AppMenuCaptureArea,
+	core.AppMenuCaptureFullscreen,
+	core.AppMenuCaptureWindow,
 	core.AppMenuSettings,
 	core.AppMenuLogs,
 	core.AppMenuAbout,
@@ -104,4 +107,22 @@ func TestInvokeAppMenuRejectsWindowScopedAction(t *testing.T) {
 			t.Errorf("%q is window-scoped and must not be handled by the bridge", action)
 		}
 	}
+}
+
+func TestBuildTrayMenu(t *testing.T) {
+	var invokedAction string
+	menu := core.BuildTrayMenu("Bowerbird", true, func(action string) {
+		invokedAction = action
+	})
+	if menu == nil {
+		t.Fatal("expected non-nil tray menu")
+	}
+
+	menuEn := core.BuildTrayMenu("Bowerbird", false, func(action string) {
+		invokedAction = action
+	})
+	if menuEn == nil {
+		t.Fatal("expected non-nil English tray menu")
+	}
+	_ = invokedAction
 }

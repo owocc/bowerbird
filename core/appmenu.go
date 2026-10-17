@@ -32,10 +32,14 @@ type AppMenuAction = string
 
 // Application-scoped commands, executed by the Go bridge (see InvokeAppMenu).
 const (
-	AppMenuSettings AppMenuAction = "settings"
-	AppMenuLogs     AppMenuAction = "logs"
-	AppMenuAbout    AppMenuAction = "about"
-	AppMenuQuit     AppMenuAction = "quit"
+	AppMenuSettings          AppMenuAction = "settings"
+	AppMenuLogs              AppMenuAction = "logs"
+	AppMenuAbout             AppMenuAction = "about"
+	AppMenuQuit              AppMenuAction = "quit"
+	AppMenuCaptureArea       AppMenuAction = "capture-area"
+	AppMenuCaptureFullscreen AppMenuAction = "capture-fullscreen"
+	AppMenuCaptureWindow     AppMenuAction = "capture-window"
+	AppMenuOpenMainWindow    AppMenuAction = "open-main-window"
 )
 
 // Window-scoped commands, executed in the webview because they act on one
@@ -58,13 +62,16 @@ const (
 // AppMenuIcon values are stable icon names. The frontend maps them onto its own
 // icon set, so adding an icon is a two-sided change.
 const (
-	AppMenuIconSettings   = "settings"
-	AppMenuIconLogs       = "logs"
-	AppMenuIconAbout      = "about"
-	AppMenuIconReload     = "reload"
-	AppMenuIconFullscreen = "fullscreen"
-	AppMenuIconDevTools   = "devtools"
-	AppMenuIconQuit       = "quit"
+	AppMenuIconSettings          = "settings"
+	AppMenuIconLogs              = "logs"
+	AppMenuIconAbout             = "about"
+	AppMenuIconReload            = "reload"
+	AppMenuIconFullscreen        = "fullscreen"
+	AppMenuIconDevTools          = "devtools"
+	AppMenuIconQuit              = "quit"
+	AppMenuIconCaptureArea       = "capture-area"
+	AppMenuIconCaptureFullscreen = "capture-fullscreen"
+	AppMenuIconCaptureWindow     = "capture-window"
 )
 
 // AppMenuItem is one row of the application menu.
@@ -97,8 +104,22 @@ func isDarwin() bool {
 // appMenuShortcutLabel returns the label shown to the user for an action.
 func appMenuShortcutLabel(action string) string {
 	switch action {
+	case AppMenuCaptureArea:
+		if isDarwin() {
+			return "⌥A"
+		}
+		return "Alt+A"
+	case AppMenuCaptureFullscreen:
+		if isDarwin() {
+			return "⌥S"
+		}
+		return "Alt+S"
+	case AppMenuCaptureWindow:
+		if isDarwin() {
+			return "⌥W"
+		}
+		return "Alt+W"
 	case AppMenuSettings:
-		// macOS keeps the platform-standard Cmd+, . Windows and Linux use Ctrl+I
 		// instead: Wails resolves accelerators through its own tables there, and
 		// punctuation produces synthetic names ("," becomes "oem_comma" on
 		// Windows; the Linux GDK table has no comma entry at all), so a
@@ -146,6 +167,12 @@ func appMenuShortcutLabel(action string) string {
 // through the ids above.
 func appMenuAccelerator(action string) string {
 	switch action {
+	case AppMenuCaptureArea:
+		return "OptionOrAlt+A"
+	case AppMenuCaptureFullscreen:
+		return "OptionOrAlt+S"
+	case AppMenuCaptureWindow:
+		return "OptionOrAlt+W"
 	case AppMenuSettings:
 		if isDarwin() {
 			return "CmdOrCtrl+,"
@@ -185,6 +212,12 @@ func AppMenuModel() []AppMenuItem {
 	}
 
 	return []AppMenuItem{
+		item(AppMenuCaptureArea, "Area Capture", "appMenu.captureArea", AppMenuIconCaptureArea, false),
+		item(AppMenuCaptureFullscreen, "Fullscreen Capture", "appMenu.captureFullscreen", AppMenuIconCaptureFullscreen, false),
+		item(AppMenuCaptureWindow, "Window Capture", "appMenu.captureWindow", AppMenuIconCaptureWindow, false),
+
+		{Separator: true},
+
 		item(AppMenuSettings, "Settings…", "appMenu.settings", AppMenuIconSettings, false),
 		item(AppMenuLogs, "Logs…", "appMenu.logs", AppMenuIconLogs, false),
 		item(AppMenuAbout, "About Bowerbird", "appMenu.about", AppMenuIconAbout, false),
@@ -212,6 +245,20 @@ func (s *Service) GetAppMenu() []AppMenuItem {
 // one window and are executed by the webview that owns it.
 func (s *Service) InvokeAppMenu(action string) error {
 	switch action {
+	case AppMenuCaptureArea:
+		_, err := s.CaptureArea()
+		return err
+	case AppMenuCaptureFullscreen:
+		_, err := s.CaptureFullscreen()
+		return err
+	case AppMenuCaptureWindow:
+		_, err := s.CaptureWindow()
+		return err
+	case AppMenuOpenMainWindow:
+		if w := s.mgr.getWindow(); w != nil {
+			w.Show().Focus()
+		}
+		return nil
 	case AppMenuSettings:
 		return s.OpenSettingsWindow()
 
@@ -291,11 +338,102 @@ func BuildNativeAppMenu(appName string, onAction func(action string)) *applicati
 	// Standard macOS menus. View provides Reload / Toggle Full Screen /
 	// Developer Tools, which is why those AppMenuModel rows are rendered by the
 	// frontend only.
+	// Capture menu offers screen capture affordances with native accelerators.
+	captureMenu := menu.AddSubmenu("Capture")
+	area := find(AppMenuCaptureArea)
+	areaItem := captureMenu.Add(area.Title)
+	if accelerator := appMenuAccelerator(area.Action); accelerator != "" {
+		areaItem.SetAccelerator(accelerator)
+	}
+	areaItem.OnClick(func(*application.Context) {
+		onAction(area.Action)
+	})
+
+	fullscreen := find(AppMenuCaptureFullscreen)
+	fullscreenItem := captureMenu.Add(fullscreen.Title)
+	if accelerator := appMenuAccelerator(fullscreen.Action); accelerator != "" {
+		fullscreenItem.SetAccelerator(accelerator)
+	}
+	fullscreenItem.OnClick(func(*application.Context) {
+		onAction(fullscreen.Action)
+	})
+
+	window := find(AppMenuCaptureWindow)
+	windowItem := captureMenu.Add(window.Title)
+	if accelerator := appMenuAccelerator(window.Action); accelerator != "" {
+		windowItem.SetAccelerator(accelerator)
+	}
+	windowItem.OnClick(func(*application.Context) {
+		onAction(window.Action)
+	})
+
 	menu.AddRole(application.FileMenu)
 	menu.AddRole(application.EditMenu)
 	menu.AddRole(application.ViewMenu)
 	menu.AddRole(application.WindowMenu)
 	menu.AddRole(application.HelpMenu)
+
+	return menu
+}
+
+// BuildTrayMenu creates the menu for the system tray / menu bar item.
+func BuildTrayMenu(appName string, isZh bool, onAction func(action string)) *application.Menu {
+	menu := application.NewMenu()
+
+	areaTitle := "Area Capture"
+	fullscreenTitle := "Fullscreen Capture"
+	windowTitle := "Window Capture"
+	showTitle := "Show Main Window"
+	settingsTitle := "Settings…"
+	quitTitle := "Quit " + appName
+
+	if isZh {
+		areaTitle = "区域截图"
+		fullscreenTitle = "全屏截图"
+		windowTitle = "窗口截图"
+		showTitle = "显示主窗口"
+		settingsTitle = "偏好设置…"
+		quitTitle = "退出 " + appName
+	}
+
+	areaItem := menu.Add(areaTitle)
+	areaItem.SetAccelerator(appMenuAccelerator(AppMenuCaptureArea))
+	areaItem.OnClick(func(*application.Context) {
+		onAction(AppMenuCaptureArea)
+	})
+
+	windowItem := menu.Add(windowTitle)
+	windowItem.SetAccelerator(appMenuAccelerator(AppMenuCaptureWindow))
+	windowItem.OnClick(func(*application.Context) {
+		onAction(AppMenuCaptureWindow)
+	})
+
+	fullscreenItem := menu.Add(fullscreenTitle)
+	fullscreenItem.SetAccelerator(appMenuAccelerator(AppMenuCaptureFullscreen))
+	fullscreenItem.OnClick(func(*application.Context) {
+		onAction(AppMenuCaptureFullscreen)
+	})
+
+	menu.AddSeparator()
+
+	showItem := menu.Add(showTitle)
+	showItem.OnClick(func(*application.Context) {
+		onAction(AppMenuOpenMainWindow)
+	})
+
+	settingsItem := menu.Add(settingsTitle)
+	settingsItem.SetAccelerator(appMenuAccelerator(AppMenuSettings))
+	settingsItem.OnClick(func(*application.Context) {
+		onAction(AppMenuSettings)
+	})
+
+	menu.AddSeparator()
+
+	quitItem := menu.Add(quitTitle)
+	quitItem.SetAccelerator(appMenuAccelerator(AppMenuQuit))
+	quitItem.OnClick(func(*application.Context) {
+		onAction(AppMenuQuit)
+	})
 
 	return menu
 }

@@ -38,6 +38,35 @@ export function BatchRestoreFromTrash(ids: string[] | null): $CancellablePromise
 }
 
 /**
+ * CaptureArea triggers area/selection screenshot and imports it to active library.
+ */
+export function CaptureArea(): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(2054743115);
+}
+
+/**
+ * CaptureFullscreen triggers full-screen screenshot and imports it to active library.
+ */
+export function CaptureFullscreen(): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(1999379355);
+}
+
+/**
+ * CaptureScreen performs a screenshot of the specified mode ("area", "fullscreen", "window")
+ * and directly imports the captured image into the active library.
+ */
+export function CaptureScreen(mode: string): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(2526437122, mode);
+}
+
+/**
+ * CaptureWindow triggers window screenshot and imports it to active library.
+ */
+export function CaptureWindow(): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(2044461298);
+}
+
+/**
  * ClearLogs clears both the in-memory log buffer and the on-disk log file.
  */
 export function ClearLogs(): $CancellablePromise<void> {
