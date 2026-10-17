@@ -122,8 +122,8 @@ import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useTrackpadZoom } from "@/hooks/useTrackpadZoom";
 import { UniversalThumbnail } from "@/components/UniversalThumbnail";
+import { logDiagnostic } from "@/lib/logger";
 import { cn } from "@/lib/utils";
-
 export interface LibraryWorkspaceProps {
   library: LibraryInfo;
   onLibraryClosed: () => void;
@@ -187,7 +187,10 @@ export function LibraryWorkspace({
 
   const previewPushedRef = useRef(false);
 
+  const navStartTsRef = useRef<number>(0);
+
   const navigateToFolder = (id: string | null) => {
+    navStartTsRef.current = performance.now();
     if (id === null) ws.selectAll();
     else if (id === TRASH_FOLDER_ID) ws.selectTrash();
     else if (id === UNTAGGED_FOLDER_ID) ws.selectUntagged();
@@ -244,21 +247,33 @@ export function LibraryWorkspace({
     return () => window.removeEventListener("contextmenu", disableContextMenu);
   }, []);
 
+  const isTrashView = activeFolderId === TRASH_FOLDER_ID;
+
   const refreshItems = useCallback(async () => {
+    const t0 = performance.now();
     try {
-      if (activeFolderId === "__trash__") {
+      if (isTrashView) {
         const data = await GetTrashItems("", sortOrder);
         setItems(data || []);
+        const dur = performance.now() - t0;
+        if (dur >= 25) {
+          logDiagnostic("perf", "perf", "Loaded trash items", `count=${data?.length ?? 0} sort=${sortOrder}`, dur);
+        }
       } else {
         const data = await GetItems("", sortOrder);
         setItems(data || []);
+        const dur = performance.now() - t0;
+        if (dur >= 25) {
+          logDiagnostic("perf", "perf", "Loaded library items", `count=${data?.length ?? 0} sort=${sortOrder}`, dur);
+        }
       }
     } catch (err) {
       console.error("Failed to load items:", err);
+      logDiagnostic("error", "ui", "Failed to load items", String(err), 0);
     } finally {
       setLoading(false);
     }
-  }, [activeFolderId, sortOrder]);
+  }, [isTrashView, sortOrder]);
 
   const refreshFolders = useCallback(async () => {
     try {
@@ -368,8 +383,10 @@ export function LibraryWorkspace({
   const activeFolderIdRef = useRef<string | null>(activeFolderId);
   useEffect(() => {
     activeFolderIdRef.current = activeFolderId;
+    if (galleryViewportRef.current) {
+      galleryViewportRef.current.scrollTop = 0;
+    }
   }, [activeFolderId]);
-
   const { state: dropState, importFileList, dragHandlers } = useFileDrop({
     onRefresh: async (newlyImportedIds?: string[]) => {
       const targetFolderId = activeFolderIdRef.current;
@@ -497,27 +514,58 @@ export function LibraryWorkspace({
     walk(folders);
     return out;
   }, [folders]);
+  // Precompute O(1) folder lookup map and descendant folder ID sets once per folders tree change
+  const folderTreeIndex = useMemo(() => {
+    const byId = new Map<string, Folder>();
+    const descendantsById = new Map<string, Set<string>>();
 
-  const findFolderInTree = useCallback(
-    (list: Folder[], id: string): Folder | null => {
-      for (const f of list) {
-        if (f.id === id) return f;
-        if (f.children && f.children.length > 0) {
-          const found = findFolderInTree(f.children, id);
-          if (found) return found;
+    const walk = (f: Folder): Set<string> => {
+      byId.set(f.id, f);
+      const desc = new Set<string>([f.id]);
+      if (f.children && f.children.length > 0) {
+        for (const ch of f.children) {
+          const childSet = walk(ch);
+          for (const cid of childSet) {
+            desc.add(cid);
+          }
         }
       }
-      return null;
-    },
-    []
-  );
+      descendantsById.set(f.id, desc);
+      return desc;
+    };
+
+    for (const root of folders) {
+      walk(root);
+    }
+    return { byId, descendantsById };
+  }, [folders]);
+
+  // Precompute direct folderId -> Item[] inverted index once per items change
+  // so both folder switching and subfolder cover preview resolution are O(1)
+  const itemsByFolderId = useMemo(() => {
+    const map = new Map<string, Item[]>();
+    for (const it of items) {
+      const fids = it.folders;
+      if (!fids || fids.length === 0) continue;
+      for (let i = 0; i < fids.length; i++) {
+        const fid = fids[i];
+        let list = map.get(fid);
+        if (!list) {
+          list = [];
+          map.set(fid, list);
+        }
+        list.push(it);
+      }
+    }
+    return map;
+  }, [items]);
 
   const currentFolder = useMemo(
     () =>
       isRealFolderId(activeFolderId)
-        ? findFolderInTree(folders, activeFolderId)
+        ? folderTreeIndex.byId.get(activeFolderId) ?? null
         : null,
-    [activeFolderId, folders, findFolderInTree]
+    [activeFolderId, folderTreeIndex]
   );
 
   const currentSubfolders = useMemo(
@@ -525,53 +573,89 @@ export function LibraryWorkspace({
     [currentFolder]
   );
 
-  const collectDescendantFolderIds = useCallback((folder: Folder): Set<string> => {
-    const ids = new Set<string>([folder.id]);
-    const walk = (children?: Folder[] | null) => {
-      if (!children) return;
-      for (const ch of children) {
-        ids.add(ch.id);
-        walk(ch.children);
-      }
-    };
-    walk(folder.children);
-    return ids;
-  }, []);
-
   const activeFolderMatchSet = useMemo(() => {
     if (!currentFolder) return null;
     if (includeSubfolders) {
-      return collectDescendantFolderIds(currentFolder);
+      return (
+        folderTreeIndex.descendantsById.get(currentFolder.id) ??
+        new Set<string>([currentFolder.id])
+      );
     }
     return new Set<string>([currentFolder.id]);
-  }, [currentFolder, includeSubfolders, collectDescendantFolderIds]);
+  }, [currentFolder, includeSubfolders, folderTreeIndex]);
 
   const subfolderPreviewData = useMemo(() => {
     const map = new Map<string, { totalCount: number; previewItems: Item[] }>();
     if (currentSubfolders.length === 0) return map;
     for (const sub of currentSubfolders) {
-      const descIds = collectDescendantFolderIds(sub);
-      const matched: Item[] = [];
-      for (const it of items) {
-        if ((it.folders || []).some((fid) => descIds.has(fid))) {
-          matched.push(it);
+      const descIds = folderTreeIndex.descendantsById.get(sub.id);
+      if (!descIds || descIds.size <= 1) {
+        const direct = itemsByFolderId.get(sub.id) ?? [];
+        map.set(sub.id, {
+          totalCount: direct.length,
+          previewItems: direct.slice(0, 4),
+        });
+        continue;
+      }
+      const seenIds = new Set<string>();
+      const previewItems: Item[] = [];
+      for (const fid of descIds) {
+        const bucket = itemsByFolderId.get(fid);
+        if (!bucket) continue;
+        for (let i = 0; i < bucket.length; i++) {
+          const it = bucket[i];
+          if (!seenIds.has(it.id)) {
+            seenIds.add(it.id);
+            if (previewItems.length < 4) {
+              previewItems.push(it);
+            }
+          }
         }
       }
       map.set(sub.id, {
-        totalCount: matched.length,
-        previewItems: matched.slice(0, 4),
+        totalCount: seenIds.size,
+        previewItems,
       });
     }
     return map;
-  }, [currentSubfolders, items, collectDescendantFolderIds]);
+  }, [currentSubfolders, folderTreeIndex, itemsByFolderId]);
 
   const filteredItems = useMemo(() => {
-    const sourceItems =
-      activeFolderId === HISTORY_FOLDER_ID
-        ? sortOrder === "asc"
-          ? [...historyItems].reverse()
-          : historyItems
-        : items;
+    let sourceItems: Item[];
+    if (activeFolderId === HISTORY_FOLDER_ID) {
+      sourceItems =
+        sortOrder === "asc" ? [...historyItems].reverse() : historyItems;
+    } else if (
+      activeFolderId !== null &&
+      activeFolderId !== TRASH_FOLDER_ID &&
+      !tagsSidebarOpen &&
+      activeFolderId !== UNTAGGED_FOLDER_ID &&
+      activeFolderId !== UNCATEGORIZED_FOLDER_ID &&
+      !includeSubfolders
+    ) {
+      // Fast O(1) direct folder slice instead of scanning the entire library
+      sourceItems = itemsByFolderId.get(activeFolderId) ?? [];
+    } else {
+      sourceItems = items;
+    }
+
+    const hasExtraFilters =
+      Boolean(normalizedQuery) ||
+      tagsSidebarOpen ||
+      activeFolderId === UNTAGGED_FOLDER_ID ||
+      activeFolderId === UNCATEGORIZED_FOLDER_ID ||
+      (activeFolderId !== null &&
+        activeFolderId !== TRASH_FOLDER_ID &&
+        activeFolderId !== HISTORY_FOLDER_ID &&
+        includeSubfolders) ||
+      categoryFilter !== "all" ||
+      Boolean(folderFilter) ||
+      orientationFilter !== "all" ||
+      Boolean(colorFilter);
+
+    if (!hasExtraFilters) {
+      return sourceItems;
+    }
 
     return sourceItems.filter((item) => {
       if (normalizedQuery) {
@@ -607,7 +691,7 @@ export function LibraryWorkspace({
           if (itemFolders.length > 0) return false;
         } else if (activeFolderId === HISTORY_FOLDER_ID) {
           // Already sourced from historyItems
-        } else if (activeFolderId !== null) {
+        } else if (activeFolderId !== null && includeSubfolders) {
           const itemFolders = item.folders || [];
           if (activeFolderMatchSet) {
             if (!itemFolders.some((fid) => activeFolderMatchSet.has(fid))) {
@@ -663,9 +747,12 @@ export function LibraryWorkspace({
     });
   }, [
     items,
+    itemsByFolderId,
     historyItems,
+    sortOrder,
     normalizedQuery,
     activeFolderId,
+    includeSubfolders,
     activeFolderMatchSet,
     tagsSidebarOpen,
     activeTag,
@@ -674,6 +761,20 @@ export function LibraryWorkspace({
     orientationFilter,
     colorFilter,
   ]);
+
+  useEffect(() => {
+    if (navStartTsRef.current > 0) {
+      const dur = performance.now() - navStartTsRef.current;
+      logDiagnostic(
+        "perf",
+        "ui",
+        "Folder switch rendered",
+        `folder=${activeFolderId ?? "all"} items=${filteredItems.length} subfolders=${currentSubfolders.length}`,
+        dur
+      );
+      navStartTsRef.current = 0;
+    }
+  }, [activeFolderId, filteredItems.length, currentSubfolders.length]);
 
   // Native OS & In-App Drag Start
   const handleDragStart = (e: React.DragEvent, item: Item) => {
@@ -1177,9 +1278,9 @@ export function LibraryWorkspace({
   };
   const activeTagLabel =
     activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
-  const totalSizeBytes = filteredItems.reduce(
-    (acc, curr) => acc + (curr.size || 0),
-    0
+  const totalSizeBytes = useMemo(
+    () => filteredItems.reduce((acc, curr) => acc + (curr.size || 0), 0),
+    [filteredItems]
   );
 
   // Global Keyboard shortcuts & native copy event handler

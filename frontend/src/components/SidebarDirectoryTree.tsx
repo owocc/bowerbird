@@ -291,34 +291,44 @@ export function SidebarDirectoryTree({
   };
 
   const otherRecentLibraries = recentLibraries.filter((p) => p !== library.path);
-  const toggleFolderExpand = (folderId: string, e?: React.MouseEvent) => {
+  const toggleFolderExpand = useCallback((folderId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setExpandedFolders((prev) => ({
       ...prev,
       [folderId]: !prev[folderId],
     }));
-  };
+  }, []);
 
-  const handleOpenCreateRoot = () => {
+  const handleOpenCreateRoot = useCallback(() => {
     setNewFolderParentId(undefined);
     setNewFolderName("");
     setCreateDialogOpen(true);
-  };
+  }, []);
 
-  const handleOpenCreateSub = (parentId: string, e?: React.MouseEvent) => {
+  const handleOpenCreateSub = useCallback((parentId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setNewFolderParentId(parentId);
     setNewFolderName("");
     setCreateDialogOpen(true);
-  };
+  }, []);
 
-  const handleOpenRename = (folder: Folder, e?: React.MouseEvent) => {
+  const handleOpenRename = useCallback((folder: Folder, e?: React.MouseEvent) => {
     e?.stopPropagation();
     setRenameFolderId(folder.id);
     setRenameFolderName(folder.name);
     setRenameDialogOpen(true);
-  };
+  }, []);
 
+  const handleClearDragTarget = useCallback(() => {
+    setDragTarget(null);
+  }, []);
+
+  const handleOpenFolderContextMenu = useCallback((e: React.MouseEvent, f: Folder) => {
+    setFolderContextMenu({
+      position: { x: e.clientX, y: e.clientY },
+      folder: f,
+    });
+  }, []);
   const handleConfirmCreate = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!newFolderName.trim()) return;
@@ -789,13 +799,8 @@ export function SidebarDirectoryTree({
                       onDeleteFolder={onDeleteFolder}
                       onMoveItemToFolder={onMoveItemToFolder}
                       onDropFolderImport={onDropFolderImport}
-                      onClearDragTarget={() => setDragTarget(null)}
-                      onOpenContextMenu={(e, f) => {
-                        setFolderContextMenu({
-                          position: { x: e.clientX, y: e.clientY },
-                          folder: f,
-                        });
-                      }}
+                      onClearDragTarget={handleClearDragTarget}
+                      onOpenContextMenu={handleOpenFolderContextMenu}
                     />
                   ))
                 )}
@@ -989,7 +994,7 @@ interface FolderTreeItemNodeProps {
   depth?: number;
 }
 
-function FolderTreeItemNode({
+const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
   folder,
   activeFolderId,
   dragHoverFolderId,
@@ -1134,7 +1139,7 @@ function FolderTreeItemNode({
       )}
     </SidebarMenuItem>
   );
-}
+});
 
 interface FolderContextMenuProps {
   position: { x: number; y: number } | null;

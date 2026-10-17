@@ -33,6 +33,7 @@ type AppMenuAction = string
 // Application-scoped commands, executed by the Go bridge (see InvokeAppMenu).
 const (
 	AppMenuSettings AppMenuAction = "settings"
+	AppMenuLogs     AppMenuAction = "logs"
 	AppMenuAbout    AppMenuAction = "about"
 	AppMenuQuit     AppMenuAction = "quit"
 )
@@ -58,6 +59,7 @@ const (
 // icon set, so adding an icon is a two-sided change.
 const (
 	AppMenuIconSettings   = "settings"
+	AppMenuIconLogs       = "logs"
 	AppMenuIconAbout      = "about"
 	AppMenuIconReload     = "reload"
 	AppMenuIconFullscreen = "fullscreen"
@@ -107,9 +109,14 @@ func appMenuShortcutLabel(action string) string {
 		}
 		return "Ctrl+I"
 
+	case AppMenuLogs:
+		if isDarwin() {
+			return "⌘L"
+		}
+		return "Ctrl+L"
+
 	case AppMenuAbout:
 		return ""
-
 	case AppMenuReload:
 		if isDarwin() {
 			return "⌘R"
@@ -144,10 +151,11 @@ func appMenuAccelerator(action string) string {
 			return "CmdOrCtrl+,"
 		}
 		return "CmdOrCtrl+i"
+	case AppMenuLogs:
+		return "CmdOrCtrl+L"
 
 	case AppMenuReload:
 		return "CmdOrCtrl+R"
-
 	case AppMenuFullscreen:
 		return "F11"
 
@@ -178,6 +186,7 @@ func AppMenuModel() []AppMenuItem {
 
 	return []AppMenuItem{
 		item(AppMenuSettings, "Settings…", "appMenu.settings", AppMenuIconSettings, false),
+		item(AppMenuLogs, "Logs…", "appMenu.logs", AppMenuIconLogs, false),
 		item(AppMenuAbout, "About Bowerbird", "appMenu.about", AppMenuIconAbout, false),
 
 		{Separator: true},
@@ -206,12 +215,14 @@ func (s *Service) InvokeAppMenu(action string) error {
 	case AppMenuSettings:
 		return s.OpenSettingsWindow()
 
+	case AppMenuLogs:
+		return s.OpenLogsWindow()
+
 	case AppMenuAbout:
 		if app := s.getApp(); app != nil {
 			app.Menu.ShowAbout()
 		}
 		return nil
-
 	case AppMenuQuit:
 		if app := s.getApp(); app != nil {
 			app.Quit()
@@ -259,6 +270,15 @@ func BuildNativeAppMenu(appName string, onAction func(action string)) *applicati
 	}
 	settingsItem.OnClick(func(*application.Context) {
 		onAction(settings.Action)
+	})
+
+	logs := find(AppMenuLogs)
+	logsItem := appMenu.Add(logs.Title)
+	if accelerator := appMenuAccelerator(logs.Action); accelerator != "" {
+		logsItem.SetAccelerator(accelerator)
+	}
+	logsItem.OnClick(func(*application.Context) {
+		onAction(logs.Action)
 	})
 
 	appMenu.AddSeparator()

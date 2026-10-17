@@ -12,6 +12,8 @@ import type * as core$0 from "../../../../../bowerbird/core/models.js";
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
+            "app-log-entry": core$0.LogEntry;
+            "app-logs-cleared": string;
             "library-closed": string;
             "library-opened": core$0.LibraryInfo | null;
             "theme-changed": string;

@@ -22,12 +22,26 @@ export function AddTagToItem(itemID: string, tag: string): $CancellablePromise<v
     return $Call.ByID(1309573619, itemID, tag);
 }
 
+/**
+ * AppendFrontendLog records a log or performance metric emitted by the frontend UI.
+ */
+export function AppendFrontendLog(level: string, category: string, message: string, detail: string, durationMs: number): $CancellablePromise<void> {
+    return $Call.ByID(3055279290, level, category, message, detail, durationMs);
+}
+
 export function BatchMoveToTrash(ids: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(2613574810, ids);
 }
 
 export function BatchRestoreFromTrash(ids: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(273105104, ids);
+}
+
+/**
+ * ClearLogs clears both the in-memory log buffer and the on-disk log file.
+ */
+export function ClearLogs(): $CancellablePromise<void> {
+    return $Call.ByID(188629114);
 }
 
 export function CloseLibrary(): $CancellablePromise<void> {
@@ -106,6 +120,20 @@ export function GetItems(query: string, sortOrder: string): $CancellablePromise<
     return $Call.ByID(765169324, query, sortOrder);
 }
 
+/**
+ * GetLogFilePath returns the absolute path of the on-disk app.log file.
+ */
+export function GetLogFilePath(): $CancellablePromise<string> {
+    return $Call.ByID(194760635);
+}
+
+/**
+ * GetLogs returns all buffered diagnostic log entries.
+ */
+export function GetLogs(): $CancellablePromise<$models.LogEntry[] | null> {
+    return $Call.ByID(2491119371);
+}
+
 export function GetRecentLibraries(): $CancellablePromise<string[] | null> {
     return $Call.ByID(2812002174);
 }
@@ -181,6 +209,14 @@ export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.Li
 }
 
 /**
+ * OpenLogsWindow opens the diagnostic Logs UI in its own window. Only a single
+ * instance is created; later calls simply reveal and focus the existing one.
+ */
+export function OpenLogsWindow(): $CancellablePromise<void> {
+    return $Call.ByID(358015975);
+}
+
+/**
  * OpenSettingsWindow opens the settings UI in its own window. Only a single
  * instance is created; later calls simply reveal and focus the existing one.
  */
@@ -226,6 +262,13 @@ export function RestoreFromTrash(id: string): $CancellablePromise<void> {
 
 export function RevealInFinder(id: string): $CancellablePromise<void> {
     return $Call.ByID(1659303366, id);
+}
+
+/**
+ * RevealLogFile reveals the persistent app.log file in Finder / Explorer.
+ */
+export function RevealLogFile(): $CancellablePromise<void> {
+    return $Call.ByID(3649752139);
 }
 
 export function SaveItemThumbnail(itemID: string, base64Data: string, videoWidth: number, videoHeight: number): $CancellablePromise<$models.Item | null> {

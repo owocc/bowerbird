@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AlignJustify, Bug, Info, LogOut, Maximize, RotateCw, Settings } from "lucide-react";
+import { AlignJustify, Bug, Info, LogOut, Maximize, RotateCw, Settings, Terminal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AppMenuItem } from "../../bindings/bowerbird/core/models";
 import { loadAppMenu, runAppMenuAction } from "@/lib/app-menu";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
  */
 const MENU_ICONS: Record<string, React.ReactNode> = {
   settings: <Settings className="size-3.5" />,
+  logs: <Terminal className="size-3.5" />,
   about: <Info className="size-3.5" />,
   reload: <RotateCw className="size-3.5" />,
   fullscreen: <Maximize className="size-3.5" />,

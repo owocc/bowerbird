@@ -69,13 +69,13 @@ func (s *AssetServer) handleAssetRequest(w http.ResponseWriter, r *http.Request)
 	itemID := parts[0]
 	assetKind := parts[1]
 
-	active := s.manager.GetActiveLibrary()
-	if active == nil {
+	activePath := s.manager.GetActiveLibraryPath()
+	if activePath == "" {
 		http.Error(w, "no active library", http.StatusServiceUnavailable)
 		return
 	}
 
-	itemDir := filepath.Join(active.Path, "items", itemID)
+	itemDir := filepath.Join(activePath, "items", itemID)
 	if assetKind == "thumbnail" {
 		if r.Method == http.MethodPost {
 			var req struct {
@@ -139,8 +139,8 @@ func (s *AssetServer) handleAssetRequest(w http.ResponseWriter, r *http.Request)
 func (s *AssetServer) handleDownloadRequest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	itemID := strings.TrimPrefix(r.URL.Path, "/asset/download/")
-	active := s.manager.GetActiveLibrary()
-	if active == nil {
+	activePath := s.manager.GetActiveLibraryPath()
+	if activePath == "" {
 		http.Error(w, "no active library", http.StatusServiceUnavailable)
 		return
 	}
@@ -151,7 +151,7 @@ func (s *AssetServer) handleDownloadRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	originalPath := filepath.Join(active.Path, "items", item.ID, item.Filename)
+	originalPath := filepath.Join(activePath, "items", item.ID, item.Filename)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, item.Filename))
 	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeFile(w, r, originalPath)

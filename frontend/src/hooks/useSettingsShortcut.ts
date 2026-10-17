@@ -31,18 +31,38 @@ export function useSettingsShortcut() {
 
       if (mac) {
         if (!e.metaKey || e.ctrlKey) return;
-        if (e.key !== "," && e.code !== "Comma") return;
+        if (e.key === "," || e.code === "Comma") {
+          e.preventDefault();
+          runAppMenuAction(APP_MENU_ACTION.settings).catch((err) => {
+            console.error("Failed to open settings window:", err);
+          });
+          return;
+        }
+        if (e.key.toLowerCase() === "l" || e.code === "KeyL") {
+          e.preventDefault();
+          runAppMenuAction(APP_MENU_ACTION.logs).catch((err) => {
+            console.error("Failed to open logs window:", err);
+          });
+          return;
+        }
       } else {
         if (!e.ctrlKey || e.metaKey) return;
-        if (e.key.toLowerCase() !== "i" && e.code !== "KeyI") return;
+        if (e.key.toLowerCase() === "i" || e.code === "KeyI") {
+          e.preventDefault();
+          runAppMenuAction(APP_MENU_ACTION.settings).catch((err) => {
+            console.error("Failed to open settings window:", err);
+          });
+          return;
+        }
+        if (e.key.toLowerCase() === "l" || e.code === "KeyL") {
+          e.preventDefault();
+          runAppMenuAction(APP_MENU_ACTION.logs).catch((err) => {
+            console.error("Failed to open logs window:", err);
+          });
+          return;
+        }
       }
-
-      e.preventDefault();
-      runAppMenuAction(APP_MENU_ACTION.settings).catch((err) => {
-        console.error("Failed to open settings window:", err);
-      });
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);

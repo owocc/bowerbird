@@ -14,6 +14,7 @@ import { validateWorkspaceSearch } from "@/lib/workspace-search";
 import { LibrarySetup } from "@/components/LibrarySetup";
 import { LibraryWorkspace } from "@/components/LibraryWorkspace";
 import { SettingsPage } from "@/components/SettingsPage";
+import { LogsPage } from "@/components/LogsPage";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
@@ -188,11 +189,19 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+// Rendered in its own native window (see core.Service.OpenLogsWindow).
+const logsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/logs",
+  component: LogsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   setupRoute,
   browseRoute,
   settingsRoute,
+  logsRoute,
 ]);
 
 const hashHistory = createHashHistory();

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 	"bowerbird/core"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -34,6 +33,9 @@ func init() {
 	// Broadcast library lifecycle events
 	application.RegisterEvent[*core.LibraryInfo](core.LibraryOpenedEvent)
 	application.RegisterEvent[string](core.LibraryClosedEvent)
+	// Broadcast structured diagnostic log events
+	application.RegisterEvent[core.LogEntry](core.LogEntryEvent)
+	application.RegisterEvent[string](core.LogsClearedEvent)
 }
 
 func extractInternalItemID(filePath string) string {
@@ -55,9 +57,11 @@ func main() {
 	// Native drag/drop tracing. Production Windows builds link with
 	// `-H windowsgui`, so stdout is invisible there and drag-debug.log is the
 	// real sink; the path is also printed for `wails3 dev`.
-	tracePath := core.StartDragTraceSession(fmt.Sprintf("os=%s arch=%s", runtime.GOOS, runtime.GOARCH))
+	sessionContext := fmt.Sprintf("os=%s arch=%s", runtime.GOOS, runtime.GOARCH)
+	logPath := core.StartAppLogSession(sessionContext)
+	log.Printf("[AppLog] log file: %s", logPath)
+	tracePath := core.StartDragTraceSession(sessionContext)
 	log.Printf("[DragTrace] drag trace file: %s", tracePath)
-
 	app := application.New(application.Options{
 		Name:        "bowerbird",
 		Description: "Bowerbird Asset Manager",
@@ -75,6 +79,7 @@ func main() {
 	})
 
 	coreMgr.SetApp(app)
+	core.SetLogApp(app)
 
 	// Only macOS registers a native menu: its menu bar is global, OS-styled and
 	// fully controllable. Windows and Linux draw the menu themselves instead
@@ -310,15 +315,6 @@ func main() {
 			}
 		}()
 	})
-	// Background ticker event
-	go func() {
-		for {
-			now := time.Now().Format(time.RFC1123)
-			app.Event.Emit("time", now)
-			time.Sleep(time.Second)
-		}
-	}()
-
 	err := app.Run()
 	if err != nil {
 		log.Fatal(err)

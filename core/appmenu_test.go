@@ -10,6 +10,7 @@ import (
 // Actions every platform must offer through the app's own menu.
 var expectedMenuActions = []string{
 	core.AppMenuSettings,
+	core.AppMenuLogs,
 	core.AppMenuAbout,
 	core.AppMenuReload,
 	core.AppMenuFullscreen,

@@ -215,9 +215,11 @@ func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*Libra
 
 // OpenLibrary mounts an existing xxx.library and persists it to the user data store.
 func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
+	start := time.Now()
 	libJSONPath := filepath.Join(libraryPath, "library.json")
 	data, err := os.ReadFile(libJSONPath)
 	if err != nil {
+		RecordLog("error", "core", "Failed to open library.json", fmt.Sprintf("path=%s err=%v", libraryPath, err), 0)
 		return nil, fmt.Errorf("invalid library directory (library.json not found): %w", err)
 	}
 
@@ -227,6 +229,7 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 		CreatedAt int64  `json:"createdAt"`
 	}
 	if err := json.Unmarshal(data, &meta); err != nil {
+		RecordLog("error", "core", "Corrupted library.json", fmt.Sprintf("path=%s err=%v", libraryPath, err), 0)
 		return nil, fmt.Errorf("corrupted library.json: %w", err)
 	}
 
@@ -235,11 +238,13 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	dbPath := filepath.Join(libraryPath, "index.db")
 	db, err := openLibraryDB(dbPath)
 	if err != nil {
+		RecordLog("error", "core", "Failed to open SQLite database", fmt.Sprintf("path=%s err=%v", dbPath, err), 0)
 		return nil, fmt.Errorf("failed to open SQLite database: %w", err)
 	}
 
 	if err := m.initSchema(db); err != nil {
 		_ = db.Close()
+		RecordLog("error", "core", "Schema migration failed", fmt.Sprintf("path=%s err=%v", dbPath, err), 0)
 		return nil, fmt.Errorf("schema migration failed: %w", err)
 	}
 
@@ -272,6 +277,7 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	// Backfill dominant color, palette, and extended metadata for legacy image items
 	go m.backfillImageMetadata(libraryPath)
 
+	RecordLog("info", "core", "Opened library", fmt.Sprintf("name=%s items=%d path=%s", meta.Name, count, libraryPath), time.Since(start).Milliseconds())
 	return m.activeLib, nil
 }
 
@@ -292,6 +298,16 @@ func (m *LibraryManager) CloseLibrary() error {
 	return nil
 }
 
+// GetActiveLibraryPath returns the active library directory path using a fast read-only lock.
+func (m *LibraryManager) GetActiveLibraryPath() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.activeLib == nil {
+		return ""
+	}
+	return m.activeLib.Path
+}
+
 // GetActiveLibrary returns the active library metadata.
 func (m *LibraryManager) GetActiveLibrary() *LibraryInfo {
 	m.mu.RLock()
@@ -302,31 +318,25 @@ func (m *LibraryManager) GetActiveLibrary() *LibraryInfo {
 		return nil
 	}
 
+	copyInfo := *active
+
 	m.cacheMu.RLock()
 	loaded := m.cacheLoaded
 	cachedCount := int64(len(m.itemsDesc) + len(m.trashDesc))
 	m.cacheMu.RUnlock()
 
 	if loaded {
-		m.mu.Lock()
-		if m.activeLib != nil {
-			m.activeLib.ItemCount = cachedCount
-		}
-		m.mu.Unlock()
-		return active
+		copyInfo.ItemCount = cachedCount
+		return &copyInfo
 	}
 
 	if db != nil {
 		var count int64
 		if err := db.QueryRow("SELECT COUNT(*) FROM items").Scan(&count); err == nil {
-			m.mu.Lock()
-			if m.activeLib != nil {
-				m.activeLib.ItemCount = count
-			}
-			m.mu.Unlock()
+			copyInfo.ItemCount = count
 		}
 	}
-	return active
+	return &copyInfo
 }
 
 func (m *LibraryManager) invalidateCache() {
@@ -358,6 +368,8 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 	}
 	m.cacheMu.RUnlock()
 
+	start := time.Now()
+
 	m.mu.RLock()
 	db := m.db
 	active := m.activeLib
@@ -384,6 +396,7 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 
 	rows, err := db.Query("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, ''), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items ORDER BY imported_at DESC")
 	if err != nil {
+		RecordLog("error", "core", "Failed to load item cache", err.Error(), time.Since(start).Milliseconds())
 		return fmt.Errorf("failed to query items: %w", err)
 	}
 	defer rows.Close()
@@ -488,7 +501,105 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 	m.searchIndex = searchIndex
 	m.cacheLoaded = true
 	m.cacheMu.Unlock()
+
+	dur := time.Since(start).Milliseconds()
+	RecordLog("perf", "core", "In-memory library index loaded", fmt.Sprintf("active=%d trash=%d folders_linked=%d", len(itemsDesc), len(trashDesc), len(folderMap)), dur)
 	return nil
+}
+
+func (m *LibraryManager) mutateCachedItem(itemID string, mutator func(it *Item)) {
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+	if !m.cacheLoaded {
+		return
+	}
+	it, ok := m.itemsByID[itemID]
+	if !ok {
+		return
+	}
+	wasInTrash := it.InTrash
+	mutator(&it)
+	m.itemsByID[it.ID] = it
+	if it.Hex != "" {
+		m.itemsByID[it.Hex] = it
+	}
+	m.searchIndex[it.ID] = buildItemSearchKey(&it)
+
+	if wasInTrash == it.InTrash {
+		if !it.InTrash {
+			for i := range m.itemsDesc {
+				if m.itemsDesc[i].ID == it.ID || (it.Hex != "" && m.itemsDesc[i].Hex == it.Hex) {
+					m.itemsDesc[i] = it
+					break
+				}
+			}
+		} else {
+			for i := range m.trashDesc {
+				if m.trashDesc[i].ID == it.ID || (it.Hex != "" && m.trashDesc[i].Hex == it.Hex) {
+					m.trashDesc[i] = it
+					break
+				}
+			}
+		}
+		return
+	}
+
+	if it.InTrash {
+		// Moved from active to trash
+		for i := range m.itemsDesc {
+			if m.itemsDesc[i].ID == it.ID || (it.Hex != "" && m.itemsDesc[i].Hex == it.Hex) {
+				m.itemsDesc = append(m.itemsDesc[:i], m.itemsDesc[i+1:]...)
+				break
+			}
+		}
+		m.trashDesc = append([]Item{it}, m.trashDesc...)
+	} else {
+		// Restored from trash to active
+		for i := range m.trashDesc {
+			if m.trashDesc[i].ID == it.ID || (it.Hex != "" && m.trashDesc[i].Hex == it.Hex) {
+				m.trashDesc = append(m.trashDesc[:i], m.trashDesc[i+1:]...)
+				break
+			}
+		}
+		// Insert into itemsDesc maintaining ImportedAt DESC order
+		insertIdx := sort.Search(len(m.itemsDesc), func(i int) bool {
+			return m.itemsDesc[i].ImportedAt <= it.ImportedAt
+		})
+		m.itemsDesc = append(m.itemsDesc, Item{})
+		copy(m.itemsDesc[insertIdx+1:], m.itemsDesc[insertIdx:])
+		m.itemsDesc[insertIdx] = it
+	}
+}
+
+func (m *LibraryManager) removeCachedItem(id string) {
+	m.cacheMu.Lock()
+	defer m.cacheMu.Unlock()
+	if !m.cacheLoaded {
+		return
+	}
+	it, ok := m.itemsByID[id]
+	if ok {
+		delete(m.itemsByID, it.ID)
+		if it.Hex != "" {
+			delete(m.itemsByID, it.Hex)
+		}
+		delete(m.searchIndex, it.ID)
+	} else {
+		delete(m.itemsByID, id)
+		delete(m.searchIndex, id)
+	}
+	for i := range m.itemsDesc {
+		if m.itemsDesc[i].ID == id || m.itemsDesc[i].Hex == id {
+			m.itemsDesc = append(m.itemsDesc[:i], m.itemsDesc[i+1:]...)
+			break
+		}
+	}
+	for i := range m.trashDesc {
+		if m.trashDesc[i].ID == id || m.trashDesc[i].Hex == id {
+			m.trashDesc = append(m.trashDesc[:i], m.trashDesc[i+1:]...)
+			break
+		}
+	}
 }
 
 func (m *LibraryManager) upsertItemsInCache(items []Item, folderID string) {
@@ -1861,7 +1972,7 @@ func (m *LibraryManager) DeleteItem(id string) error {
 
 	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
 	_, err := db.Exec("DELETE FROM items WHERE id = ? OR hex = ?", id, id)
-	m.invalidateCache()
+	m.removeCachedItem(id)
 	return err
 }
 
@@ -2067,6 +2178,7 @@ func randHex(n int) string {
 
 // GetFolders returns all folders structured as a tree with item counts.
 func (m *LibraryManager) GetFolders() ([]Folder, error) {
+	start := time.Now()
 	m.mu.RLock()
 	db := m.db
 	m.mu.RUnlock()
@@ -2116,7 +2228,7 @@ func (m *LibraryManager) GetFolders() ([]Folder, error) {
 	defer rows.Close()
 
 	var allFolders []Folder
-	lookup := make(map[string]*Folder)
+	lookup := make(map[string]bool)
 
 	for rows.Next() {
 		var f Folder
@@ -2126,42 +2238,45 @@ func (m *LibraryManager) GetFolders() ([]Folder, error) {
 		f.ItemCount = counts[f.ID]
 		f.Children = []Folder{}
 		allFolders = append(allFolders, f)
+		lookup[f.ID] = true
 	}
 
+	// O(N) children adjacency index instead of O(N^2) recursive scans
+	childrenByParent := make(map[string][]int, len(allFolders))
+	var rootIndices []int
 	for i := range allFolders {
-		lookup[allFolders[i].ID] = &allFolders[i]
-	}
-
-	var rootFolders []Folder
-	for _, f := range allFolders {
-		if f.ParentID == "" || lookup[f.ParentID] == nil {
-			rootFolders = append(rootFolders, f)
+		parentID := allFolders[i].ParentID
+		if parentID == "" || !lookup[parentID] {
+			rootIndices = append(rootIndices, i)
+		} else {
+			childrenByParent[parentID] = append(childrenByParent[parentID], i)
 		}
 	}
 
 	var assemble func(parentID string) []Folder
 	assemble = func(parentID string) []Folder {
-		var result []Folder
-		for _, f := range allFolders {
-			if f.ParentID == parentID {
-				f.Children = assemble(f.ID)
-				result = append(result, f)
-			}
+		childIdxs := childrenByParent[parentID]
+		if len(childIdxs) == 0 {
+			return []Folder{}
 		}
-		if result == nil {
-			result = []Folder{}
+		result := make([]Folder, len(childIdxs))
+		for k, idx := range childIdxs {
+			f := allFolders[idx]
+			f.Children = assemble(f.ID)
+			result[k] = f
 		}
 		return result
 	}
 
-	var tree []Folder
-	for _, root := range rootFolders {
+	tree := make([]Folder, len(rootIndices))
+	for k, idx := range rootIndices {
+		root := allFolders[idx]
 		root.Children = assemble(root.ID)
-		tree = append(tree, root)
+		tree[k] = root
 	}
 
-	if tree == nil {
-		tree = []Folder{}
+	if dur := time.Since(start).Milliseconds(); dur >= 15 {
+		RecordLog("perf", "core", "GetFolders slow query", fmt.Sprintf("total_folders=%d roots=%d", len(allFolders), len(tree)), dur)
 	}
 	return tree, nil
 }
@@ -2249,11 +2364,34 @@ func (m *LibraryManager) DeleteFolder(id string) error {
 		}
 	}
 
+	deletedSet := make(map[string]bool, len(folderIDs))
 	for _, fID := range folderIDs {
+		deletedSet[fID] = true
 		_, _ = db.Exec("DELETE FROM item_folders WHERE folder_id = ?", fID)
 		_, _ = db.Exec("DELETE FROM folders WHERE id = ?", fID)
 	}
-	m.invalidateCache()
+	m.cacheMu.Lock()
+	if m.cacheLoaded {
+		for i := range m.itemsDesc {
+			if len(m.itemsDesc[i].Folders) == 0 {
+				continue
+			}
+			filtered := make([]string, 0, len(m.itemsDesc[i].Folders))
+			for _, fid := range m.itemsDesc[i].Folders {
+				if !deletedSet[fid] {
+					filtered = append(filtered, fid)
+				}
+			}
+			if len(filtered) != len(m.itemsDesc[i].Folders) {
+				m.itemsDesc[i].Folders = filtered
+				m.itemsByID[m.itemsDesc[i].ID] = m.itemsDesc[i]
+				if m.itemsDesc[i].Hex != "" {
+					m.itemsByID[m.itemsDesc[i].Hex] = m.itemsDesc[i]
+				}
+			}
+		}
+	}
+	m.cacheMu.Unlock()
 	return nil
 }
 
@@ -2270,7 +2408,16 @@ func (m *LibraryManager) AddItemToFolder(itemID string, folderID string) error {
 	_, err := db.Exec("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)",
 		itemID, folderID, time.Now().Unix(),
 	)
-	m.invalidateCache()
+	if err == nil && folderID != "" {
+		m.mutateCachedItem(itemID, func(it *Item) {
+			for _, f := range it.Folders {
+				if f == folderID {
+					return
+				}
+			}
+			it.Folders = append(append([]string{}, it.Folders...), folderID)
+		})
+	}
 	return err
 }
 
@@ -2285,7 +2432,17 @@ func (m *LibraryManager) RemoveItemFromFolder(itemID string, folderID string) er
 	}
 
 	_, err := db.Exec("DELETE FROM item_folders WHERE item_id = ? AND folder_id = ?", itemID, folderID)
-	m.invalidateCache()
+	if err == nil && folderID != "" {
+		m.mutateCachedItem(itemID, func(it *Item) {
+			next := make([]string, 0, len(it.Folders))
+			for _, f := range it.Folders {
+				if f != folderID {
+					next = append(next, f)
+				}
+			}
+			it.Folders = next
+		})
+	}
 	return err
 }
 
@@ -2316,17 +2473,23 @@ func (m *LibraryManager) SetItemFolders(itemID string, folderIDs []string) error
 	}
 	defer stmt.Close()
 
+	cleanFolders := make([]string, 0, len(folderIDs))
 	for _, fID := range folderIDs {
 		trimmed := strings.TrimSpace(fID)
 		if trimmed != "" {
 			if _, err := stmt.Exec(itemID, trimmed, now); err != nil {
 				return err
 			}
+			cleanFolders = append(cleanFolders, trimmed)
 		}
 	}
 
 	err = tx.Commit()
-	m.invalidateCache()
+	if err == nil {
+		m.mutateCachedItem(itemID, func(it *Item) {
+			it.Folders = cleanFolders
+		})
+	}
 	return err
 }
 
@@ -2390,7 +2553,11 @@ func (m *LibraryManager) MoveToTrash(id string) error {
 		}
 	}
 
-	m.invalidateCache()
+	m.mutateCachedItem(id, func(it *Item) {
+		it.InTrash = true
+		it.TrashedAt = now
+		it.Folders = currentFolders
+	})
 	return nil
 }
 
@@ -2453,7 +2620,15 @@ func (m *LibraryManager) RestoreFromTrash(id string) error {
 		}
 	}
 
-	m.invalidateCache()
+	m.mutateCachedItem(id, func(it *Item) {
+		it.InTrash = false
+		it.TrashedAt = 0
+		if restoredFolders == nil {
+			it.Folders = []string{}
+		} else {
+			it.Folders = restoredFolders
+		}
+	})
 	return nil
 }
 
@@ -2614,7 +2789,25 @@ func (m *LibraryManager) MoveItemToFolder(itemID string, fromFolderID string, to
 	}
 
 	err = tx.Commit()
-	m.invalidateCache()
+	if err == nil {
+		m.mutateCachedItem(itemID, func(it *Item) {
+			var next []string
+			if cleanFrom != "" {
+				for _, f := range it.Folders {
+					if f != cleanFrom && f != cleanTo {
+						next = append(next, f)
+					}
+				}
+			}
+			if cleanTo != "" {
+				next = append(next, cleanTo)
+			}
+			if next == nil {
+				next = []string{}
+			}
+			it.Folders = next
+		})
+	}
 	return err
 }
 
@@ -2991,7 +3184,9 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
-	m.invalidateCache()
+	m.mutateCachedItem(itemID, func(it *Item) {
+		it.Tags = existingTags
+	})
 	return nil
 }
 
@@ -3038,7 +3233,13 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
-	m.invalidateCache()
+	m.mutateCachedItem(itemID, func(it *Item) {
+		if newTags == nil {
+			it.Tags = []string{}
+		} else {
+			it.Tags = newTags
+		}
+	})
 	return nil
 }
 
@@ -3083,7 +3284,9 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
-	m.invalidateCache()
+	m.mutateCachedItem(itemID, func(it *Item) {
+		it.Tags = cleanTags
+	})
 	return nil
 }
 
@@ -3177,7 +3380,11 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 	item.Name = displayName
 	item.Filename = newFilename
 	m.populateItemPaths(item, active.Path, port)
-	m.invalidateCache()
+	m.mutateCachedItem(id, func(it *Item) {
+		it.Name = displayName
+		it.Filename = newFilename
+		m.populateItemPaths(it, active.Path, port)
+	})
 	return item, nil
 }
 

@@ -13,9 +13,9 @@ import type { AppMenuItem } from "../../bindings/bowerbird/core/models";
 export const APP_MENU_ACTION = {
   // Application-scoped: executed by the Go bridge.
   settings: "settings",
+  logs: "logs",
   about: "about",
   quit: "quit",
-
   // Window-scoped: executed in the webview, because they target one window.
   reload: "reload",
   forceReload: "force-reload",

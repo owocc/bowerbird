@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Folder as FolderIcon,
@@ -78,17 +78,20 @@ export function MultiItemInspector({
     extensionCounts[ext] = (extensionCounts[ext] || 0) + 1;
   }
 
-  const flatFolderList: { id: string; name: string }[] = [];
-  const collect = (list: Folder[], prefix = "") => {
-    for (const f of list) {
-      const name = prefix ? `${prefix} / ${f.name}` : f.name;
-      flatFolderList.push({ id: f.id, name });
-      if (f.children && f.children.length > 0) {
-        collect(f.children, name);
+  const flatFolderList = useMemo(() => {
+    const out: { id: string; name: string }[] = [];
+    const collect = (list: Folder[], prefix = "") => {
+      for (const f of list) {
+        const name = prefix ? `${prefix} / ${f.name}` : f.name;
+        out.push({ id: f.id, name });
+        if (f.children && f.children.length > 0) {
+          collect(f.children, name);
+        }
       }
-    }
-  };
-  collect(allFolders);
+    };
+    collect(allFolders);
+    return out;
+  }, [allFolders]);
   const isRealFolder =
     Boolean(activeFolderId) &&
     activeFolderId !== "__trash__" &&

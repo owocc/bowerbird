@@ -69,6 +69,7 @@ func StartDragTraceSession(context string) string {
 func LogDragTrace(phase, detail string) {
 	log.Printf("[DragTrace][%s] %s", phase, detail)
 	writeDragTraceLine(fmt.Sprintf("%s [%s] %s", time.Now().Format("2006-01-02T15:04:05.000"), phase, detail))
+	RecordLog("info", "drag", fmt.Sprintf("[%s] %s", phase, detail), "", 0)
 }
 
 func writeDragTraceLine(line string) {

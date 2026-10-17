@@ -55,9 +55,14 @@ export function JustifiedGallery({
   const [containerWidth, setContainerWidth] = useState<number>(800);
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
   const [lastClickedItemId, setLastClickedItemId] = useState<string | null>(null);
-  const [scrollState, setScrollState] = useState<{ scrollTop: number; viewportHeight: number }>({
+  const [scrollState, setScrollState] = useState<{
+    scrollTop: number;
+    viewportHeight: number;
+    offsetTop: number;
+  }>({
     scrollTop: 0,
     viewportHeight: 900,
+    offsetTop: 0,
   });
   const selectedSet = useMemo(() => new Set(selectedOrder), [selectedOrder]);
 
@@ -105,10 +110,11 @@ export function JustifiedGallery({
     const observer = new ResizeObserver(() => {
       updateWidth();
       const host = containerRef.current?.parentElement;
-      if (host) {
+      if (host && containerRef.current) {
         setScrollState({
           scrollTop: host.scrollTop,
           viewportHeight: host.clientHeight || 900,
+          offsetTop: containerRef.current.offsetTop || 0,
         });
       }
     });
@@ -118,19 +124,30 @@ export function JustifiedGallery({
     return () => observer.disconnect();
   }, []);
 
-  // Track scroll position on scroll host for row virtualization
+  // Track scroll position on scroll host for row virtualization (rAF throttled)
   useEffect(() => {
     const host = containerRef.current?.parentElement;
     if (!host) return;
-    const onScroll = () => {
+    let scrollRaf: number | null = null;
+    const syncScroll = () => {
+      scrollRaf = null;
+      if (!containerRef.current) return;
       setScrollState({
         scrollTop: host.scrollTop,
         viewportHeight: host.clientHeight || 900,
+        offsetTop: containerRef.current.offsetTop || 0,
       });
     };
-    onScroll();
+    const onScroll = () => {
+      if (scrollRaf !== null) return;
+      scrollRaf = requestAnimationFrame(syncScroll);
+    };
+    syncScroll();
     host.addEventListener("scroll", onScroll, { passive: true });
-    return () => host.removeEventListener("scroll", onScroll);
+    return () => {
+      host.removeEventListener("scroll", onScroll);
+      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
+    };
   }, []);
 
   // Compute justified rows layout with pixel-perfect row filling
@@ -756,9 +773,9 @@ export function JustifiedGallery({
       return { visibleRows: rows, topSpacerHeight: 0, bottomSpacerHeight: 0 };
     }
     const overscan = 600;
-    const minY = Math.max(0, scrollState.scrollTop - overscan);
-    const maxY = scrollState.scrollTop + Math.max(600, scrollState.viewportHeight) + overscan;
-
+    const relativeScrollTop = Math.max(0, scrollState.scrollTop - scrollState.offsetTop);
+    const minY = Math.max(0, relativeScrollTop - overscan);
+    const maxY = relativeScrollTop + Math.max(600, scrollState.viewportHeight) + overscan;
     let startIdx = 0;
     while (startIdx < rows.length && rows[startIdx].bottom < minY) {
       startIdx++;
@@ -780,7 +797,7 @@ export function JustifiedGallery({
       topSpacerHeight: topH,
       bottomSpacerHeight: bottomH,
     };
-  }, [rows, scrollState.scrollTop, scrollState.viewportHeight]);
+  }, [rows, scrollState.scrollTop, scrollState.viewportHeight, scrollState.offsetTop]);
   return (
     <div
       ref={containerRef}

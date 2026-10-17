@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -101,22 +101,20 @@ export function ItemDetailPanel({
   const [tagSearch, setTagSearch] = useState("");
 
   // Flatten folder tree for selection
-  const flattenFolders = (
-    folders: Folder[],
-    prefix = ""
-  ): { id: string; name: string }[] => {
-    let result: { id: string; name: string }[] = [];
-    for (const f of folders) {
-      const displayName = prefix ? `${prefix} / ${f.name}` : f.name;
-      result.push({ id: f.id, name: displayName });
-      if (f.children && f.children.length > 0) {
-        result = result.concat(flattenFolders(f.children, displayName));
+  const flatFolderList = useMemo(() => {
+    const result: { id: string; name: string }[] = [];
+    const walk = (list: Folder[], prefix = "") => {
+      for (const f of list) {
+        const displayName = prefix ? `${prefix} / ${f.name}` : f.name;
+        result.push({ id: f.id, name: displayName });
+        if (f.children && f.children.length > 0) {
+          walk(f.children, displayName);
+        }
       }
-    }
+    };
+    walk(allFolders);
     return result;
-  };
-
-  const flatFolderList = flattenFolders(allFolders);
+  }, [allFolders]);
 
   const handleAddToFolder = async (folderId: string) => {
     if (!item) return;

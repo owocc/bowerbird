@@ -162,6 +162,27 @@ export interface LibraryManager {
 }
 
 /**
+ * LogEntry represents a single structured diagnostic log event.
+ */
+export interface LogEntry {
+    "id": number;
+    "timestamp": string;
+
+    /**
+     * "info" | "warn" | "error" | "perf"
+     */
+    "level": string;
+
+    /**
+     * "core" | "perf" | "ui" | "drag" | "asset" | "menu"
+     */
+    "category": string;
+    "message": string;
+    "detail"?: string;
+    "durationMs"?: number;
+}
+
+/**
  * Tag represents a tag taxonomy entry with its item count.
  */
 export interface Tag {

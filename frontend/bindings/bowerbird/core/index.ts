@@ -13,5 +13,6 @@ export type {
     Item,
     LibraryInfo,
     LibraryManager,
+    LogEntry,
     Tag
 } from "./models.js";
