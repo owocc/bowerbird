@@ -10,11 +10,11 @@ import {
   AlertCircle,
   Loader2,
 } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { Card, CardHeader, CardTitle, CardContent } from "@workspace/ui/components/card";
+import { Button } from "@workspace/ui/components/button";
+import { Badge } from "@workspace/ui/components/badge";
+import { Separator } from "@workspace/ui/components/separator";
+import { cn } from "@workspace/ui/lib/utils";
 import type { Folder, FlatFolder } from "@/lib/api";
 
 export interface ExtractedImageItem {

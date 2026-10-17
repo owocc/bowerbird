@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@workspace/ui/*": ["./src/*"]
+    }
+  },
+  "include": ["src"]
+}

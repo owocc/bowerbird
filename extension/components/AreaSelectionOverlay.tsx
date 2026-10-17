@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, X, Crop, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@workspace/ui/components/button";
+import { Badge } from "@workspace/ui/components/badge";
 
 export interface AreaSelectionOverlayProps {
   onConfirm: (box: { x: number; y: number; width: number; height: number; dpr: number }) => Promise<void>;

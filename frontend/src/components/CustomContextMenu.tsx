@@ -434,7 +434,7 @@ export function CustomContextMenu({
                     <span>{t("contextMenu.moveToTrash")}</span>
                     <CommandShortcut
                       aria-hidden="true"
-                      className="text-destructive group-data-selected/command-item:text-destructive"
+                      className="text-destructive group-data-[selected=true]/command-item:text-destructive"
                     >
                       <Delete className="size-3.5" />
                     </CommandShortcut>

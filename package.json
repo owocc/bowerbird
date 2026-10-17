@@ -1,0 +1,15 @@
+{
+  "name": "my-eagle",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter bowerbird dev",
+    "dev:extension": "pnpm --filter bowerbird-web-extension dev",
+    "build": "pnpm -r run build",
+    "build:frontend": "pnpm --filter bowerbird build",
+    "build:extension": "pnpm --filter bowerbird-web-extension build"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  }
+}

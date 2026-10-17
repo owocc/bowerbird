@@ -14,13 +14,13 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { Button } from "@workspace/ui/components/button";
+import { Badge } from "@workspace/ui/components/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card";
+import { Input } from "@workspace/ui/components/input";
+import { Textarea } from "@workspace/ui/components/textarea";
+import { Separator } from "@workspace/ui/components/separator";
+import { cn } from "@workspace/ui/lib/utils";
 import {
   checkConnection,
   fetchFolders,

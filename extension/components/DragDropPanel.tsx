@@ -7,10 +7,10 @@ import {
   Loader2,
   X,
 } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { Card, CardHeader, CardTitle, CardContent } from "@workspace/ui/components/card";
+import { Badge } from "@workspace/ui/components/badge";
+import { Separator } from "@workspace/ui/components/separator";
+import { cn } from "@workspace/ui/lib/utils";
 import type { AppRunningStatus, FlatFolder } from "@/lib/api";
 
 export interface DragDropPanelProps {
