@@ -5,11 +5,11 @@
     <key>CFBundleExecutable</key>
     <string>bowerbird</string>
     <key>CFBundleIdentifier</key>
-    <string>com.example.bowerbird</string>
+    <string>io.github.owocc.bowerbird</string>
     <key>CFBundleName</key>
-    <string>My Product</string>
+    <string>Bowerbird</string>
     <key>CFBundleDisplayName</key>
-    <string>My Product</string>
+    <string>Bowerbird</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -49,11 +49,11 @@
     
     
     <key>NSHumanReadableCopyright</key>
-    <string>© 2026, My Company</string>
+    <string>© 2026, owocc</string>
     
     
     <key>CFBundleGetInfoString</key>
-    <string>This is a comment</string>
+    <string>Bowerbird Asset Manager</string>
     
 </dict>
 </plist>

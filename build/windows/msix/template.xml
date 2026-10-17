@@ -10,24 +10,24 @@
     <Installer
         Path="bowerbird"
         Arguments=""
-        InstallLocation="C:\Program Files\My Company\My Product">
+        InstallLocation="C:\Program Files\owocc\Bowerbird">
     </Installer>
     <PackageInformation
-        PackageName="My Product"
-        PackageDisplayName="My Product"
-        PublisherName="CN=My Company"
-        PublisherDisplayName="My Company"
+        PackageName="Bowerbird"
+        PackageDisplayName="Bowerbird"
+        PublisherName="CN=owocc"
+        PublisherDisplayName="owocc"
         Version="0.1.0.0"
-        PackageDescription="A bowerbird application">
+        PackageDescription="Bowerbird Asset Manager">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
         </Capabilities>
         <Applications>
             <Application
-                Id="com.example.bowerbird"
-                Description="A bowerbird application"
-                DisplayName="My Product"
+                Id="io.github.owocc.bowerbird"
+                Description="Bowerbird Asset Manager"
+                DisplayName="Bowerbird"
                 ExecutableName="bowerbird"
                 EntryPoint="Windows.FullTrustApplication">
                 
@@ -41,9 +41,9 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>My Product</DisplayName>
-            <PublisherDisplayName>My Company</PublisherDisplayName>
-            <Description>A bowerbird application</Description>
+            <DisplayName>Bowerbird</DisplayName>
+            <PublisherDisplayName>owocc</PublisherDisplayName>
+            <Description>Bowerbird Asset Manager</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>

@@ -8,15 +8,15 @@
   IgnorableNamespaces="uap3">
   
   <Identity 
-    Name="com.example.bowerbird"
-    Publisher="CN=My Company"
+    Name="io.github.owocc.bowerbird"
+    Publisher="CN=owocc"
     Version="0.1.0.0" 
     ProcessorArchitecture="arm64" />
   
   <Properties>
-    <DisplayName>My Product</DisplayName>
-    <PublisherDisplayName>My Company</PublisherDisplayName>
-    <Description>A bowerbird application</Description>
+    <DisplayName>Bowerbird</DisplayName>
+    <PublisherDisplayName>owocc</PublisherDisplayName>
+    <Description>Bowerbird Asset Manager</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   
@@ -29,10 +29,10 @@
   </Resources>
   
   <Applications>
-    <Application Id="com.example.bowerbird" Executable="bowerbird" EntryPoint="Windows.FullTrustApplication">
+    <Application Id="io.github.owocc.bowerbird" Executable="bowerbird" EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
-        DisplayName="My Product"
-        Description="A bowerbird application"
+        DisplayName="Bowerbird"
+        Description="Bowerbird Asset Manager"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
