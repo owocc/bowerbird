@@ -9,7 +9,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { PreviewPlugin, InspectorExtensionProps } from "../types";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { toast } from "sonner";
+import { notifySuccess } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 
 function PromptInspectorExtension({
   item,
@@ -42,7 +43,7 @@ function PromptInspectorExtension({
                 e.stopPropagation();
                 if (await copyTextToClipboard(promptValue)) {
                   setCopied(true);
-                  toast.success(t("inspector.promptCopied"));
+                  notifySuccess(SuccessCodes.PROMPT_COPIED);
                   window.setTimeout(() => setCopied(false), 1500);
                 }
               }}

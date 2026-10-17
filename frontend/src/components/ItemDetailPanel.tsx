@@ -59,7 +59,8 @@ import {
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { toast } from "sonner";
+import { notifySuccess, notifyError } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 
 export interface ItemDetailPanelProps {
   item: Item | null;
@@ -275,7 +276,7 @@ export function ItemDetailPanel({
       await hostApi.openExternalURL(clean);
     } catch (err) {
       console.error("Failed to open external URL:", err);
-      toast.error(t("inspector.openUrlFailed"));
+      notifyError(err);
     }
   };
   const paletteColors =
@@ -319,7 +320,7 @@ export function ItemDetailPanel({
                   type="button"
                   onClick={async () => {
                     if (await copyTextToClipboard(hex)) {
-                      toast.success(t("inspector.colorCopied", { hex }));
+                      notifySuccess(SuccessCodes.COLOR_COPIED, { hex });
                     }
                     if (onSelectColorFilter) {
                       onSelectColorFilter(isColorActive ? null : hex);
@@ -925,7 +926,7 @@ export function ItemDetailPanel({
                       if (await copyTextToClipboard(plainPath)) {
                         setCopiedPath(true);
                         setTimeout(() => setCopiedPath(false), 1500);
-                        toast.success(t("workspace.pathCopied"));
+                        notifySuccess(SuccessCodes.PATH_COPIED);
                       }
                     }}
                     className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 cursor-pointer"

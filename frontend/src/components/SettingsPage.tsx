@@ -28,7 +28,13 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { GetAssetServerPort } from "../../bindings/bowerbird/core/service";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { toast } from "sonner";
+import {
+  getLanguagePreference,
+  setLanguagePreference,
+  type LanguagePreference,
+} from "@/i18n";
+import { notifySuccess } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 import {
   previewRegistry,
   usePreviewPlugins,
@@ -63,6 +69,34 @@ const THEME_OPTIONS: ThemeOption[] = [
     icon: Monitor,
     labelKey: "settings.appearance.auto",
     descriptionKey: "settings.appearance.autoDescription",
+  },
+];
+
+interface LanguageOption {
+  value: LanguagePreference;
+  icon: typeof Globe;
+  labelKey: string;
+  descriptionKey: string;
+}
+
+const LANGUAGE_OPTIONS: LanguageOption[] = [
+  {
+    value: "system",
+    icon: Monitor,
+    labelKey: "settings.language.auto",
+    descriptionKey: "settings.language.autoDescription",
+  },
+  {
+    value: "zh",
+    icon: Globe,
+    labelKey: "settings.language.zh",
+    descriptionKey: "settings.language.zhDescription",
+  },
+  {
+    value: "en",
+    icon: Globe,
+    labelKey: "settings.language.en",
+    descriptionKey: "settings.language.enDescription",
   },
 ];
 
@@ -230,6 +264,7 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("general");
+  const [languagePref, setLanguagePref] = useState<LanguagePreference>(getLanguagePreference());
   const [serverPort, setServerPort] = useState<number>(41595);
   const [copied, setCopied] = useState<boolean>(false);
   const installedPlugins = usePreviewPlugins();
@@ -246,7 +281,7 @@ export function SettingsPage() {
     const url = `http://127.0.0.1:${serverPort}`;
     await copyTextToClipboard(url);
     setCopied(true);
-    toast.success(t("settings.extension.copied"));
+    notifySuccess(SuccessCodes.EXTENSION_URL_COPIED);
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -390,6 +425,57 @@ export function SettingsPage() {
                   )}
                 </div>
               </section>
+
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">
+                    {t("settings.language.title")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.language.description")}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3" role="radiogroup">
+                  {LANGUAGE_OPTIONS.map(
+                    ({ value, icon: Icon, labelKey, descriptionKey }) => {
+                      const selected = languagePref === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={async () => {
+                            setLanguagePref(value);
+                            await setLanguagePreference(value);
+                            notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                          }}
+                          className={cn(
+                            "group relative flex flex-col items-center gap-1.5 rounded-xl border p-3.5 text-center transition-colors cursor-pointer",
+                            selected
+                              ? "border-primary bg-primary/10 text-foreground"
+                              : "border-border/60 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground"
+                          )}
+                        >
+                          {selected && (
+                            <span className="absolute right-2 top-2 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="size-2.5" />
+                            </span>
+                          )}
+                          <Icon className="size-5" />
+                          <span className="text-[11px] font-medium">
+                            {t(labelKey)}
+                          </span>
+                          <span className="text-[10px] leading-tight text-muted-foreground">
+                            {t(descriptionKey)}
+                          </span>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              </section>
             </div>
           )}
 
@@ -471,7 +557,7 @@ export function SettingsPage() {
                   <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
                     <MousePointerClick className="size-4 text-primary shrink-0 mt-0.5" />
                     <div className="space-y-0.5">
-                      <div className="text-xs font-medium">Context Menu</div>
+                      <div className="text-xs font-medium">{t("settings.extension.features.contextMenuTitle")}</div>
                       <div className="text-[10px] text-muted-foreground leading-tight">
                         {t("settings.extension.features.contextMenu")}
                       </div>
@@ -480,7 +566,7 @@ export function SettingsPage() {
                   <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
                     <Layers className="size-4 text-primary shrink-0 mt-0.5" />
                     <div className="space-y-0.5">
-                      <div className="text-xs font-medium">Batch Collector</div>
+                      <div className="text-xs font-medium">{t("settings.extension.features.batchTitle")}</div>
                       <div className="text-[10px] text-muted-foreground leading-tight">
                         {t("settings.extension.features.batch")}
                       </div>
@@ -489,7 +575,7 @@ export function SettingsPage() {
                   <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
                     <Camera className="size-4 text-primary shrink-0 mt-0.5" />
                     <div className="space-y-0.5">
-                      <div className="text-xs font-medium">Screen Capture</div>
+                      <div className="text-xs font-medium">{t("settings.extension.features.screenshotTitle")}</div>
                       <div className="text-[10px] text-muted-foreground leading-tight">
                         {t("settings.extension.features.screenshot")}
                       </div>
@@ -498,7 +584,7 @@ export function SettingsPage() {
                   <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
                     <Bookmark className="size-4 text-primary shrink-0 mt-0.5" />
                     <div className="space-y-0.5">
-                      <div className="text-xs font-medium">Web Bookmark</div>
+                      <div className="text-xs font-medium">{t("settings.extension.features.bookmarkTitle")}</div>
                       <div className="text-[10px] text-muted-foreground leading-tight">
                         {t("settings.extension.features.bookmark")}
                       </div>

@@ -1,0 +1,100 @@
+{
+  "popup": {
+    "title": "Bowerbird Web Clipper",
+    "status": {
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "noLibrary": "No Active Library",
+      "connecting": "Checking connection…",
+      "notRunningDesc": "Bowerbird desktop application is not running. Please launch it to save assets.",
+      "noLibraryDesc": "Please open or create a library in Bowerbird desktop app."
+    },
+    "actions": {
+      "captureVisible": "Capture Visible Screen",
+      "captureArea": "Select Area Screenshot",
+      "saveBookmark": "Save Web Bookmark",
+      "batchCollect": "Extract Page Images"
+    },
+    "form": {
+      "folder": "Save to Folder",
+      "defaultFolder": "Root / All Items",
+      "tags": "Tags",
+      "tagPlaceholder": "Add tag and press Enter…",
+      "note": "Note",
+      "notePlaceholder": "Add notes or annotations…",
+      "apiUrl": "API Server URL",
+      "saveSettings": "Save Settings",
+      "resetDefault": "Reset Default",
+      "settings": "Settings",
+      "retry": "Retry Connection"
+    },
+    "toasts": {
+      "noActiveTab": "No active webpage found",
+      "settingsSaved": "Settings saved",
+      "connectFailed": "Cannot connect to Bowerbird desktop app"
+    }
+  },
+  "dropPanel": {
+    "title": "Save to Bowerbird",
+    "subtitle": "Drop into a folder to import",
+    "rootFolder": "All Assets (Root)",
+    "folders": "Folders",
+    "saving": "Saving to Bowerbird…",
+    "saved": "Saved successfully!",
+    "failed": "Save failed",
+    "notRunning": "Desktop app not running",
+    "notRunningHint": "Please launch Bowerbird desktop application",
+    "noActiveLibrary": "No active library",
+    "noActiveLibraryHint": "Please open a library in Bowerbird"
+  },
+  "batch": {
+    "title": "Batch Image Collector",
+    "selected": "Selected {{selected}} / {{total}}",
+    "minWidth": "Min Width: {{width}}px",
+    "selectAll": "Select All",
+    "deselectAll": "Deselect All",
+    "targetFolder": "Target Folder",
+    "rootFolder": "All Assets (Root)",
+    "importButton": "Import {{count}} Selected Images",
+    "importing": "Importing…",
+    "noImages": "No matching images found on page",
+    "selectPrompt": "Please select at least one image"
+  },
+  "area": {
+    "instruction": "Drag to select screenshot area · Esc to cancel",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saving": "Saving…"
+  },
+  "contextMenu": {
+    "saveImage": "Save image to Bowerbird",
+    "saveLink": "Save link to Bowerbird",
+    "captureScreenshot": "Capture visible area to Bowerbird",
+    "batchCollect": "Batch collect images from page"
+  },
+  "codes": {
+    "error": {
+      "ERR_CORE_NOT_INITIALIZED": "Core service not initialized",
+      "ERR_APP_NOT_INITIALIZED": "Application not initialized",
+      "ERR_NO_ACTIVE_LIBRARY": "No active library in Bowerbird desktop",
+      "ERR_UNKNOWN": "An error occurred: {{error}}",
+      "ERR_INVALID_REQUEST": "Invalid request parameters",
+      "ERR_METHOD_NOT_ALLOWED": "Method not allowed",
+      "ERR_ITEM_NOT_FOUND": "Item not found",
+      "ERR_FOLDER_NOT_FOUND": "Folder not found",
+      "ERR_FOLDER_NAME_EMPTY": "Folder name cannot be empty",
+      "ERR_INVALID_URL": "Invalid or unsupported URL",
+      "ERR_FETCH_REMOTE_FAILED": "Failed to fetch remote asset",
+      "ERR_INVALID_BASE64": "Invalid Base64 payload",
+      "ERR_IMPORT_FAILED": "Import failed"
+    },
+    "success": {
+      "SUCCESS_OK": "Operation completed successfully",
+      "SUCCESS_FOLDER_CREATED": "Folder created successfully",
+      "SUCCESS_ITEMS_IMPORTED": "Successfully imported {{count}} asset(s)",
+      "SUCCESS_BOOKMARK_SAVED": "Bookmark saved to Bowerbird",
+      "SUCCESS_SCREENSHOT_SAVED": "Screenshot saved to Bowerbird",
+      "SUCCESS_SETTINGS_SAVED": "Settings saved successfully"
+    }
+  }
+}

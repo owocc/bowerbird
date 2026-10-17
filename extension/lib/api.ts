@@ -241,7 +241,7 @@ export async function importFromURL(
     headers?: Record<string, string>;
   },
   targetUrl?: string
-): Promise<{ success: boolean; item?: Item; error?: string }> {
+): Promise<{ success: boolean; item?: Item; code?: string; error?: string }> {
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromURL`, {
@@ -251,9 +251,9 @@ export async function importFromURL(
     });
     const json = await resp.json();
     if (resp.ok && json.status === "success") {
-      return { success: true, item: json.data };
+      return { success: true, item: json.data, code: json.code };
     }
-    return { success: false, error: json.message || `HTTP ${resp.status}` };
+    return { success: false, code: json.code, error: json.message || `HTTP ${resp.status}` };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Network error";
     return { success: false, error: msg };
@@ -271,7 +271,7 @@ export async function importFromBase64(
     folderIds?: string[];
   },
   targetUrl?: string
-): Promise<{ success: boolean; item?: Item; error?: string }> {
+): Promise<{ success: boolean; item?: Item; code?: string; error?: string }> {
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromBase64`, {
@@ -281,9 +281,9 @@ export async function importFromBase64(
     });
     const json = await resp.json();
     if (resp.ok && json.status === "success") {
-      return { success: true, item: json.data };
+      return { success: true, item: json.data, code: json.code };
     }
-    return { success: false, error: json.message || `HTTP ${resp.status}` };
+    return { success: false, code: json.code, error: json.message || `HTTP ${resp.status}` };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Network error";
     return { success: false, error: msg };
@@ -300,7 +300,7 @@ export async function importBookmark(
     folderId?: string;
   },
   targetUrl?: string
-): Promise<{ success: boolean; item?: Item; error?: string }> {
+): Promise<{ success: boolean; item?: Item; code?: string; error?: string }> {
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addBookmark`, {
@@ -310,9 +310,9 @@ export async function importBookmark(
     });
     const json = await resp.json();
     if (resp.ok && json.status === "success") {
-      return { success: true, item: json.data };
+      return { success: true, item: json.data, code: json.code };
     }
-    return { success: false, error: json.message || `HTTP ${resp.status}` };
+    return { success: false, code: json.code, error: json.message || `HTTP ${resp.status}` };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Network error";
     return { success: false, error: msg };
@@ -333,7 +333,7 @@ export async function importBatch(
     tags?: string[];
   },
   targetUrl?: string
-): Promise<{ success: boolean; total?: number; count?: number; error?: string }> {
+): Promise<{ success: boolean; total?: number; count?: number; code?: string; error?: string }> {
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromURLs`, {
@@ -347,9 +347,10 @@ export async function importBatch(
         success: true,
         total: json.data?.total || payload.items.length,
         count: json.data?.success || 0,
+        code: json.code,
       };
     }
-    return { success: false, error: json.message || `HTTP ${resp.status}` };
+    return { success: false, code: json.code, error: json.message || `HTTP ${resp.status}` };
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : "Network error";
     return { success: false, error: errorMsg };

@@ -1,7 +1,6 @@
 package core
 
 import (
-	"errors"
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -48,11 +47,11 @@ func (s *Service) GetActiveLibrary() (*LibraryInfo, error) {
 
 func (s *Service) CreateLibrary(parentDir string, libName string) (*LibraryInfo, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	info, err := s.mgr.CreateLibrary(parentDir, libName)
 	if err != nil {
-		return nil, err
+		return nil, WrapAppError(ErrCodeCreateLibDirFailed, err)
 	}
 	if app := s.getApp(); app != nil {
 		app.Event.Emit(LibraryOpenedEvent, info)
@@ -63,11 +62,11 @@ func (s *Service) CreateLibrary(parentDir string, libName string) (*LibraryInfo,
 
 func (s *Service) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	info, err := s.mgr.OpenLibrary(libraryPath)
 	if err != nil {
-		return nil, err
+		return nil, WrapAppError(ErrCodeInvalidLibDir, err)
 	}
 	if app := s.getApp(); app != nil {
 		app.Event.Emit(LibraryOpenedEvent, info)
@@ -82,7 +81,7 @@ func (s *Service) CloseLibrary() error {
 	}
 	err := s.mgr.CloseLibrary()
 	if err != nil {
-		return err
+		return WrapAppError(ErrCodeCloseLibraryFailed, err)
 	}
 	if app := s.getApp(); app != nil {
 		app.Event.Emit(LibraryClosedEvent, "")
@@ -99,14 +98,14 @@ func (s *Service) GetItems(query string, sortOrder string) ([]Item, error) {
 
 func (s *Service) GetItem(id string) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.GetItem(id)
 }
 
 func (s *Service) ImportFiles(sourcePaths []string) ([]Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	app := s.getApp()
 	if app != nil && len(sourcePaths) > 0 {
@@ -133,49 +132,49 @@ func (s *Service) ImportFiles(sourcePaths []string) ([]Item, error) {
 
 func (s *Service) ImportFromBase64(filename string, base64Data string) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.ImportFromBase64(filename, base64Data)
 }
 
 func (s *Service) ImportFromURL(rawURL string) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.ImportFromURL(rawURL)
 }
 
 func (s *Service) ImportFromBase64WithOptions(filename string, base64Data string, opts ImportItemOptions) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.ImportFromBase64WithOptions(filename, base64Data, opts)
 }
 
 func (s *Service) ImportFromURLWithOptions(rawURL string, opts ImportItemOptions) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.ImportFromURLWithOptions(rawURL, opts)
 }
 
 func (s *Service) DeleteItem(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.DeleteItem(id)
 }
 
 func (s *Service) RevealInFinder(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.RevealInFinder(id)
 }
 
 func (s *Service) StartDragItems(ids []string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.StartDragItems(ids)
 }
@@ -185,7 +184,7 @@ func (s *Service) StartDragItems(ids []string) error {
 // so they can be pasted directly into Finder, Explorer, chat apps, or editors.
 func (s *Service) CopyItemsToClipboard(ids []string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.CopyItemsToClipboard(ids)
 }
@@ -215,7 +214,7 @@ func (s *Service) GetAPIServerPort() int {
 func (s *Service) SelectDirectory() (string, error) {
 	app := s.getApp()
 	if app == nil {
-		return "", errors.New("application not initialized")
+		return "", ErrAppNotInitialized
 	}
 	dialog := app.Dialog.OpenFile().
 		CanChooseDirectories(true).
@@ -228,7 +227,7 @@ func (s *Service) SelectDirectory() (string, error) {
 func (s *Service) SelectLibraryDialog() (string, error) {
 	app := s.getApp()
 	if app == nil {
-		return "", errors.New("application not initialized")
+		return "", ErrAppNotInitialized
 	}
 	dialog := app.Dialog.OpenFile().
 		CanChooseDirectories(true).
@@ -254,112 +253,112 @@ func (s *Service) GetFolders() ([]Folder, error) {
 
 func (s *Service) CreateFolder(name string, parentID string) (*Folder, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.CreateFolder(name, parentID)
 }
 
 func (s *Service) RenameFolder(id string, name string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.RenameFolder(id, name)
 }
 
 func (s *Service) DeleteFolder(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.DeleteFolder(id)
 }
 
 func (s *Service) AddItemToFolder(itemID string, folderID string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.AddItemToFolder(itemID, folderID)
 }
 
 func (s *Service) RemoveItemFromFolder(itemID string, folderID string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.RemoveItemFromFolder(itemID, folderID)
 }
 
 func (s *Service) SetItemFolders(itemID string, folderIDs []string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.SetItemFolders(itemID, folderIDs)
 }
 
 func (s *Service) PermanentDeleteItem(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.PermanentDeleteItem(id)
 }
 
 func (s *Service) MoveToTrash(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.MoveToTrash(id)
 }
 
 func (s *Service) BatchMoveToTrash(ids []string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.BatchMoveToTrash(ids)
 }
 
 func (s *Service) RestoreFromTrash(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.RestoreFromTrash(id)
 }
 
 func (s *Service) BatchRestoreFromTrash(ids []string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.BatchRestoreFromTrash(ids)
 }
 
 func (s *Service) EmptyTrash() error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.EmptyTrash()
 }
 
 func (s *Service) GetTrashItems(query string, sortOrder string) ([]Item, error) {
 	if s.mgr == nil {
-		return []Item{}, errors.New("core manager not initialized")
+		return []Item{}, ErrCoreNotInitialized
 	}
 	return s.mgr.GetTrashItems(query, sortOrder)
 }
 
 func (s *Service) GetTrashCount() (int, error) {
 	if s.mgr == nil {
-		return 0, errors.New("core manager not initialized")
+		return 0, ErrCoreNotInitialized
 	}
 	return s.mgr.GetTrashCount()
 }
 
 func (s *Service) MoveItemToFolder(itemID string, fromFolderID string, toFolderID string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.MoveItemToFolder(itemID, fromFolderID, toFolderID)
 }
 
 func (s *Service) ImportFolderRecursively(dirPath string, parentFolderID string) (*Folder, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	app := s.getApp()
 	if app != nil {
@@ -386,7 +385,7 @@ func (s *Service) ImportFolderRecursively(dirPath string, parentFolderID string)
 
 func (s *Service) ImportFoldersRecursively(dirPaths []string, parentFolderID string) ([]Folder, error) {
 	if s.mgr == nil {
-		return []Folder{}, errors.New("core manager not initialized")
+		return []Folder{}, ErrCoreNotInitialized
 	}
 	app := s.getApp()
 	if app != nil && len(dirPaths) > 0 {
@@ -413,77 +412,77 @@ func (s *Service) ImportFoldersRecursively(dirPaths []string, parentFolderID str
 
 func (s *Service) GetTags() ([]Tag, error) {
 	if s.mgr == nil {
-		return []Tag{}, errors.New("core manager not initialized")
+		return []Tag{}, ErrCoreNotInitialized
 	}
 	return s.mgr.GetTags()
 }
 
 func (s *Service) CreateTag(name string) (*Tag, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.CreateTag(name)
 }
 
 func (s *Service) DeleteTag(name string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.DeleteTag(name)
 }
 
 func (s *Service) AddTagToItem(itemID string, tag string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.AddTagToItem(itemID, tag)
 }
 
 func (s *Service) RemoveTagFromItem(itemID string, tag string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.RemoveTagFromItem(itemID, tag)
 }
 
 func (s *Service) SetItemTags(itemID string, tags []string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.SetItemTags(itemID, tags)
 }
 
 func (s *Service) ToggleFavorite(itemID string) (bool, error) {
 	if s.mgr == nil {
-		return false, errors.New("core manager not initialized")
+		return false, ErrCoreNotInitialized
 	}
 	return s.mgr.ToggleFavorite(itemID)
 }
 
 func (s *Service) RenameItem(id string, newName string) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.RenameItem(id, newName)
 }
 
 func (s *Service) OpenWithDefaultApp(id string) error {
 	if s.mgr == nil {
-		return errors.New("core manager not initialized")
+		return ErrCoreNotInitialized
 	}
 	return s.mgr.OpenWithDefaultApp(id)
 }
 
 func (s *Service) SaveItemThumbnail(itemID string, base64Data string, videoWidth int, videoHeight int) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.SaveItemThumbnail(itemID, base64Data, videoWidth, videoHeight)
 }
 
 func (s *Service) UpdateItemDetails(id string, note string, rawURL string, rating int, prompt string) (*Item, error) {
 	if s.mgr == nil {
-		return nil, errors.New("core manager not initialized")
+		return nil, ErrCoreNotInitialized
 	}
 	return s.mgr.UpdateItemDetails(id, note, rawURL, rating, prompt)
 }

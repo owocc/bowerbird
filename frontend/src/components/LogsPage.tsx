@@ -30,7 +30,8 @@ import {
 import type { LogEntry } from "../../bindings/bowerbird/core/models";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { notifySuccess } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 
 type LevelFilter = "all" | "info" | "perf" | "warn" | "error";
 
@@ -158,7 +159,7 @@ export function LogsPage() {
     const ok = await copyTextToClipboard(lines.join("\n"));
     if (ok) {
       setCopied(true);
-      toast.success(t("logs.copiedToast", { count: filteredLogs.length }));
+      notifySuccess(SuccessCodes.COPIED_LOGS, { count: filteredLogs.length });
       window.setTimeout(() => setCopied(false), 1500);
     }
   };

@@ -1,3 +1,4 @@
+import "@/lib/i18n";
 import React from "react";
 import { browser } from "wxt/browser";
 import ReactDOM from "react-dom/client";

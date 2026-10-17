@@ -1,7 +1,6 @@
 package core
 
 import (
-	"errors"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -23,6 +22,19 @@ const settingsWindowName = "settings"
 // open window (main + settings) can restyle itself immediately.
 const ThemeChangedEvent = "theme-changed"
 
+
+// LanguageChangedEvent is broadcast whenever the language changes so every
+// open window (main + settings) can update its translations immediately.
+const LanguageChangedEvent = "language-changed"
+
+func isValidLanguage(lang string) bool {
+	switch lang {
+	case "system", "en", "zh", "zh-CN":
+		return true
+	default:
+		return false
+	}
+}
 func isValidTheme(theme string) bool {
 	switch theme {
 	case ThemeDark, ThemeLight, ThemeSystem:
@@ -49,12 +61,12 @@ func (s *Service) GetTheme() string {
 // to every open window via the application event bus.
 func (s *Service) SetTheme(theme string) error {
 	if !isValidTheme(theme) {
-		return errors.New("invalid theme: " + theme)
+		return NewAppError(ErrCodeInvalidTheme, "invalid theme: "+theme)
 	}
 
 	if s.mgr != nil && s.mgr.userData != nil {
 		if err := s.mgr.userData.SetTheme(theme); err != nil {
-			return err
+			return WrapAppError(ErrCodeInvalidTheme, err)
 		}
 	}
 
@@ -64,12 +76,44 @@ func (s *Service) SetTheme(theme string) error {
 	return nil
 }
 
+// GetLanguage returns the persisted language code, or an empty string when the user
+// has never picked one (letting the frontend fall back to its system/local default).
+func (s *Service) GetLanguage() string {
+	if s.mgr == nil || s.mgr.userData == nil {
+		return ""
+	}
+	lang := s.mgr.userData.GetLanguage()
+	if !isValidLanguage(lang) {
+		return ""
+	}
+	return lang
+}
+
+// SetLanguage validates and persists the language preference, then broadcasts the change
+// to every open window via the application event bus.
+func (s *Service) SetLanguage(language string) error {
+	if !isValidLanguage(language) {
+		return NewAppError(ErrCodeInvalidLanguage, "invalid language: "+language)
+	}
+
+	if s.mgr != nil && s.mgr.userData != nil {
+		if err := s.mgr.userData.SetLanguage(language); err != nil {
+			return WrapAppError(ErrCodeInvalidLanguage, err)
+		}
+	}
+
+	if app := s.getApp(); app != nil {
+		app.Event.Emit(LanguageChangedEvent, language)
+	}
+	return nil
+}
+
 // OpenSettingsWindow opens the settings UI in its own window. Only a single
 // instance is created; later calls simply reveal and focus the existing one.
 func (s *Service) OpenSettingsWindow() error {
 	app := s.getApp()
 	if app == nil {
-		return errors.New("application not initialized")
+		return ErrAppNotInitialized
 	}
 
 	s.settingsMu.Lock()

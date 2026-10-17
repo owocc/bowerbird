@@ -125,6 +125,14 @@ export function GetItems(query: string, sortOrder: string): $CancellablePromise<
 }
 
 /**
+ * GetLanguage returns the persisted language code, or an empty string when the user
+ * has never picked one (letting the frontend fall back to its system/local default).
+ */
+export function GetLanguage(): $CancellablePromise<string> {
+    return $Call.ByID(2277072050);
+}
+
+/**
  * GetLogFilePath returns the absolute path of the on-disk app.log file.
  */
 export function GetLogFilePath(): $CancellablePromise<string> {
@@ -305,6 +313,14 @@ export function SetItemFolders(itemID: string, folderIDs: string[] | null): $Can
 
 export function SetItemTags(itemID: string, tags: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(2432494974, itemID, tags);
+}
+
+/**
+ * SetLanguage validates and persists the language preference, then broadcasts the change
+ * to every open window via the application event bus.
+ */
+export function SetLanguage(language: string): $CancellablePromise<void> {
+    return $Call.ByID(2864601150, language);
 }
 
 export function SetManager(mgr: $models.LibraryManager | null): $CancellablePromise<void> {

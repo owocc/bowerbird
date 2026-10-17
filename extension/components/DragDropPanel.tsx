@@ -1,4 +1,7 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { getErrorMessage, getSuccessMessage } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 import {
   Folder as FolderIcon,
   Inbox,
@@ -26,6 +29,7 @@ export function DragDropPanel({
   onDropMedia,
   onClose,
 }: DragDropPanelProps) {
+  const { t } = useTranslation();
   const [activeHoverSlot, setActiveHoverSlot] = useState<string | null>(null);
   const [dropState, setDropState] = useState<{
     slotId: string;
@@ -84,7 +88,7 @@ export function DragDropPanel({
         slotId,
         folderName,
         status: "error",
-        error: result.error || "Failed to import",
+        error: getErrorMessage(result.error),
       });
       setTimeout(() => {
         setDropState(null);
@@ -102,10 +106,10 @@ export function DragDropPanel({
           </div>
           <div>
             <CardTitle className="text-xs font-semibold text-foreground">
-              Bowerbird Quick Drop
+              {t("dropPanel.title")}
             </CardTitle>
             <div className="text-[10px] text-muted-foreground leading-tight">
-              {status.running ? status.libraryName || "Connected" : "Offline"}
+              {status.running ? status.libraryName || t("popup.status.connected") : t("popup.status.disconnected")}
             </div>
           </div>
         </div>
@@ -115,7 +119,7 @@ export function DragDropPanel({
             variant={status.running ? "success" : "destructive"}
             className="text-[9px] px-1.5 py-0.5"
           >
-            {status.running ? "Active" : "Stopped"}
+            {status.running ? t("popup.status.connected") : t("popup.status.disconnected")}
           </Badge>
           <button
             type="button"
@@ -133,10 +137,10 @@ export function DragDropPanel({
           <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-3.5 text-center flex flex-col items-center gap-1.5">
             <AlertCircle className="size-5 text-destructive" />
             <div className="text-xs font-semibold text-destructive">
-              Bowerbird is not running
+              {t("dropPanel.notRunning")}
             </div>
             <div className="text-[11px] text-muted-foreground leading-relaxed">
-              Please start the desktop app to drop assets into your library.
+              {t("dropPanel.notRunningHint")}
             </div>
           </div>
         )}
@@ -175,14 +179,14 @@ export function DragDropPanel({
                   <div className="text-xs font-semibold text-foreground truncate">
                     {dropState?.slotId === "root"
                       ? dropState.status === "saving"
-                        ? "Saving to Library..."
+                        ? t("dropPanel.saving")
                         : dropState.status === "success"
-                        ? "Saved!"
-                        : dropState.error || "Failed"
-                      : "Quick Save"}
+                        ? t("dropPanel.saved")
+                        : dropState.error || t("dropPanel.failed")
+                      : t("dropPanel.rootFolder")}
                   </div>
                   <div className="text-[10px] text-muted-foreground truncate">
-                    {status.libraryName || "Library Root (Unclassified)"}
+                    {status.libraryName || t("dropPanel.rootFolder")}
                   </div>
                 </div>
               </div>
@@ -198,7 +202,7 @@ export function DragDropPanel({
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between px-1">
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Drop into Folder ({folders.length})
+                  {t("dropPanel.folders")} ({folders.length})
                 </span>
               </div>
 

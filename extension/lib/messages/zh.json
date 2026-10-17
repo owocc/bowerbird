@@ -1,0 +1,100 @@
+{
+  "popup": {
+    "title": "Bowerbird 网页剪藏",
+    "status": {
+      "connected": "已连接",
+      "disconnected": "未连接",
+      "noLibrary": "未选择资源库",
+      "connecting": "正在连接桌面端…",
+      "notRunningDesc": "Bowerbird 桌面端未运行，请先启动应用以保存资源。",
+      "noLibraryDesc": "请在 Bowerbird 桌面端中创建或打开一个资源库。"
+    },
+    "actions": {
+      "captureVisible": "整页可视截图",
+      "captureArea": "区域框选截图",
+      "saveBookmark": "保存网页书签",
+      "batchCollect": "批量提取图片"
+    },
+    "form": {
+      "folder": "保存到文件夹",
+      "defaultFolder": "根目录 / 全部素材",
+      "tags": "标签",
+      "tagPlaceholder": "输入标签后回车添加…",
+      "note": "备注",
+      "notePlaceholder": "添加备注或说明…",
+      "apiUrl": "接口服务地址",
+      "saveSettings": "保存设置",
+      "resetDefault": "恢复默认",
+      "settings": "配置设置",
+      "retry": "重试连接"
+    },
+    "toasts": {
+      "noActiveTab": "未检测到当前网页",
+      "settingsSaved": "设置已保存",
+      "connectFailed": "无法连接至 Bowerbird 桌面端"
+    }
+  },
+  "dropPanel": {
+    "title": "保存至 Bowerbird",
+    "subtitle": "拖入文件夹即可完成归类导入",
+    "rootFolder": "全部素材 (根目录)",
+    "folders": "文件夹",
+    "saving": "正在保存至 Bowerbird…",
+    "saved": "保存成功！",
+    "failed": "保存失败",
+    "notRunning": "桌面端未启动",
+    "notRunningHint": "请先启动 Bowerbird 桌面客户端",
+    "noActiveLibrary": "未选择资源库",
+    "noActiveLibraryHint": "请在桌面端打开资源库"
+  },
+  "batch": {
+    "title": "网页图片批量提取",
+    "selected": "已选 {{selected}} / {{total}}",
+    "minWidth": "最小宽度: {{width}}px",
+    "selectAll": "全选",
+    "deselectAll": "取消全选",
+    "targetFolder": "目标文件夹",
+    "rootFolder": "全部素材 (根目录)",
+    "importButton": "导入选中的 {{count}} 张图片",
+    "importing": "正在导入…",
+    "noImages": "当前页面未发现符合条件的图片",
+    "selectPrompt": "请至少勾选一张图片"
+  },
+  "area": {
+    "instruction": "拖拽鼠标框选截图区域 · 按 Esc 取消",
+    "save": "保存截图",
+    "cancel": "取消",
+    "saving": "保存中…"
+  },
+  "contextMenu": {
+    "saveImage": "保存图片至 Bowerbird",
+    "saveLink": "保存链接至 Bowerbird",
+    "captureScreenshot": "截取可视区域至 Bowerbird",
+    "batchCollect": "批量提取当前页面图片"
+  },
+  "codes": {
+    "error": {
+      "ERR_CORE_NOT_INITIALIZED": "核心服务未初始化",
+      "ERR_APP_NOT_INITIALIZED": "桌面应用未就绪",
+      "ERR_NO_ACTIVE_LIBRARY": "Bowerbird 桌面端未打开资源库",
+      "ERR_UNKNOWN": "操作失败: {{error}}",
+      "ERR_INVALID_REQUEST": "无效的请求参数",
+      "ERR_METHOD_NOT_ALLOWED": "不支持的请求方法",
+      "ERR_ITEM_NOT_FOUND": "未找到指定资源",
+      "ERR_FOLDER_NOT_FOUND": "未找到指定文件夹",
+      "ERR_FOLDER_NAME_EMPTY": "文件夹名称不能为空",
+      "ERR_INVALID_URL": "无效或不支持的网址",
+      "ERR_FETCH_REMOTE_FAILED": "抓取远程资源失败",
+      "ERR_INVALID_BASE64": "无效的 Base64 图片数据",
+      "ERR_IMPORT_FAILED": "导入失败"
+    },
+    "success": {
+      "SUCCESS_OK": "操作已成功完成",
+      "SUCCESS_FOLDER_CREATED": "文件夹创建成功",
+      "SUCCESS_ITEMS_IMPORTED": "成功导入 {{count}} 个素材",
+      "SUCCESS_BOOKMARK_SAVED": "书签已成功保存至 Bowerbird",
+      "SUCCESS_SCREENSHOT_SAVED": "截图已成功保存至 Bowerbird",
+      "SUCCESS_SETTINGS_SAVED": "设置已保存"
+    }
+  }
+}

@@ -1,4 +1,7 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { getErrorMessage, getSuccessMessage } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 import {
   Download,
   X,
@@ -37,6 +40,7 @@ export function BatchCollectorModal({
   onImport,
   onClose,
 }: BatchCollectorModalProps) {
+  const { t } = useTranslation();
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(
     new Set(images.map((it) => it.url))
   );
@@ -67,8 +71,7 @@ export function BatchCollectorModal({
 
   const handleStartImport = async () => {
     if (selectedUrls.size === 0) {
-      setFeedback({ message: "Please select at least one image", isError: true });
-      setTimeout(() => setFeedback(null), 2500);
+      setFeedback({ message: t("batch.selectPrompt"), isError: true });
       return;
     }
 
@@ -77,12 +80,12 @@ export function BatchCollectorModal({
     setIsImporting(false);
 
     if (result.success) {
-      setFeedback({ message: `✓ Imported ${result.count || selectedUrls.size} images to Bowerbird` });
+      setFeedback({ message: `✓ ${getSuccessMessage(SuccessCodes.ITEMS_IMPORTED, { count: result.count || selectedUrls.size })}` });
       setTimeout(() => {
         onClose();
       }, 1200);
     } else {
-      setFeedback({ message: result.error || "Failed to import", isError: true });
+      setFeedback({ message: getErrorMessage(result.error), isError: true });
       setTimeout(() => setFeedback(null), 3000);
     }
   };
@@ -97,9 +100,9 @@ export function BatchCollectorModal({
           </div>
           <div>
             <div className="font-semibold text-sm tracking-tight text-foreground flex items-center gap-2">
-              <span>Bowerbird Batch Collector</span>
+              <span>{t("batch.title")}</span>
               <Badge variant="secondary" className="font-mono text-[10px]">
-                {images.length} found
+                {images.length}
               </Badge>
             </div>
             <div className="text-[11px] text-muted-foreground">
@@ -116,7 +119,7 @@ export function BatchCollectorModal({
             className="text-muted-foreground hover:text-foreground h-8 gap-1.5"
           >
             <X className="size-4" />
-            <span>Close</span>
+            <span>{t("common.close")}</span>
           </Button>
         </div>
       </div>
@@ -136,7 +139,7 @@ export function BatchCollectorModal({
               <Square className="size-3.5 text-muted-foreground" />
             )}
             <span>
-              Select All ({selectedUrls.size}/{filteredImages.length})
+              {selectedUrls.size === filteredImages.length ? t("batch.deselectAll") : t("batch.selectAll")} ({selectedUrls.size}/{filteredImages.length})
             </span>
           </Button>
 
@@ -144,7 +147,7 @@ export function BatchCollectorModal({
 
           {/* Size Filter */}
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Min Width:</span>
+            <span className="text-muted-foreground">{t("batch.minWidth", { width: minWidth })}:</span>
             <select
               value={minWidth}
               onChange={(e) => setMinWidth(Number(e.target.value))}
@@ -160,13 +163,13 @@ export function BatchCollectorModal({
 
           {/* Target Folder */}
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground">Folder:</span>
+            <span className="text-muted-foreground">{t("batch.targetFolder")}:</span>
             <select
               value={selectedFolder}
               onChange={(e) => setSelectedFolder(e.target.value)}
               className="h-8 rounded-xl border border-input/60 bg-card px-2.5 text-xs text-foreground outline-none cursor-pointer max-w-[180px] truncate focus-visible:ring-2 focus-visible:ring-ring/30"
             >
-              <option value="">(Uncategorized)</option>
+              <option value="">{t("batch.rootFolder")}</option>
               {folders.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
@@ -202,7 +205,7 @@ export function BatchCollectorModal({
             ) : (
               <Download className="size-3.5" />
             )}
-            <span>Import Selected ({selectedUrls.size})</span>
+            <span>{isImporting ? t("batch.importing") : t("batch.importButton", { count: selectedUrls.size })}</span>
           </Button>
         </div>
       </div>

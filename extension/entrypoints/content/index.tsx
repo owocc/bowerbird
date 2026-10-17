@@ -1,3 +1,7 @@
+import "@/lib/i18n";
+import i18n from "@/lib/i18n";
+import { getErrorMessage, getSuccessMessage } from "@/lib/notify";
+import { SuccessCodes } from "@/lib/error-codes";
 import React from "react";
 import { browser } from "wxt/browser";
 import ReactDOM from "react-dom/client";
@@ -50,7 +54,7 @@ async function openBatchCollector() {
 
   const images = scanPageImages();
   if (images.length === 0) {
-    showShadowToast("No images found on this page", true);
+    showShadowToast(i18n.t("batch.noImages"), true);
     return;
   }
 
@@ -209,9 +213,9 @@ function startAreaSelection() {
 
             if (importRes.success) {
               browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
-              showShadowToast("✓ Area saved to Bowerbird");
+              showShadowToast(`✓ ${getSuccessMessage(SuccessCodes.SCREENSHOT_SAVED)}`);
             } else {
-              showShadowToast(importRes.error || "Failed to save", true);
+              showShadowToast(getErrorMessage(importRes.code || importRes.error), true);
             }
           };
           img.src = res.dataUrl;

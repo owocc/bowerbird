@@ -61,7 +61,8 @@ import {
   itemMatchesColorFilter,
   UNCATEGORIZED_FOLDER_FILTER,
 } from "@/components/FilterBar";
-import { toast } from "sonner";
+import { notifySuccess, notifyError } from "@/lib/notify";
+import { SuccessCodes, ErrorCodes } from "@/lib/error-codes";
 import {
   GetItems,
   GetTrashItems,
@@ -1006,10 +1007,10 @@ export function LibraryWorkspace({
       setSelectedOrder([]);
       setActiveItemId(null);
       await handleFullRefresh();
-      toast.success(t("workspace.emptyTrashSuccess"));
+      notifySuccess(SuccessCodes.EMPTY_TRASH);
     } catch (err) {
       console.error("Failed to empty trash:", err);
-    } finally {
+      notifyError(err);
       setIsEmptyingTrash(false);
     }
   };
@@ -1071,10 +1072,10 @@ export function LibraryWorkspace({
       if (targets.length === 0) return;
       try {
         await CopyItemsToClipboard(targets.map((i) => i.id));
-        toast.success(t("workspace.copiedItems", { count: targets.length }));
+        notifySuccess(SuccessCodes.COPIED_TO_CLIPBOARD, { count: targets.length });
       } catch (err) {
         console.error("Failed to copy items to clipboard:", err);
-        toast.error(t("workspace.copyFailed"));
+        notifyError(err);
       }
     },
     [ws.preview, previewActiveItem, selectedItems, activeItem, t]
@@ -1100,9 +1101,9 @@ export function LibraryWorkspace({
       if (paths.length === 0) return;
       const ok = await copyTextToClipboard(paths.join("\n"));
       if (ok) {
-        toast.success(t("workspace.pathsCopied", { count: paths.length }));
+        notifySuccess(paths.length === 1 ? SuccessCodes.PATH_COPIED : SuccessCodes.PATHS_COPIED, { count: paths.length });
       } else {
-        toast.error(t("workspace.copyFailed"));
+        notifyError(ErrorCodes.COPY_TO_CLIPBOARD_FAILED);
       }
     },
     [selectedItems, activeItem, t]
@@ -1122,8 +1123,8 @@ export function LibraryWorkspace({
     try {
       const nowFav = await ToggleFavorite(item.id);
       await handleFullRefresh();
-      toast.success(
-        nowFav ? t("workspace.favoriteAdded") : t("workspace.favoriteRemoved")
+      notifySuccess(
+        nowFav ? SuccessCodes.FAVORITE_ADDED : SuccessCodes.FAVORITE_REMOVED
       );
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
@@ -1199,10 +1200,10 @@ export function LibraryWorkspace({
         navigateToFolder(null);
       }
       await handleFullRefresh();
-      toast.success(t("workspace.folderDeleted"));
+      notifySuccess(SuccessCodes.FOLDER_DELETED);
     } catch (err) {
       console.error("Failed to delete folder:", err);
-      toast.error(t("workspace.folderDeleteFailed"));
+      notifyError(err);
     }
   };
 
@@ -1215,9 +1216,10 @@ export function LibraryWorkspace({
       const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
       await MoveItemToFolder(itemId, cleanFrom, toFolderId);
       await handleFullRefresh();
-      toast.success(t("workspace.itemMoved"));
+      notifySuccess(SuccessCodes.ITEM_MOVED);
     } catch (err) {
       console.error("Failed to move item:", err);
+      notifyError(err);
     }
   };
 
@@ -1234,9 +1236,10 @@ export function LibraryWorkspace({
         await MoveItemToFolder(id, cleanFrom, toFolderId);
       }
       await handleFullRefresh();
-      toast.success(t("workspace.itemMoved"));
+      notifySuccess(SuccessCodes.ITEM_MOVED);
     } catch (err) {
       console.error("Failed to move items to folder:", err);
+      notifyError(err);
     }
   };
 
@@ -1541,7 +1544,7 @@ export function LibraryWorkspace({
                   onDropItemOnTrash={async (ids) => {
                     await BatchMoveToTrash(ids);
                     await handleFullRefresh();
-                    toast.success(t("workspace.movedToTrash"));
+                    notifySuccess(SuccessCodes.MOVED_TO_TRASH);
                   }}
                   onEmptyTrash={handleRequestEmptyTrash}
                   onCloseLibrary={async () => {

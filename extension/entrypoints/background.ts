@@ -1,5 +1,6 @@
 import { defineBackground } from "wxt/utils/define-background";
 import { browser } from "wxt/browser";
+import i18n from "@/lib/i18n";
 import {
   checkAppRunning,
   checkConnection,
@@ -17,25 +18,25 @@ export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
     browser.contextMenus.create({
       id: "bowerbird-save-image",
-      title: "Save Image to Bowerbird",
+      title: i18n.t("contextMenu.saveImage"),
       contexts: ["image"],
     });
 
     browser.contextMenus.create({
       id: "bowerbird-save-link",
-      title: "Save Link to Bowerbird",
+      title: i18n.t("contextMenu.saveLink"),
       contexts: ["link"],
     });
 
     browser.contextMenus.create({
       id: "bowerbird-save-screenshot",
-      title: "Capture Visible Screen to Bowerbird",
+      title: i18n.t("contextMenu.captureScreenshot"),
       contexts: ["page"],
     });
 
     browser.contextMenus.create({
       id: "bowerbird-batch-collect",
-      title: "Batch Save Page Images...",
+      title: i18n.t("contextMenu.batchCollect"),
       contexts: ["page"],
     });
   });

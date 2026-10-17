@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, X, Crop, Loader2 } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
@@ -9,6 +10,7 @@ export interface AreaSelectionOverlayProps {
 }
 
 export function AreaSelectionOverlay({ onConfirm, onCancel }: AreaSelectionOverlayProps) {
+  const { t } = useTranslation();
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [currentPos, setCurrentPos] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
@@ -68,6 +70,11 @@ export function AreaSelectionOverlay({ onConfirm, onCancel }: AreaSelectionOverl
       onMouseUp={handleMouseUp}
       className="fixed inset-0 z-[2147483647] cursor-crosshair select-none bg-black/40 font-sans"
     >
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 pointer-events-none z-50">
+        <div className="rounded-full bg-black/75 px-4 py-1.5 text-xs text-white backdrop-blur border border-white/20 shadow-lg">
+          {t("area.instruction")}
+        </div>
+      </div>
       {/* Selection Box */}
       {startPos && currentPos && width > 4 && height > 4 && (
         <div
@@ -100,7 +107,7 @@ export function AreaSelectionOverlay({ onConfirm, onCancel }: AreaSelectionOverl
                 className="h-6 px-2 text-xs gap-1"
               >
                 <X className="size-3" />
-                <span>Cancel</span>
+                <span>{t("area.cancel")}</span>
               </Button>
               <Button
                 variant="default"
@@ -114,7 +121,7 @@ export function AreaSelectionOverlay({ onConfirm, onCancel }: AreaSelectionOverl
                 ) : (
                   <Check className="size-3" />
                 )}
-                <span>Save Area</span>
+                <span>{isSaving ? t("area.saving") : t("area.save")}</span>
               </Button>
             </div>
           )}

@@ -1,4 +1,8 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
+import "@/lib/i18n";
+import { getErrorMessage, getSuccessMessage } from "@/lib/notify";
+import { SuccessCodes, ErrorCodes } from "@/lib/error-codes";
 import { browser } from "wxt/browser";
 import {
   Camera,
@@ -37,6 +41,7 @@ import {
 } from "@/lib/api";
 
 export function App() {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<APIStatusResult>({ connected: false });
   const [isChecking, setIsChecking] = useState<boolean>(true);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -98,7 +103,7 @@ export function App() {
   // 1. Capture Visible Screen
   const handleCaptureVisible = async () => {
     if (!status?.connected) {
-      showToast("Cannot connect to Bowerbird", true);
+      showToast(getErrorMessage(ErrorCodes.NO_ACTIVE_LIBRARY), true);
       return;
     }
     setActionLoading("visible");
@@ -123,14 +128,13 @@ export function App() {
       );
 
       if (res.success) {
-        showToast("✓ Screenshot saved to Bowerbird");
+        showToast(getSuccessMessage(SuccessCodes.SCREENSHOT_SAVED));
         browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
       } else {
-        showToast(res.error || "Failed to save", true);
+        showToast(getErrorMessage(res.code || res.error), true);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error capturing screen";
-      showToast(msg, true);
+      showToast(getErrorMessage(err), true);
     } finally {
       setActionLoading(null);
     }
@@ -140,7 +144,7 @@ export function App() {
   const handleCaptureArea = async () => {
     const tab = await getActiveTab();
     if (!tab?.id) {
-      showToast("No active tab", true);
+      showToast(t("popup.toasts.noActiveTab"), true);
       return;
     }
     try {
@@ -161,7 +165,7 @@ export function App() {
   // 3. Save Bookmark
   const handleSaveBookmark = async () => {
     if (!status?.connected) {
-      showToast("Cannot connect to Bowerbird", true);
+      showToast(getErrorMessage(ErrorCodes.NO_ACTIVE_LIBRARY), true);
       return;
     }
     setActionLoading("bookmark");
@@ -187,14 +191,13 @@ export function App() {
       );
 
       if (res.success) {
-        showToast("✓ Bookmark saved to Bowerbird");
+        showToast(getSuccessMessage(SuccessCodes.BOOKMARK_SAVED));
         browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
       } else {
-        showToast(res.error || "Failed to save", true);
+        showToast(getErrorMessage(res.code || res.error), true);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error saving bookmark";
-      showToast(msg, true);
+      showToast(getErrorMessage(err), true);
     } finally {
       setActionLoading(null);
     }
@@ -204,7 +207,7 @@ export function App() {
   const handleOpenBatchCollector = async () => {
     const tab = await getActiveTab();
     if (!tab?.id) {
-      showToast("No active tab", true);
+      showToast(t("popup.toasts.noActiveTab"), true);
       return;
     }
     try {
@@ -240,7 +243,7 @@ export function App() {
     await loadData(apiUrl);
     setIsSavingSettings(false);
     setShowSettings(false);
-    showToast("Settings updated");
+    showToast(getSuccessMessage(SuccessCodes.SETTINGS_SAVED));
   };
 
   return (
@@ -253,9 +256,9 @@ export function App() {
           </div>
           <div>
             <div className="font-semibold text-xs tracking-tight text-foreground">
-              Bowerbird Clipper
+              {t("popup.title")}
             </div>
-            <div className="text-[10px] text-muted-foreground">Desktop Companion</div>
+            <div className="text-[10px] text-muted-foreground">{status?.connected ? (status.libraryName || t("popup.status.connected")) : t("popup.status.disconnected")}</div>
           </div>
         </div>
 
@@ -265,7 +268,7 @@ export function App() {
             size="icon-xs"
             onClick={() => setShowSettings(!showSettings)}
             className={cn(showSettings && "bg-muted text-foreground")}
-            title="Settings"
+            title={t("popup.form.settings")}
           >
             <Settings className="size-3.5" />
           </Button>
@@ -295,8 +298,8 @@ export function App() {
           </span>
           <span className="text-[11px] font-medium truncate">
             {status?.connected
-              ? `Connected: ${status.libraryName || "Active Library"}`
-              : "Disconnected from Bowerbird"}
+              ? `${t("popup.status.connected")}: ${status.libraryName || t("dropPanel.rootFolder")}`
+              : t("popup.status.disconnected")}
           </span>
         </div>
 
@@ -306,7 +309,7 @@ export function App() {
           onClick={() => loadData(apiUrl)}
           disabled={isChecking}
           className="text-muted-foreground hover:text-foreground shrink-0"
-          title="Retry Connection"
+          title={t("popup.form.retry")}
         >
           <RefreshCw className={cn("size-3", isChecking && "animate-spin")} />
         </Button>
@@ -317,7 +320,7 @@ export function App() {
         <Card className="bg-card/70 border-border/80">
           <CardHeader className="p-3 pb-2">
             <CardTitle className="text-[11px] font-semibold text-muted-foreground">
-              Desktop API Endpoint
+              {t("popup.form.apiUrl")}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-3 pt-0 flex gap-2">
@@ -335,7 +338,7 @@ export function App() {
               disabled={isSavingSettings}
               className="h-7 text-xs px-3"
             >
-              Save
+              {t("popup.form.saveSettings")}
             </Button>
           </CardContent>
         </Card>
@@ -353,8 +356,8 @@ export function App() {
             <Camera className="size-4" />
           </div>
           <div className="mt-1">
-            <div className="text-xs font-semibold text-foreground">Visible Area</div>
-            <div className="text-[10px] text-muted-foreground">Capture screen</div>
+            <div className="text-xs font-semibold text-foreground">{t("popup.actions.captureVisible")}</div>
+            <div className="text-[10px] text-muted-foreground">{t("popup.actions.captureVisible")}</div>
           </div>
         </button>
 
@@ -368,8 +371,8 @@ export function App() {
             <Crop className="size-4" />
           </div>
           <div className="mt-1">
-            <div className="text-xs font-semibold text-foreground">Selected Area</div>
-            <div className="text-[10px] text-muted-foreground">Crop region</div>
+            <div className="text-xs font-semibold text-foreground">{t("popup.actions.captureArea")}</div>
+            <div className="text-[10px] text-muted-foreground">{t("popup.actions.captureArea")}</div>
           </div>
         </button>
 
@@ -383,8 +386,8 @@ export function App() {
             <Bookmark className="size-4" />
           </div>
           <div className="mt-1">
-            <div className="text-xs font-semibold text-foreground">Web Bookmark</div>
-            <div className="text-[10px] text-muted-foreground">Save link card</div>
+            <div className="text-xs font-semibold text-foreground">{t("popup.actions.saveBookmark")}</div>
+            <div className="text-[10px] text-muted-foreground">{t("popup.actions.saveBookmark")}</div>
           </div>
         </button>
 
@@ -398,8 +401,8 @@ export function App() {
             <Layers className="size-4" />
           </div>
           <div className="mt-1">
-            <div className="text-xs font-semibold text-foreground">Batch Grabber</div>
-            <div className="text-[10px] text-muted-foreground">Extract all media</div>
+            <div className="text-xs font-semibold text-foreground">{t("popup.actions.batchCollect")}</div>
+            <div className="text-[10px] text-muted-foreground">{t("popup.actions.batchCollect")}</div>
           </div>
         </button>
       </div>
@@ -410,14 +413,14 @@ export function App() {
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <FolderIcon className="size-3 text-primary" />
-          <span>Save to Folder</span>
+          <span>{t("popup.form.folder")}</span>
         </div>
         <select
           value={selectedFolder}
           onChange={(e) => setSelectedFolder(e.target.value)}
           className="w-full rounded-xl border border-input/60 bg-muted/40 px-2.5 py-1.5 text-xs text-foreground outline-none transition-all focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 cursor-pointer"
         >
-          <option value="">(Uncategorized)</option>
+          <option value="">{t("popup.form.defaultFolder")}</option>
           {folders.map((f) => (
             <option key={f.id} value={f.id}>
               {f.name}
@@ -430,7 +433,7 @@ export function App() {
       <div className="space-y-1.5">
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <TagIcon className="size-3 text-primary" />
-          <span>Tags</span>
+          <span>{t("popup.form.tags")}</span>
         </div>
 
         {selectedTags.length > 0 && (
@@ -456,7 +459,7 @@ export function App() {
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
-            placeholder="Add tag and press Enter..."
+            placeholder={t("popup.form.tagPlaceholder")}
             className="h-7 text-xs"
           />
           <Button
@@ -476,7 +479,7 @@ export function App() {
         <Textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Optional notes or annotation..."
+          placeholder={t("popup.form.notePlaceholder")}
           rows={2}
           className="min-h-[50px] text-xs"
         />

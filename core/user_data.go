@@ -14,6 +14,7 @@ type UserData struct {
 	RecentLibraries   []string `json:"recentLibraries"`
 	// Theme is the persisted colour mode: "dark", "light" or "system".
 	Theme     string `json:"theme,omitempty"`
+	Language  string `json:"language,omitempty"`
 	UpdatedAt int64  `json:"updatedAt"`
 }
 
@@ -144,6 +145,23 @@ func (s *UserDataStore) SetTheme(theme string) error {
 	defer s.mu.Unlock()
 
 	s.data.Theme = theme
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// GetLanguage returns the persisted language code (may be empty on first run).
+func (s *UserDataStore) GetLanguage() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.Language
+}
+
+// SetLanguage persists the language code and saves atomically.
+func (s *UserDataStore) SetLanguage(language string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data.Language = language
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }

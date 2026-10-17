@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Events } from "@wailsio/runtime";
 import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
 import { isInternalDragActive } from "../lib/drag-state";
-import { toast } from "sonner";
+import { notifySuccess, notifyError } from "@/lib/notify";
+import { SuccessCodes, ErrorCodes } from "@/lib/error-codes";
 import { useTranslation } from "react-i18next";
 
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
@@ -161,7 +162,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         message: null,
       });
       if (count > 0) {
-        toast.success(t("importing.importedAssets", { count }));
+        notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count });
       }
       onRefresh(ids);
       clearTimer();
@@ -181,7 +182,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         filename: "",
         message: null,
       });
-      toast.error(t("importing.failed", { error: msg }));
+      notifyError(msg);
       clearTimer();
     });
 
@@ -316,7 +317,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
             message: null,
           });
           if (ids.length > 0) {
-            toast.success(t("importing.importedAssets", { count: ids.length }));
+            notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: ids.length });
             await onRefresh(ids);
           }
           return ids;
@@ -328,7 +329,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
             filename: "",
             message: null,
           });
-          toast.error(t("importing.failed", { error: String(err) }));
+          notifyError(err);
           return [];
         }
       }
@@ -377,7 +378,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
           filename: "",
           message: t("importing.importedFiles", { count: importedIds.length }),
         });
-        toast.success(t("importing.importedAssets", { count: importedIds.length }));
+        notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: importedIds.length });
         await onRefresh(importedIds);
       } else {
         setState({
@@ -387,7 +388,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
           filename: "",
           message: null,
         });
-        toast.error(t("importing.failed", { error: t("importing.unknownError") }));
+        notifyError(ErrorCodes.IMPORT_FAILED);
       }
       clearTimer();
       resetTimer.current = window.setTimeout(() => {
@@ -420,7 +421,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
             filename: item.filename,
             message: t("importing.remoteImported", { name: item.name }),
           });
-          toast.success(t("importing.importedAssets", { count: 1 }));
+          notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: 1 });
           await onRefresh([item.id]);
         }
       } catch (err) {

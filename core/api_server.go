@@ -13,6 +13,7 @@ import (
 // APIResponse wraps responses in standard JSON envelope compatible with extensions.
 type APIResponse struct {
 	Status  string `json:"status"` // "success" or "error"
+	Code    string `json:"code,omitempty"`
 	Data    any    `json:"data,omitempty"`
 	Message string `json:"message,omitempty"`
 }
@@ -24,11 +25,23 @@ func writeJSON(w http.ResponseWriter, status int, resp APIResponse) {
 }
 
 func writeSuccess(w http.ResponseWriter, data any) {
-	writeJSON(w, http.StatusOK, APIResponse{Status: "success", Data: data})
+	writeJSON(w, http.StatusOK, APIResponse{Status: "success", Code: SuccessCodeOK, Data: data})
 }
 
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, APIResponse{Status: "error", Message: message})
+func writeSuccessWithCode(w http.ResponseWriter, code string, data any) {
+	writeJSON(w, http.StatusOK, APIResponse{Status: "success", Code: code, Data: data})
+}
+
+func writeError(w http.ResponseWriter, status int, code string, message string) {
+	writeJSON(w, status, APIResponse{Status: "error", Code: code, Message: message})
+}
+
+func writeAppError(w http.ResponseWriter, status int, err error) {
+	if appErr, ok := err.(*AppError); ok {
+		writeError(w, status, appErr.Code, appErr.Message)
+		return
+	}
+	writeError(w, status, ErrCodeUnknown, err.Error())
 }
 
 // registerAPIRoutes registers all Open API endpoints for browser extensions.
@@ -58,7 +71,7 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 // handleAPIPing provides a lightweight check to determine if the desktop application is running.
 func (s *AssetServer) handleAPIPing(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 	writeSuccess(w, map[string]any{
@@ -72,7 +85,7 @@ func (s *AssetServer) handleAPIPing(w http.ResponseWriter, r *http.Request) {
 // handleAPIHealth provides a health check endpoint reporting whether the app is running and library status.
 func (s *AssetServer) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 	var activeLib *LibraryInfo
@@ -90,7 +103,7 @@ func (s *AssetServer) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 // handleAPIInfo returns system status, version, and currently active library details.
 func (s *AssetServer) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
@@ -112,18 +125,18 @@ func (s *AssetServer) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
 // handleAPIFolders returns the full folder hierarchy of the active library.
 func (s *AssetServer) handleAPIFolders(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
 	folders, err := s.manager.GetFolders()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if folders == nil {
@@ -135,12 +148,12 @@ func (s *AssetServer) handleAPIFolders(w http.ResponseWriter, r *http.Request) {
 // handleAPIFolderCreate creates a new folder in the active library.
 func (s *AssetServer) handleAPIFolderCreate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
@@ -149,37 +162,37 @@ func (s *AssetServer) handleAPIFolderCreate(w http.ResponseWriter, r *http.Reque
 		ParentID string `json:"parentId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request body")
 		return
 	}
 	if strings.TrimSpace(req.Name) == "" {
-		writeError(w, http.StatusBadRequest, "folder name cannot be empty")
+		writeError(w, http.StatusBadRequest, ErrCodeFolderNameEmpty, "folder name cannot be empty")
 		return
 	}
 
 	folder, err := s.manager.CreateFolder(req.Name, req.ParentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeSuccess(w, folder)
+	writeSuccessWithCode(w, SuccessCodeFolderCreated, folder)
 }
 
 // handleAPITags returns the tags taxonomy.
 func (s *AssetServer) handleAPITags(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
 	tags, err := s.manager.GetTags()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if tags == nil {
@@ -248,52 +261,52 @@ func (req *ItemImportRequest) ToOptions() ImportItemOptions {
 // handleAPIItemAddFromURL imports a remote asset from URL.
 func (s *AssetServer) handleAPIItemAddFromURL(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
 	var req ItemImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request body")
 		return
 	}
 
 	targetURL := strings.TrimSpace(req.URL)
 	if targetURL == "" {
-		writeError(w, http.StatusBadRequest, "missing url field")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidURL, "missing url field")
 		return
 	}
 
 	opts := req.ToOptions()
 	item, err := s.manager.ImportFromURLWithOptions(targetURL, opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	writeSuccess(w, item)
+	writeSuccessWithCode(w, SuccessCodeItemsImported, item)
 }
 
 // handleAPIItemAddFromBase64 imports binary data provided in Base64 (e.g. screenshots or canvas captures).
 func (s *AssetServer) handleAPIItemAddFromBase64(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
 	var req ItemImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request body")
 		return
 	}
 
@@ -302,7 +315,7 @@ func (s *AssetServer) handleAPIItemAddFromBase64(w http.ResponseWriter, r *http.
 		rawB64 = req.Data
 	}
 	if strings.TrimSpace(rawB64) == "" {
-		writeError(w, http.StatusBadRequest, "missing base64 data")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidBase64, "missing base64 data")
 		return
 	}
 
@@ -316,28 +329,28 @@ func (s *AssetServer) handleAPIItemAddFromBase64(w http.ResponseWriter, r *http.
 
 	item, err := s.manager.ImportFromBase64WithOptions(filename, rawB64, opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	writeSuccess(w, item)
+	writeSuccessWithCode(w, SuccessCodeScreenshotSaved, item)
 }
 
 // handleAPIItemAddBookmark saves a bookmark item with source link and screenshot/card thumbnail.
 func (s *AssetServer) handleAPIItemAddBookmark(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
 	var req ItemImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request body")
 		return
 	}
 
@@ -346,7 +359,7 @@ func (s *AssetServer) handleAPIItemAddBookmark(w http.ResponseWriter, r *http.Re
 		pageURL = strings.TrimSpace(req.Website)
 	}
 	if pageURL == "" {
-		writeError(w, http.StatusBadRequest, "missing url field")
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidURL, "missing url field")
 		return
 	}
 
@@ -391,22 +404,22 @@ func (s *AssetServer) handleAPIItemAddBookmark(w http.ResponseWriter, r *http.Re
 
 	item, err := s.manager.ImportFromBase64WithOptions(filename, rawB64, opts)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	writeSuccess(w, item)
+	writeSuccessWithCode(w, SuccessCodeBookmarkSaved, item)
 }
 
 // handleAPIItemAddFromURLs imports multiple URLs in batch with worker concurrency.
 func (s *AssetServer) handleAPIItemAddFromURLs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
@@ -435,7 +448,7 @@ func (s *AssetServer) handleAPIItemAddFromURLs(w http.ResponseWriter, r *http.Re
 		if listErr := json.Unmarshal(bodyBytes, &rawList); listErr == nil && len(rawList) > 0 {
 			batchPayload.Items = rawList
 		} else {
-			writeError(w, http.StatusBadRequest, "invalid batch payload")
+			writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid batch payload")
 			return
 		}
 	}
@@ -511,12 +524,12 @@ func (s *AssetServer) handleAPIItemAddFromURLs(w http.ResponseWriter, r *http.Re
 // handleAPIItemList lists items in the active library.
 func (s *AssetServer) handleAPIItemList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		writeError(w, http.StatusServiceUnavailable, "no active library")
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
 		return
 	}
 
@@ -524,7 +537,7 @@ func (s *AssetServer) handleAPIItemList(w http.ResponseWriter, r *http.Request) 
 	sortOrder := r.URL.Query().Get("sortOrder")
 	items, err := s.manager.GetItems(q, sortOrder)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAppError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if items == nil {

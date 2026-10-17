@@ -16,6 +16,8 @@ import {
   CloseSetupWindow,
 } from "../../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../../bindings/bowerbird/core/models";
+import { getErrorMessage, notifyError, notifySuccess } from "@/lib/notify";
+import { SuccessCodes, ErrorCodes } from "@/lib/error-codes";
 
 interface LibrarySetupProps {
   onLibraryOpened?: (lib: LibraryInfo) => void;
@@ -45,7 +47,9 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
         setParentDir(selected);
       }
     } catch (err) {
-      setError(t("setup.errors.selectDirectory", { error: String(err) }));
+      const msg = getErrorMessage(err);
+      setError(msg);
+      notifyError(err);
     }
   };
 
@@ -57,7 +61,9 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
       return;
     }
     if (!libName.trim()) {
-      setError(t("setup.errors.enterName"));
+      const msg = getErrorMessage(ErrorCodes.LIB_NAME_REQUIRED);
+      setError(msg);
+      notifyError(ErrorCodes.LIB_NAME_REQUIRED);
       return;
     }
 
@@ -66,10 +72,13 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
     try {
       const lib = await CreateLibrary(parentDir, libName.trim());
       if (lib) {
+        notifySuccess(SuccessCodes.LIBRARY_CREATED);
         handleOpened(lib);
       }
     } catch (err) {
-      setError(t("setup.errors.createLibrary", { error: String(err) }));
+      const msg = getErrorMessage(err);
+      setError(msg);
+      notifyError(err);
     } finally {
       setLoading(false);
     }
@@ -84,11 +93,14 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
       if (selected) {
         const lib = await OpenLibrary(selected);
         if (lib) {
+          notifySuccess(SuccessCodes.LIBRARY_OPENED);
           handleOpened(lib);
         }
       }
     } catch (err) {
-      setError(t("setup.errors.openLibrary", { error: String(err) }));
+      const msg = getErrorMessage(err);
+      setError(msg);
+      notifyError(err);
     } finally {
       setLoading(false);
     }
