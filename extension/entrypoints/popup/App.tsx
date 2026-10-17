@@ -10,11 +10,17 @@ import {
   AlertCircle,
   Folder as FolderIcon,
   Tag as TagIcon,
-  ChevronRight,
-  Globe,
   Plus,
   X,
+  ExternalLink,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import {
   checkConnection,
   fetchFolders,
@@ -129,9 +135,8 @@ export function App() {
     }
     try {
       await chrome.tabs.sendMessage(tab.id, { type: "START_AREA_SELECTION" });
-      window.close(); // Close popup so user can draw selection
+      window.close();
     } catch {
-      // Content script injection fallback
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         files: ["content-scripts/content.js"],
@@ -225,263 +230,178 @@ export function App() {
   };
 
   return (
-    <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "14px" }}>
-      {/* Top Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div
-            style={{
-              width: "26px",
-              height: "26px",
-              borderRadius: "7px",
-              background: "#6366f1",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 800,
-              fontSize: "14px",
-              color: "white",
-            }}
-          >
+    <div className="p-4 flex flex-col gap-3.5 bg-background text-foreground select-none">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="size-6 rounded-lg bg-primary flex items-center justify-center font-bold text-xs text-primary-foreground shadow-2xs">
             B
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: "13px", letterSpacing: "-0.01em" }}>
+            <div className="font-semibold text-xs tracking-tight text-foreground">
               Bowerbird Clipper
             </div>
-            <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>Desktop Companion</div>
+            <div className="text-[10px] text-muted-foreground">Desktop Companion</div>
           </div>
         </div>
 
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          style={{
-            background: showSettings ? "var(--card-hover)" : "transparent",
-            color: "var(--text-muted)",
-            padding: "5px",
-            borderRadius: "6px",
-            display: "flex",
-          }}
-          title="Settings"
-        >
-          <Settings size={15} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => setShowSettings(!showSettings)}
+            className={cn(showSettings && "bg-muted text-foreground")}
+            title="Settings"
+          >
+            <Settings className="size-3.5" />
+          </Button>
+        </div>
       </div>
 
-      {/* Connection Status Banner */}
+      {/* Connection Status Card */}
       <div
-        style={{
-          borderRadius: "8px",
-          padding: "8px 12px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          background: status.connected ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
-          border: `1px solid ${status.connected ? "rgba(16, 185, 129, 0.25)" : "rgba(239, 68, 68, 0.25)"}`,
-        }}
+        className={cn(
+          "rounded-xl border p-2.5 flex items-center justify-between transition-colors",
+          status.connected
+            ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
+            : "border-destructive/30 bg-destructive/10 text-destructive"
+        )}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden" }}>
-          <div
-            style={{
-              width: "8px",
-              height: "8px",
-              borderRadius: "50%",
-              background: status.connected ? "#10b981" : "#ef4444",
-              flexShrink: 0,
-            }}
-          />
-          <span style={{ fontSize: "11px", fontWeight: 500, textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+        <div className="flex items-center gap-2 min-w-0 pr-2">
+          <span className="relative flex size-2 shrink-0">
+            {status.connected && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            )}
+            <span
+              className={cn(
+                "relative inline-flex rounded-full size-2",
+                status.connected ? "bg-emerald-500" : "bg-destructive"
+              )}
+            />
+          </span>
+          <span className="text-[11px] font-medium truncate">
             {status.connected
-              ? `Connected: ${status.libraryName || "Active"}`
+              ? `Connected: ${status.libraryName || "Active Library"}`
               : "Disconnected from Bowerbird"}
           </span>
         </div>
 
-        <button
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={() => loadData(apiUrl)}
           disabled={isChecking}
-          style={{
-            background: "transparent",
-            color: "var(--text-muted)",
-            display: "flex",
-            alignItems: "center",
-            padding: "2px",
-          }}
-          title="Retry connection"
+          className="text-muted-foreground hover:text-foreground shrink-0"
+          title="Retry Connection"
         >
-          <RefreshCw size={12} className={isChecking ? "animate-spin" : ""} />
-        </button>
+          <RefreshCw className={cn("size-3", isChecking && "animate-spin")} />
+        </Button>
       </div>
 
-      {/* Settings Drawer */}
+      {/* Settings Panel */}
       {showSettings && (
-        <div
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "12px",
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px",
-          }}
-        >
-          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-muted)" }}>
-            Desktop API Endpoint
-          </div>
-          <div style={{ display: "flex", gap: "6px" }}>
-            <input
+        <Card className="bg-card/70 border-border/80">
+          <CardHeader className="p-3 pb-2">
+            <CardTitle className="text-[11px] font-semibold text-muted-foreground">
+              Desktop API Endpoint
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-3 pt-0 flex gap-2">
+            <Input
               type="text"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
               placeholder="http://127.0.0.1:41595"
-              style={{
-                flex: 1,
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: "6px",
-                padding: "6px 10px",
-                color: "var(--text-main)",
-              }}
+              className="h-7 text-xs font-mono"
             />
-            <button
+            <Button
+              size="sm"
+              variant="default"
               onClick={handleSaveApiUrl}
               disabled={isSavingSettings}
-              style={{
-                background: "var(--primary)",
-                color: "white",
-                borderRadius: "6px",
-                padding: "6px 12px",
-                fontSize: "11px",
-                fontWeight: 600,
-              }}
+              className="h-7 text-xs px-3"
             >
               Save
-            </button>
-          </div>
-        </div>
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Quick Action Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+      {/* 2x2 Quick Action Cards */}
+      <div className="grid grid-cols-2 gap-2">
         <button
+          type="button"
           onClick={handleCaptureVisible}
           disabled={actionLoading !== null}
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "12px 10px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: "6px",
-            textAlign: "left",
-            transition: "all 0.15s ease",
-          }}
+          className="group relative flex flex-col items-start gap-1 rounded-xl border border-border/70 bg-card/60 p-3 text-left transition-all hover:border-primary/50 hover:bg-muted/40 cursor-pointer shadow-2xs active:translate-y-px"
         >
-          <div style={{ color: "#818cf8" }}>
-            <Camera size={18} />
+          <div className="rounded-lg p-1.5 bg-indigo-500/10 text-indigo-400 group-hover:scale-105 transition-transform">
+            <Camera className="size-4" />
           </div>
-          <div>
-            <div style={{ fontSize: "12px", fontWeight: 600 }}>Visible Area</div>
-            <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>Capture screen</div>
+          <div className="mt-1">
+            <div className="text-xs font-semibold text-foreground">Visible Area</div>
+            <div className="text-[10px] text-muted-foreground">Capture screen</div>
           </div>
         </button>
 
         <button
+          type="button"
           onClick={handleCaptureArea}
           disabled={actionLoading !== null}
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "12px 10px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: "6px",
-            textAlign: "left",
-            transition: "all 0.15s ease",
-          }}
+          className="group relative flex flex-col items-start gap-1 rounded-xl border border-border/70 bg-card/60 p-3 text-left transition-all hover:border-primary/50 hover:bg-muted/40 cursor-pointer shadow-2xs active:translate-y-px"
         >
-          <div style={{ color: "#38bdf8" }}>
-            <Crop size={18} />
+          <div className="rounded-lg p-1.5 bg-sky-500/10 text-sky-400 group-hover:scale-105 transition-transform">
+            <Crop className="size-4" />
           </div>
-          <div>
-            <div style={{ fontSize: "12px", fontWeight: 600 }}>Selected Area</div>
-            <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>Crop region</div>
+          <div className="mt-1">
+            <div className="text-xs font-semibold text-foreground">Selected Area</div>
+            <div className="text-[10px] text-muted-foreground">Crop region</div>
           </div>
         </button>
 
         <button
+          type="button"
           onClick={handleSaveBookmark}
           disabled={actionLoading !== null}
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "12px 10px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: "6px",
-            textAlign: "left",
-            transition: "all 0.15s ease",
-          }}
+          className="group relative flex flex-col items-start gap-1 rounded-xl border border-border/70 bg-card/60 p-3 text-left transition-all hover:border-primary/50 hover:bg-muted/40 cursor-pointer shadow-2xs active:translate-y-px"
         >
-          <div style={{ color: "#34d399" }}>
-            <Bookmark size={18} />
+          <div className="rounded-lg p-1.5 bg-emerald-500/10 text-emerald-400 group-hover:scale-105 transition-transform">
+            <Bookmark className="size-4" />
           </div>
-          <div>
-            <div style={{ fontSize: "12px", fontWeight: 600 }}>Web Bookmark</div>
-            <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>Save link card</div>
+          <div className="mt-1">
+            <div className="text-xs font-semibold text-foreground">Web Bookmark</div>
+            <div className="text-[10px] text-muted-foreground">Save link card</div>
           </div>
         </button>
 
         <button
+          type="button"
           onClick={handleOpenBatchCollector}
           disabled={actionLoading !== null}
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "12px 10px",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-start",
-            gap: "6px",
-            textAlign: "left",
-            transition: "all 0.15s ease",
-          }}
+          className="group relative flex flex-col items-start gap-1 rounded-xl border border-border/70 bg-card/60 p-3 text-left transition-all hover:border-primary/50 hover:bg-muted/40 cursor-pointer shadow-2xs active:translate-y-px"
         >
-          <div style={{ color: "#f472b6" }}>
-            <Layers size={18} />
+          <div className="rounded-lg p-1.5 bg-pink-500/10 text-pink-400 group-hover:scale-105 transition-transform">
+            <Layers className="size-4" />
           </div>
-          <div>
-            <div style={{ fontSize: "12px", fontWeight: 600 }}>Batch Grabber</div>
-            <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>All page images</div>
+          <div className="mt-1">
+            <div className="text-xs font-semibold text-foreground">Batch Grabber</div>
+            <div className="text-[10px] text-muted-foreground">Extract all media</div>
           </div>
         </button>
       </div>
 
+      <Separator className="my-0.5" />
+
       {/* Target Folder Selector */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "var(--text-muted)", fontWeight: 500 }}>
-          <FolderIcon size={12} />
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          <FolderIcon className="size-3 text-primary" />
           <span>Save to Folder</span>
         </div>
         <select
           value={selectedFolder}
           onChange={(e) => setSelectedFolder(e.target.value)}
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "6px",
-            padding: "7px 10px",
-            color: "var(--text-main)",
-            cursor: "pointer",
-          }}
+          className="w-full rounded-xl border border-input/60 bg-muted/40 px-2.5 py-1.5 text-xs text-foreground outline-none transition-all focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 cursor-pointer"
         >
           <option value="">(Uncategorized)</option>
           {folders.map((f) => (
@@ -493,108 +413,76 @@ export function App() {
       </div>
 
       {/* Tags Input */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "var(--text-muted)", fontWeight: 500 }}>
-          <TagIcon size={12} />
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          <TagIcon className="size-3 text-primary" />
           <span>Tags</span>
         </div>
 
         {selectedTags.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+          <div className="flex flex-wrap gap-1.5">
             {selectedTags.map((t) => (
-              <span
-                key={t}
-                style={{
-                  background: "rgba(99, 102, 241, 0.2)",
-                  color: "#c7d2fe",
-                  border: "1px solid rgba(99, 102, 241, 0.4)",
-                  borderRadius: "4px",
-                  padding: "2px 6px",
-                  fontSize: "11px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                }}
-              >
-                {t}
-                <X
-                  size={10}
+              <Badge key={t} variant="indigo" className="gap-1 pr-1 cursor-default">
+                <span>{t}</span>
+                <button
+                  type="button"
                   onClick={() => handleRemoveTag(t)}
-                  style={{ cursor: "pointer" }}
-                />
-              </span>
+                  className="rounded-full hover:bg-indigo-500/30 p-0.5 transition-colors cursor-pointer"
+                >
+                  <X className="size-2.5" />
+                </button>
+              </Badge>
             ))}
           </div>
         )}
 
-        <div style={{ display: "flex", gap: "6px" }}>
-          <input
+        <div className="flex gap-1.5">
+          <Input
             type="text"
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAddTag()}
             placeholder="Add tag and press Enter..."
-            style={{
-              flex: 1,
-              background: "var(--card-bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "6px",
-              padding: "6px 10px",
-              color: "var(--text-main)",
-            }}
+            className="h-7 text-xs"
           />
-          <button
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
             onClick={handleAddTag}
-            style={{
-              background: "var(--card-hover)",
-              color: "var(--text-main)",
-              borderRadius: "6px",
-              padding: "0 10px",
-              display: "flex",
-              alignItems: "center",
-            }}
+            className="h-7 px-2 shrink-0"
           >
-            <Plus size={14} />
-          </button>
+            <Plus className="size-3.5" />
+          </Button>
         </div>
       </div>
 
-      {/* Note / Annotation */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-        <textarea
+      {/* Note Textarea */}
+      <div className="space-y-1">
+        <Textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="Optional notes or annotation..."
           rows={2}
-          style={{
-            background: "var(--card-bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "6px",
-            padding: "6px 10px",
-            color: "var(--text-main)",
-            resize: "none",
-          }}
+          className="min-h-[50px] text-xs"
         />
       </div>
 
       {/* Feedback Toast */}
       {feedback && (
         <div
-          style={{
-            background: feedback.isError ? "var(--error)" : "var(--success)",
-            color: "white",
-            padding: "8px 12px",
-            borderRadius: "6px",
-            fontSize: "11px",
-            fontWeight: 600,
-            textAlign: "center",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "6px",
-          }}
+          className={cn(
+            "rounded-xl border p-2 flex items-center justify-center gap-1.5 text-xs font-semibold animate-in fade-in zoom-in-95 duration-150",
+            feedback.isError
+              ? "border-destructive/40 bg-destructive/15 text-destructive"
+              : "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
+          )}
         >
-          {feedback.isError ? <AlertCircle size={13} /> : <Check size={13} />}
+          {feedback.isError ? (
+            <AlertCircle className="size-3.5" />
+          ) : (
+            <Check className="size-3.5" />
+          )}
           <span>{feedback.message}</span>
         </div>
       )}
