@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { browser } from "wxt/browser";
 import {
   Camera,
   Crop,
@@ -80,8 +81,8 @@ export function App() {
     });
   }, []);
 
-  const getActiveTab = async (): Promise<chrome.tabs.Tab | null> => {
-    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const getActiveTab = async () => {
+    const tabs = await browser.tabs.query({ active: true, currentWindow: true });
     return tabs[0] || null;
   };
 
@@ -96,7 +97,7 @@ export function App() {
       const tab = await getActiveTab();
       if (!tab?.id) throw new Error("No active tab");
 
-      const dataUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+      const dataUrl = await browser.tabs.captureVisibleTab({ format: "png" });
       const pageTitle = tab.title || "Web Screenshot";
       const pageUrl = tab.url || "";
 
@@ -114,7 +115,7 @@ export function App() {
 
       if (res.success) {
         showToast("✓ Screenshot saved to Bowerbird");
-        chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
+        browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
       } else {
         showToast(res.error || "Failed to save", true);
       }
@@ -134,14 +135,16 @@ export function App() {
       return;
     }
     try {
-      await chrome.tabs.sendMessage(tab.id, { type: "START_AREA_SELECTION" });
+      await browser.tabs.sendMessage(tab.id, { type: "START_AREA_SELECTION" });
       window.close();
     } catch {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content-scripts/content.js"],
-      });
-      await chrome.tabs.sendMessage(tab.id, { type: "START_AREA_SELECTION" });
+      if (browser.scripting?.executeScript) {
+        await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["/content-scripts/content.js"],
+        });
+      }
+      await browser.tabs.sendMessage(tab.id, { type: "START_AREA_SELECTION" });
       window.close();
     }
   };
@@ -159,7 +162,7 @@ export function App() {
 
       let screenshotUrl: string | undefined;
       try {
-        screenshotUrl = await chrome.tabs.captureVisibleTab({ format: "png" });
+        screenshotUrl = await browser.tabs.captureVisibleTab({ format: "png" });
       } catch {}
 
       const res = await importBookmark(
@@ -176,7 +179,7 @@ export function App() {
 
       if (res.success) {
         showToast("✓ Bookmark saved to Bowerbird");
-        chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
+        browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
       } else {
         showToast(res.error || "Failed to save", true);
       }
@@ -196,14 +199,16 @@ export function App() {
       return;
     }
     try {
-      await chrome.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
+      await browser.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
       window.close();
     } catch {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: ["content-scripts/content.js"],
-      });
-      await chrome.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
+      if (browser.scripting?.executeScript) {
+        await browser.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ["/content-scripts/content.js"],
+        });
+      }
+      await browser.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
       window.close();
     }
   };

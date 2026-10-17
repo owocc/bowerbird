@@ -3,8 +3,10 @@
 @source "../../../packages/ui/src";
 @source "../..";
 
+html,
 body {
   width: 360px;
+  min-height: 480px;
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
@@ -15,4 +17,9 @@ body {
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+  min-height: 480px;
 }

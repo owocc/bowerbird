@@ -1,4 +1,5 @@
 import React from "react";
+import { browser } from "wxt/browser";
 import ReactDOM from "react-dom/client";
 import { DragDropPanel } from "@/components/DragDropPanel";
 import contentStyle from "./style.css?inline";
@@ -211,7 +212,7 @@ async function handleMediaDrop(
     }
 
     if (res.success) {
-      chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
+      browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
       return { success: true };
     }
     return { success: false, error: res.error || "Import failed" };

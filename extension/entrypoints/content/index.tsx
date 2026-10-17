@@ -1,4 +1,5 @@
 import React from "react";
+import { browser } from "wxt/browser";
 import ReactDOM from "react-dom/client";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { initMediaDragDropZone } from "./drag-drop-zone";
@@ -21,7 +22,7 @@ export default defineContentScript({
     initMediaDragDropZone();
 
     // 2. Listen for background or popup triggers
-    chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+    browser.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
       if (!message || typeof message !== "object" || !("type" in message)) return;
       const msgType = message.type;
 
@@ -85,7 +86,7 @@ async function openBatchCollector() {
         };
         const res = await importBatch(payload);
         if (res.success) {
-          chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
+          browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
         }
         return res;
       }}
@@ -137,7 +138,7 @@ function startAreaSelection() {
           areaShadowHost.style.display = "none";
         }
 
-        chrome.runtime.sendMessage({ type: "CAPTURE_VISIBLE_TAB" }, async (res: unknown) => {
+        browser.runtime.sendMessage({ type: "CAPTURE_VISIBLE_TAB" }, async (res: unknown) => {
           closeAreaSelection();
 
           if (!res || typeof res !== "object" || !("success" in res) || !res.success) {
@@ -179,7 +180,7 @@ function startAreaSelection() {
             });
 
             if (importRes.success) {
-              chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
+              browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
               showShadowToast("✓ Area saved to Bowerbird");
             } else {
               showShadowToast(importRes.error || "Failed to save", true);

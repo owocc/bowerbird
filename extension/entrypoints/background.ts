@@ -1,4 +1,5 @@
 import { defineBackground } from "wxt/utils/define-background";
+import { browser } from "wxt/browser";
 import {
   checkAppRunning,
   checkConnection,
@@ -13,26 +14,26 @@ import {
 
 export default defineBackground(() => {
   // Initialize context menus
-  chrome.runtime.onInstalled.addListener(() => {
-    chrome.contextMenus.create({
+  browser.runtime.onInstalled.addListener(() => {
+    browser.contextMenus.create({
       id: "bowerbird-save-image",
       title: "Save Image to Bowerbird",
       contexts: ["image"],
     });
 
-    chrome.contextMenus.create({
+    browser.contextMenus.create({
       id: "bowerbird-save-link",
       title: "Save Link to Bowerbird",
       contexts: ["link"],
     });
 
-    chrome.contextMenus.create({
+    browser.contextMenus.create({
       id: "bowerbird-save-screenshot",
       title: "Capture Visible Screen to Bowerbird",
       contexts: ["page"],
     });
 
-    chrome.contextMenus.create({
+    browser.contextMenus.create({
       id: "bowerbird-batch-collect",
       title: "Batch Save Page Images...",
       contexts: ["page"],
@@ -40,7 +41,7 @@ export default defineBackground(() => {
   });
 
   // Handle context menu clicks
-  chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  browser.contextMenus.onClicked.addListener(async (info, tab) => {
     const pageUrl = info.pageUrl || tab?.url || "";
     const pageTitle = tab?.title || "";
 
@@ -72,7 +73,7 @@ export default defineBackground(() => {
     } else if (info.menuItemId === "bowerbird-save-screenshot" && tab?.id) {
       flashBadge("...", "#6366f1");
       try {
-        const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, {
+        const dataUrl = await browser.tabs.captureVisibleTab(tab.windowId, {
           format: "png",
         });
         const res = await importFromBase64({
@@ -91,20 +92,22 @@ export default defineBackground(() => {
       }
     } else if (info.menuItemId === "bowerbird-batch-collect" && tab?.id) {
       try {
-        await chrome.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
+        await browser.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
       } catch {
         // Content script might not be injected yet
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["content-scripts/content.js"],
-        });
-        await chrome.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
+        if (browser.scripting?.executeScript) {
+          await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["/content-scripts/content.js"],
+          });
+        }
+        await browser.tabs.sendMessage(tab.id, { type: "OPEN_BATCH_COLLECTOR" });
       }
     }
   });
 
   // Handle messages from content script or popup
-  chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     if (!message || typeof message !== "object" || !("type" in message)) return;
     const msgType = message.type;
     if (msgType === "BOWERBIRD_API_PROXY") {
@@ -120,8 +123,8 @@ export default defineBackground(() => {
 
     if (msgType === "CAPTURE_VISIBLE_TAB") {
       const capturePromise = sender.tab?.windowId !== undefined
-        ? chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" })
-        : chrome.tabs.captureVisibleTab({ format: "png" });
+        ? browser.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" })
+        : browser.tabs.captureVisibleTab({ format: "png" });
 
       capturePromise
         .then((dataUrl) => sendResponse({ success: true, dataUrl }))
@@ -148,11 +151,15 @@ export default defineBackground(() => {
 });
 
 function flashBadge(text: string, color: string) {
-  chrome.action.setBadgeText({ text });
-  chrome.action.setBadgeBackgroundColor({ color });
-  setTimeout(() => {
-    chrome.action.setBadgeText({ text: "" });
-  }, 2500);
+  const actionApi = browser.action ?? (browser as any).browserAction;
+  if (!actionApi) return;
+  try {
+    actionApi.setBadgeText({ text });
+    actionApi.setBadgeBackgroundColor({ color });
+    setTimeout(() => {
+      actionApi.setBadgeText({ text: "" });
+    }, 2500);
+  } catch {}
 }
 
 async function handleApiProxy(action: string, args: any = {}) {

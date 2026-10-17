@@ -1,4 +1,5 @@
 // Bowerbird Desktop API Client for Browser Extension
+import { browser } from "wxt/browser";
 
 export interface LibraryInfo {
   id: string;
@@ -81,40 +82,32 @@ export const DEFAULT_API_URL = "http://127.0.0.1:41595";
 
 export function isContentScript(): boolean {
   if (typeof window === "undefined") return false;
-  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return false;
-  const proto = window.location?.protocol || "";
-  return (
-    proto !== "chrome-extension:" &&
-    proto !== "safari-extension:" &&
-    proto !== "moz-extension:"
-  );
+  try {
+    const extUrl = browser?.runtime?.getURL?.("");
+    if (!extUrl) return false;
+    // An extension page (popup, options, background) starts with the extension base URL.
+    // A webpage content script URL does NOT start with the extension base URL.
+    return !window.location.href.startsWith(extUrl);
+  } catch {
+    return false;
+  }
 }
 
 async function callBackgroundAPI<T>(action: string, args: Record<string, unknown> = {}): Promise<T> {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.runtime.sendMessage(
-        { type: "BOWERBIRD_API_PROXY", action, args },
-        (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          if (response && response.error) {
-            reject(new Error(response.error));
-            return;
-          }
-          resolve(response?.data as T);
-        }
-      );
-    } catch (err) {
-      reject(err);
-    }
-  });
+  const res = (await browser.runtime.sendMessage({
+    type: "BOWERBIRD_API_PROXY",
+    action,
+    args,
+  })) as { data?: T; error?: string } | undefined;
+  if (res && res.error) {
+    throw new Error(res.error);
+  }
+  return res?.data as T;
 }
+
 export async function getStoredApiUrl(): Promise<string> {
   try {
-    const res = await chrome.storage.local.get(["apiUrl"]);
+    const res = (await browser.storage.local.get(["apiUrl"])) as { apiUrl?: string };
     if (res.apiUrl && typeof res.apiUrl === "string") {
       return res.apiUrl.replace(/\/+$/, "");
     }
@@ -124,7 +117,7 @@ export async function getStoredApiUrl(): Promise<string> {
 
 export async function setStoredApiUrl(url: string): Promise<void> {
   const clean = url.trim().replace(/\/+$/, "");
-  await chrome.storage.local.set({ apiUrl: clean });
+  await browser.storage.local.set({ apiUrl: clean });
 }
 
 /**
