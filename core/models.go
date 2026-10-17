@@ -105,3 +105,15 @@ type ItemMetadata struct {
 	ImportedAt     int64      `json:"importedAt"`
 	UpdatedAt      int64      `json:"updatedAt,omitempty"`
 }
+
+// ImportItemOptions specifies metadata when importing items via API or browser extension.
+type ImportItemOptions struct {
+	Name      string            `json:"name,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	Note      string            `json:"note,omitempty"`
+	Rating    int               `json:"rating,omitempty"`
+	Prompt    string            `json:"prompt,omitempty"`
+	Tags      []string          `json:"tags,omitempty"`
+	FolderIDs []string          `json:"folderIds,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+}

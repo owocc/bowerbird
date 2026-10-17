@@ -10,6 +10,7 @@ export type {
     AppMenuItem,
     Folder,
     ImageMeta,
+    ImportItemOptions,
     Item,
     LibraryInfo,
     LibraryManager,

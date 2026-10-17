@@ -288,7 +288,39 @@
     },
     "nav": {
       "general": "General",
-      "plugins": "Plugins"
+      "plugins": "Plugins",
+      "extension": "Browser Extension"
+    },
+    "extension": {
+      "title": "Browser Extension & Open API",
+      "description": "Connect Bowerbird with Google Chrome, Microsoft Edge, Mozilla Firefox, and Apple Safari to save images, screenshots, and bookmarks directly from your browser.",
+      "serverStatus": "API Server Status",
+      "running": "Active on port {{port}}",
+      "apiEndpoint": "Local API Endpoint",
+      "copyEndpoint": "Copy Endpoint",
+      "copied": "Copied!",
+      "installGuide": "Installation Guide",
+      "browsers": {
+        "chrome": {
+          "name": "Chrome / Edge / Chromium",
+          "steps": "Navigate to chrome://extensions or edge://extensions, enable 'Developer mode', and click 'Load unpacked' pointing to the extension's chrome-mv3 build directory."
+        },
+        "firefox": {
+          "name": "Firefox",
+          "steps": "Navigate to about:debugging#/runtime/this-firefox, click 'Load Temporary Add-on', and select manifest.json in the firefox-mv2 or firefox-mv3 build directory."
+        },
+        "safari": {
+          "name": "Safari",
+          "steps": "Convert or build with Safari Web Extension companion and enable Developer mode in Safari settings."
+        }
+      },
+      "features": {
+        "title": "Extension Features",
+        "contextMenu": "Right-click context menu: Save Image, Save Link to Bowerbird",
+        "batch": "Batch Page Collector: extract images on page with size & format filters",
+        "screenshot": "Area Selection & Visible Screen crop tools",
+        "bookmark": "Smart Web Bookmark preservation with preview cards"
+      }
     },
     "plugins": {
       "alwaysEnabled": "Built-in · Active",

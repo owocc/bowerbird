@@ -145,6 +145,20 @@ func (s *Service) ImportFromURL(rawURL string) (*Item, error) {
 	return s.mgr.ImportFromURL(rawURL)
 }
 
+func (s *Service) ImportFromBase64WithOptions(filename string, base64Data string, opts ImportItemOptions) (*Item, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.ImportFromBase64WithOptions(filename, base64Data, opts)
+}
+
+func (s *Service) ImportFromURLWithOptions(rawURL string, opts ImportItemOptions) (*Item, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.ImportFromURLWithOptions(rawURL, opts)
+}
+
 func (s *Service) DeleteItem(id string) error {
 	if s.mgr == nil {
 		return errors.New("core manager not initialized")
@@ -185,6 +199,13 @@ func (s *Service) LogDragTrace(phase string, detail string) error {
 }
 
 func (s *Service) GetAssetServerPort() int {
+	if s.mgr == nil {
+		return 0
+	}
+	return s.mgr.GetAssetServerPort()
+}
+
+func (s *Service) GetAPIServerPort() int {
 	if s.mgr == nil {
 		return 0
 	}

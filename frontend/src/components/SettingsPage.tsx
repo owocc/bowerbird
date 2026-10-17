@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Check,
@@ -13,11 +13,22 @@ import {
   Puzzle,
   Sparkles,
   ZoomIn,
+  Globe,
+  Copy,
+  CheckCheck,
+  Layers,
+  Camera,
+  Bookmark,
+  MousePointerClick,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { useTheme, type Theme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { GetAssetServerPort } from "../../bindings/bowerbird/core/service";
+import { copyTextToClipboard } from "@/lib/clipboard";
+import { toast } from "sonner";
 import {
   previewRegistry,
   usePreviewPlugins,
@@ -25,7 +36,7 @@ import {
 } from "@/plugins/preview/registry";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "plugins";
+type SettingsSectionId = "general" | "plugins" | "extension";
 
 interface ThemeOption {
   value: Theme;
@@ -219,7 +230,25 @@ export function SettingsPage() {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("general");
+  const [serverPort, setServerPort] = useState<number>(41595);
+  const [copied, setCopied] = useState<boolean>(false);
   const installedPlugins = usePreviewPlugins();
+
+  useEffect(() => {
+    GetAssetServerPort().then((p) => {
+      if (p && p > 0) {
+        setServerPort(p);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleCopyEndpoint = async () => {
+    const url = `http://127.0.0.1:${serverPort}`;
+    await copyTextToClipboard(url);
+    setCopied(true);
+    toast.success(t("settings.extension.copied"));
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const navItems: {
     id: SettingsSectionId;
@@ -237,6 +266,11 @@ export function SettingsPage() {
       label: t("settings.nav.plugins"),
       icon: Blocks,
       badge: installedPlugins.length,
+    },
+    {
+      id: "extension",
+      label: t("settings.nav.extension"),
+      icon: Globe,
     },
   ];
 
@@ -301,9 +335,10 @@ export function SettingsPage() {
           <h1 className="text-xs font-semibold tracking-tight text-foreground">
             {activeSection === "general"
               ? t("settings.nav.general")
-              : t("settings.nav.plugins")}
+              : activeSection === "plugins"
+              ? t("settings.nav.plugins")
+              : t("settings.nav.extension")}
           </h1>
-          <div className="flex-1 h-full" />
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 wails-no-drag">
@@ -380,6 +415,129 @@ export function SettingsPage() {
                 {installedPlugins.map((item) => (
                   <PluginCard key={item.plugin.id} item={item} />
                 ))}
+              </div>
+            </div>
+          )}
+
+          {activeSection === "extension" && (
+            <div className="max-w-2xl space-y-6">
+              {/* Server Status & Endpoint */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                    </span>
+                    <span className="text-xs font-semibold">
+                      {t("settings.extension.serverStatus")}
+                    </span>
+                  </div>
+                  <Badge variant="outline" className="font-mono text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                    {t("settings.extension.running", { port: serverPort })}
+                  </Badge>
+                </div>
+
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {t("settings.extension.description")}
+                </p>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <div className="flex-1 rounded-lg bg-muted/50 border border-border/60 px-3 py-1.5 font-mono text-xs text-foreground select-all">
+                    http://127.0.0.1:{serverPort}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyEndpoint}
+                    className="h-8 gap-1.5 text-xs shrink-0 cursor-pointer"
+                  >
+                    {copied ? (
+                      <CheckCheck className="size-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="size-3.5" />
+                    )}
+                    {copied ? t("settings.extension.copied") : t("settings.extension.copyEndpoint")}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Extension Features */}
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-foreground">
+                  {t("settings.extension.features.title")}
+                </h2>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
+                    <MousePointerClick className="size-4 text-primary shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">Context Menu</div>
+                      <div className="text-[10px] text-muted-foreground leading-tight">
+                        {t("settings.extension.features.contextMenu")}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
+                    <Layers className="size-4 text-primary shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">Batch Collector</div>
+                      <div className="text-[10px] text-muted-foreground leading-tight">
+                        {t("settings.extension.features.batch")}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
+                    <Camera className="size-4 text-primary shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">Screen Capture</div>
+                      <div className="text-[10px] text-muted-foreground leading-tight">
+                        {t("settings.extension.features.screenshot")}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-border/60 bg-muted/20 p-3 flex items-start gap-2.5">
+                    <Bookmark className="size-4 text-primary shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium">Web Bookmark</div>
+                      <div className="text-[10px] text-muted-foreground leading-tight">
+                        {t("settings.extension.features.bookmark")}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Multi-browser Installation Guide */}
+              <div className="space-y-3">
+                <h2 className="text-xs font-semibold text-foreground">
+                  {t("settings.extension.installGuide")}
+                </h2>
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20 space-y-1">
+                    <div className="text-xs font-medium text-foreground">
+                      {t("settings.extension.browsers.chrome.name")}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.extension.browsers.chrome.steps")}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20 space-y-1">
+                    <div className="text-xs font-medium text-foreground">
+                      {t("settings.extension.browsers.firefox.name")}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.extension.browsers.firefox.steps")}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-border/60 p-3 bg-muted/20 space-y-1">
+                    <div className="text-xs font-medium text-foreground">
+                      {t("settings.extension.browsers.safari.name")}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.extension.browsers.safari.steps")}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}

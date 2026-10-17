@@ -2,14 +2,15 @@ package core
 
 import (
 	"encoding/json"
-	"io"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -27,10 +28,21 @@ func newAssetServer(manager *LibraryManager) *AssetServer {
 }
 
 func (s *AssetServer) start() {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	targetPort := 41595
+	if envPort := os.Getenv("BOWERBIRD_API_PORT"); envPort != "" {
+		if p, parseErr := strconv.Atoi(envPort); parseErr == nil && p > 0 {
+			targetPort = p
+		}
+	}
+
+	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", targetPort))
 	if err != nil {
-		log.Printf("[AssetServer] failed to listen: %v", err)
-		return
+		// Target port busy or unavailable, fall back to ephemeral port
+		listener, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			log.Printf("[AssetServer] failed to listen: %v", err)
+			return
+		}
 	}
 	s.listener = listener
 	s.port = listener.Addr().(*net.TCPAddr).Port
@@ -39,18 +51,44 @@ func (s *AssetServer) start() {
 	mux.HandleFunc("/asset/item/", s.handleAssetRequest)
 	mux.HandleFunc("/asset/download/", s.handleDownloadRequest)
 	mux.HandleFunc("/asset/icon/", s.handleSystemIconRequest)
+
+	// Register REST Open API routes for browser extensions and external tools
+	s.registerAPIRoutes(mux)
+
+	handler := s.corsMiddleware(mux)
+
 	go func() {
-		if serveErr := http.Serve(listener, mux); serveErr != nil && !errors.Is(serveErr, net.ErrClosed) {
+		if serveErr := http.Serve(listener, handler); serveErr != nil && !errors.Is(serveErr, net.ErrClosed) {
 			log.Printf("[AssetServer] serve error: %v", serveErr)
 		}
 	}()
 	log.Printf("[AssetServer] running on http://127.0.0.1:%d", s.port)
 }
 
+func (s *AssetServer) corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Range, Origin")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *AssetServer) Stop() error {
+	if s.listener != nil {
+		return s.listener.Close()
+	}
+	return nil
+}
+
 func (s *AssetServer) getPort() int {
 	return s.port
 }
-
 func (s *AssetServer) handleAssetRequest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")

@@ -1435,6 +1435,11 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 
 // ImportFromBase64 imports binary payload from browser drops or clipboard paste.
 func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*Item, error) {
+	return m.ImportFromBase64WithOptions(filename, base64Data, ImportItemOptions{})
+}
+
+// ImportFromBase64WithOptions imports binary payload with optional metadata, tags, and folder assignment.
+func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data string, opts ImportItemOptions) (*Item, error) {
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -1459,7 +1464,40 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	contentHex := ComputeBytesSHA256(data)
 	existing, err := m.GetItem(contentHex)
 	if err == nil && existing != nil && itemPayloadPresent(existing) {
-		return existing, nil
+		// Apply any requested folders/tags to existing duplicate
+		for _, fID := range opts.FolderIDs {
+			if fID != "" {
+				_ = m.AddItemToFolder(existing.ID, fID)
+			}
+		}
+		for _, t := range opts.Tags {
+			if t != "" {
+				_ = m.AddTagToItem(existing.ID, t)
+			}
+		}
+		if (existing.Note == "" && opts.Note != "") || (existing.URL == "" && opts.URL != "") || (existing.Prompt == "" && opts.Prompt != "") {
+			note := existing.Note
+			if note == "" {
+				note = opts.Note
+			}
+			rawURL := existing.URL
+			if rawURL == "" {
+				rawURL = opts.URL
+			}
+			prompt := existing.Prompt
+			if prompt == "" {
+				prompt = opts.Prompt
+			}
+			rating := existing.Rating
+			if rating == 0 && opts.Rating > 0 {
+				rating = opts.Rating
+			}
+			_, _ = m.UpdateItemDetails(existing.ID, note, rawURL, rating, prompt)
+		}
+		if m.app != nil {
+			m.app.Event.Emit("library-items-updated", 1)
+		}
+		return m.GetItem(existing.ID)
 	}
 
 	itemID := contentHex
@@ -1473,22 +1511,61 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 		cleanFilename = fmt.Sprintf("pasted_%d.png", time.Now().Unix())
 	}
 
+	// Sniff real extension and mime type from bytes
+	sniffExt, sniffMime := SniffMediaBytes(data)
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(cleanFilename), "."))
+	if sniffExt != "" {
+		ext = sniffExt
+	}
+	nameWithoutExt := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
+	if nameWithoutExt == "" {
+		nameWithoutExt = fmt.Sprintf("pasted_%d", time.Now().Unix())
+	}
+	cleanFilename = fmt.Sprintf("%s.%s", nameWithoutExt, ext)
+
 	destPath := filepath.Join(itemDir, cleanFilename)
 	if err := os.WriteFile(destPath, data, 0644); err != nil {
 		return nil, err
 	}
 
 	now := time.Now().Unix()
-	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(cleanFilename), "."))
-	nameWithoutExt := strings.TrimSuffix(cleanFilename, filepath.Ext(cleanFilename))
+	itemName := nameWithoutExt
+	if strings.TrimSpace(opts.Name) != "" {
+		itemName = strings.TrimSpace(opts.Name)
+	}
 	mimeType := DetectMimeType(destPath, ext)
+	if sniffMime != "" {
+		mimeType = sniffMime
+	}
 
 	width, height, hasThumbnail, dominantColor, palette, imgMeta := m.processImageThumbnail(destPath, itemDir, ext)
+
+	// Clean and collect unique tags
+	var cleanTags []string
+	tagSet := make(map[string]bool)
+	for _, t := range opts.Tags {
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" && !tagSet[trimmed] {
+			tagSet[trimmed] = true
+			cleanTags = append(cleanTags, trimmed)
+		}
+	}
+
+	// Clean and collect unique folders
+	var cleanFolders []string
+	folderSet := make(map[string]bool)
+	for _, f := range opts.FolderIDs {
+		trimmed := strings.TrimSpace(f)
+		if trimmed != "" && !folderSet[trimmed] {
+			folderSet[trimmed] = true
+			cleanFolders = append(cleanFolders, trimmed)
+		}
+	}
 
 	item := Item{
 		ID:            itemID,
 		Hex:           contentHex,
-		Name:          nameWithoutExt,
+		Name:          itemName,
 		Extension:     ext,
 		Filename:      cleanFilename,
 		Size:          int64(len(data)),
@@ -1499,7 +1576,12 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 		DominantColor: dominantColor,
 		Palette:       palette,
 		Meta:          imgMeta,
-		Tags:          []string{},
+		Note:          strings.TrimSpace(opts.Note),
+		URL:           strings.TrimSpace(opts.URL),
+		Rating:        opts.Rating,
+		Prompt:        strings.TrimSpace(opts.Prompt),
+		Tags:          cleanTags,
+		Folders:       cleanFolders,
 		CreatedAt:     now,
 		ImportedAt:    now,
 		UpdatedAt:     now,
@@ -1520,7 +1602,12 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 		DominantColor: item.DominantColor,
 		Palette:       item.Palette,
 		Meta:          item.Meta,
+		Note:          item.Note,
+		URL:           item.URL,
+		Rating:        item.Rating,
+		Prompt:        item.Prompt,
 		Tags:          item.Tags,
+		Folders:       item.Folders,
 		CreatedAt:     item.CreatedAt,
 		ImportedAt:    item.ImportedAt,
 		UpdatedAt:     item.UpdatedAt,
@@ -1537,9 +1624,11 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 	if imgMeta != nil {
 		metaJSONStr = string(metaJSONBytes)
 	}
+	tagsStr := strings.Join(cleanTags, ",")
+
 	_, err = db.Exec(
-		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, note, url, rating, prompt, created_at, imported_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			hex = excluded.hex,
 			name = excluded.name,
@@ -1552,20 +1641,47 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 			has_thumbnail = excluded.has_thumbnail,
 			dominant_color = excluded.dominant_color,
 			palette = excluded.palette,
-			meta_json = excluded.meta_json`,
+			meta_json = excluded.meta_json,
+			tags = excluded.tags,
+			note = excluded.note,
+			url = excluded.url,
+			rating = excluded.rating,
+			prompt = excluded.prompt,
+			updated_at = excluded.updated_at`,
 		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
-		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr, "", item.CreatedAt, item.ImportedAt, item.UpdatedAt,
+		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr,
+		tagsStr, item.Note, item.URL, item.Rating, item.Prompt, item.CreatedAt, item.ImportedAt, item.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	// Insert item folder associations
+	for _, fID := range cleanFolders {
+		_, _ = db.Exec("INSERT OR IGNORE INTO item_folders (item_id, folder_id, added_at) VALUES (?, ?, ?)", itemID, fID, now)
+	}
+
+	// Insert new tags to taxonomy table
+	for _, t := range cleanTags {
+		_, _ = db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", t, now)
+	}
+
 	m.upsertItemsInCache([]Item{item}, "")
+	if m.app != nil {
+		m.app.Event.Emit("library-items-updated", 1)
+		m.app.Event.Emit("library-item-imported", item)
+	}
 	return &item, nil
 }
 
 // ImportFromURL downloads a remote network resource (image, document, media) using Go's HTTP client,
 // completely bypassing browser CORS, mixed-content, and webview IP/sandboxing restrictions.
 func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
+	return m.ImportFromURLWithOptions(rawURL, ImportItemOptions{})
+}
+
+// ImportFromURLWithOptions downloads a remote resource with custom headers and item metadata options.
+func (m *LibraryManager) ImportFromURLWithOptions(rawURL string, opts ImportItemOptions) (*Item, error) {
 	trimmed := strings.TrimSpace(rawURL)
 	if trimmed == "" {
 		return nil, errors.New("empty URL")
@@ -1573,7 +1689,7 @@ func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
 
 	// 1. If it's a data URL, decode directly via base64
 	if strings.HasPrefix(trimmed, "data:") {
-		return m.ImportFromBase64("web_resource.png", trimmed)
+		return m.ImportFromBase64WithOptions("web_resource.png", trimmed, opts)
 	}
 
 	parsedURL, err := url.Parse(trimmed)
@@ -1588,6 +1704,11 @@ func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "*/*")
+	for k, v := range opts.Headers {
+		if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+			req.Header.Set(k, v)
+		}
+	}
 
 	client := &http.Client{Timeout: 45 * time.Second}
 	resp, err := client.Do(req)
@@ -1608,25 +1729,18 @@ func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
 		return nil, errors.New("empty network resource")
 	}
 
-	// 3. Determine filename and extension
-	filename := filepath.Base(parsedURL.Path)
-	if filename == "" || filename == "/" || filename == "." || !strings.Contains(filename, ".") {
-		contentType := resp.Header.Get("Content-Type")
-		ext := "png"
-		if strings.Contains(contentType, "/") {
-			sub := strings.Split(strings.Split(contentType, ";")[0], "/")[1]
-			if sub == "jpeg" {
-				ext = "jpg"
-			} else if sub != "" {
-				ext = sub
-			}
-		}
-		filename = fmt.Sprintf("web_resource_%d.%s", time.Now().Unix(), ext)
+	// 3. Determine accurate filename, extension, and MIME type using Go's deep sniffing & headers
+	finalFilename, _, _ := ResolveMediaInfo(trimmed, resp.Header, data, opts.Name)
+	if opts.Name == "" {
+		opts.Name = strings.TrimSuffix(finalFilename, filepath.Ext(finalFilename))
+	}
+	if opts.URL == "" {
+		opts.URL = trimmed
 	}
 
-	// 4. Encode as base64 and use content-addressed ImportFromBase64
+	// 4. Encode as base64 and use content-addressed ImportFromBase64WithOptions
 	b64 := base64.StdEncoding.EncodeToString(data)
-	return m.ImportFromBase64(filename, b64)
+	return m.ImportFromBase64WithOptions(finalFilename, b64, opts)
 }
 
 func encodeThumbnailAndExtractPalette(img image.Image, origW, origH int, itemDir, ext, filePath string) (int, int, bool, string, []string, *ImageMeta) {

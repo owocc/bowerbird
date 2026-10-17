@@ -1,0 +1,534 @@
+package core
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+// APIResponse wraps responses in standard JSON envelope compatible with extensions.
+type APIResponse struct {
+	Status  string `json:"status"` // "success" or "error"
+	Data    any    `json:"data,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+func writeJSON(w http.ResponseWriter, status int, resp APIResponse) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func writeSuccess(w http.ResponseWriter, data any) {
+	writeJSON(w, http.StatusOK, APIResponse{Status: "success", Data: data})
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, APIResponse{Status: "error", Message: message})
+}
+
+// registerAPIRoutes registers all Open API endpoints for browser extensions.
+func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/ping", s.handleAPIPing)
+	mux.HandleFunc("/api/health", s.handleAPIHealth)
+	mux.HandleFunc("/api/info", s.handleAPIInfo)
+	mux.HandleFunc("/api/application/info", s.handleAPIInfo)
+	mux.HandleFunc("/api/folders", s.handleAPIFolders)
+	mux.HandleFunc("/api/folder/list", s.handleAPIFolders)
+	mux.HandleFunc("/api/folder/create", s.handleAPIFolderCreate)
+
+	mux.HandleFunc("/api/tags", s.handleAPITags)
+	mux.HandleFunc("/api/tag/list", s.handleAPITags)
+
+	mux.HandleFunc("/api/item/addFromURL", s.handleAPIItemAddFromURL)
+	mux.HandleFunc("/api/item/addFromUrl", s.handleAPIItemAddFromURL)
+	mux.HandleFunc("/api/item/addFromBase64", s.handleAPIItemAddFromBase64)
+	mux.HandleFunc("/api/item/addBookmark", s.handleAPIItemAddBookmark)
+	mux.HandleFunc("/api/item/addFromURLs", s.handleAPIItemAddFromURLs)
+	mux.HandleFunc("/api/items/batch", s.handleAPIItemAddFromURLs)
+
+	mux.HandleFunc("/api/items", s.handleAPIItemList)
+	mux.HandleFunc("/api/item/list", s.handleAPIItemList)
+}
+
+// handleAPIPing provides a lightweight check to determine if the desktop application is running.
+func (s *AssetServer) handleAPIPing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeSuccess(w, map[string]any{
+		"running": true,
+		"pong":    true,
+		"name":    "Bowerbird",
+		"port":    s.port,
+	})
+}
+
+// handleAPIHealth provides a health check endpoint reporting whether the app is running and library status.
+func (s *AssetServer) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var activeLib *LibraryInfo
+	if s.manager != nil {
+		activeLib = s.manager.GetActiveLibrary()
+	}
+	writeSuccess(w, map[string]any{
+		"running":          true,
+		"hasActiveLibrary": activeLib != nil,
+		"activeLibrary":    activeLib,
+		"port":             s.port,
+	})
+}
+
+// handleAPIInfo returns system status, version, and currently active library details.
+func (s *AssetServer) handleAPIInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var activeLib *LibraryInfo
+	if s.manager != nil {
+		activeLib = s.manager.GetActiveLibrary()
+	}
+
+	writeSuccess(w, map[string]any{
+		"running":             true,
+		"version":             "1.0.0",
+		"prerequisiteVersion": "1.0.0",
+		"name":                "Bowerbird",
+		"port":                s.port,
+		"activeLibrary":       activeLib,
+	})
+}
+
+// handleAPIFolders returns the full folder hierarchy of the active library.
+func (s *AssetServer) handleAPIFolders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	folders, err := s.manager.GetFolders()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if folders == nil {
+		folders = []Folder{}
+	}
+	writeSuccess(w, folders)
+}
+
+// handleAPIFolderCreate creates a new folder in the active library.
+func (s *AssetServer) handleAPIFolderCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	var req struct {
+		Name     string `json:"name"`
+		ParentID string `json:"parentId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		writeError(w, http.StatusBadRequest, "folder name cannot be empty")
+		return
+	}
+
+	folder, err := s.manager.CreateFolder(req.Name, req.ParentID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeSuccess(w, folder)
+}
+
+// handleAPITags returns the tags taxonomy.
+func (s *AssetServer) handleAPITags(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	tags, err := s.manager.GetTags()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if tags == nil {
+		tags = []Tag{}
+	}
+	writeSuccess(w, tags)
+}
+
+// ItemImportRequest models incoming payload for adding items via URL or Base64.
+type ItemImportRequest struct {
+	URL         string            `json:"url"`
+	Name        string            `json:"name"`
+	Title       string            `json:"title"`
+	Website     string            `json:"website"`
+	Annotation  string            `json:"annotation"`
+	Note        string            `json:"note"`
+	Rating      int               `json:"rating"`
+	Prompt      string            `json:"prompt"`
+	Tags        []string          `json:"tags"`
+	FolderID    string            `json:"folderId"`
+	FolderIDs   []string          `json:"folderIds"`
+	Headers     map[string]string `json:"headers"`
+	Base64      string            `json:"base64"`
+	Data        string            `json:"data"`
+}
+
+func (req *ItemImportRequest) ToOptions() ImportItemOptions {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		name = strings.TrimSpace(req.Title)
+	}
+
+	sourceURL := strings.TrimSpace(req.Website)
+	if sourceURL == "" {
+		sourceURL = strings.TrimSpace(req.URL)
+	}
+
+	note := strings.TrimSpace(req.Annotation)
+	if note == "" {
+		note = strings.TrimSpace(req.Note)
+	}
+
+	var folderIDs []string
+	if strings.TrimSpace(req.FolderID) != "" {
+		folderIDs = append(folderIDs, strings.TrimSpace(req.FolderID))
+	}
+	for _, fid := range req.FolderIDs {
+		trimmed := strings.TrimSpace(fid)
+		if trimmed != "" {
+			folderIDs = append(folderIDs, trimmed)
+		}
+	}
+
+	return ImportItemOptions{
+		Name:      name,
+		URL:       sourceURL,
+		Note:      note,
+		Rating:    req.Rating,
+		Prompt:    strings.TrimSpace(req.Prompt),
+		Tags:      req.Tags,
+		FolderIDs: folderIDs,
+		Headers:   req.Headers,
+	}
+}
+
+// handleAPIItemAddFromURL imports a remote asset from URL.
+func (s *AssetServer) handleAPIItemAddFromURL(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	var req ItemImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	targetURL := strings.TrimSpace(req.URL)
+	if targetURL == "" {
+		writeError(w, http.StatusBadRequest, "missing url field")
+		return
+	}
+
+	opts := req.ToOptions()
+	item, err := s.manager.ImportFromURLWithOptions(targetURL, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeSuccess(w, item)
+}
+
+// handleAPIItemAddFromBase64 imports binary data provided in Base64 (e.g. screenshots or canvas captures).
+func (s *AssetServer) handleAPIItemAddFromBase64(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	var req ItemImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	rawB64 := req.Base64
+	if rawB64 == "" {
+		rawB64 = req.Data
+	}
+	if strings.TrimSpace(rawB64) == "" {
+		writeError(w, http.StatusBadRequest, "missing base64 data")
+		return
+	}
+
+	opts := req.ToOptions()
+	filename := opts.Name
+	if filename == "" {
+		filename = fmt.Sprintf("clip_%d.png", time.Now().Unix())
+	} else if !strings.Contains(filename, ".") {
+		filename = filename + ".png"
+	}
+
+	item, err := s.manager.ImportFromBase64WithOptions(filename, rawB64, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeSuccess(w, item)
+}
+
+// handleAPIItemAddBookmark saves a bookmark item with source link and screenshot/card thumbnail.
+func (s *AssetServer) handleAPIItemAddBookmark(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	var req ItemImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	pageURL := strings.TrimSpace(req.URL)
+	if pageURL == "" {
+		pageURL = strings.TrimSpace(req.Website)
+	}
+	if pageURL == "" {
+		writeError(w, http.StatusBadRequest, "missing url field")
+		return
+	}
+
+	opts := req.ToOptions()
+	opts.URL = pageURL
+
+	title := opts.Name
+	if title == "" {
+		title = pageURL
+	}
+	opts.Name = title
+
+	rawB64 := req.Base64
+	if rawB64 == "" {
+		rawB64 = req.Data
+	}
+
+	filename := fmt.Sprintf("bookmark_%d.png", time.Now().Unix())
+	if strings.TrimSpace(rawB64) == "" {
+		// Generate an SVG bookmark visual card
+		escapedTitle := strings.ReplaceAll(strings.ReplaceAll(title, "&", "&amp;"), "<", "&lt;")
+		escapedURL := strings.ReplaceAll(strings.ReplaceAll(pageURL, "&", "&amp;"), "<", "&lt;")
+		svgCard := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="500" viewBox="0 0 800 500">
+  <defs>
+    <linearGradient id="bg" x1="0%%" y1="0%%" x2="100%%" y2="100%%">
+      <stop offset="0%%" stop-color="#1e1b4b" />
+      <stop offset="50%%" stop-color="#312e81" />
+      <stop offset="100%%" stop-color="#0f172a" />
+    </linearGradient>
+  </defs>
+  <rect width="800" height="500" rx="24" fill="url(#bg)" />
+  <circle cx="100" cy="110" r="36" fill="#6366f1" opacity="0.25" />
+  <text x="100" y="122" font-family="-apple-system, sans-serif" font-size="32" font-weight="bold" fill="#818cf8" text-anchor="middle">🔖</text>
+  <text x="160" y="118" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="28" font-weight="700" fill="#f8fafc">%s</text>
+  <text x="100" y="220" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="18" fill="#94a3b8">%s</text>
+  <line x1="100" y1="260" x2="700" y2="260" stroke="#334155" stroke-width="1" />
+  <text x="100" y="420" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" fill="#64748b">Saved via Bowerbird Web Extension</text>
+</svg>`, escapedTitle, escapedURL)
+		filename = fmt.Sprintf("bookmark_%d.svg", time.Now().Unix())
+		rawB64 = base64.StdEncoding.EncodeToString([]byte(svgCard))
+	}
+
+	item, err := s.manager.ImportFromBase64WithOptions(filename, rawB64, opts)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeSuccess(w, item)
+}
+
+// handleAPIItemAddFromURLs imports multiple URLs in batch with worker concurrency.
+func (s *AssetServer) handleAPIItemAddFromURLs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	var batchPayload struct {
+		Items     []ItemImportRequest `json:"items"`
+		FolderID  string              `json:"folderId"`
+		FolderIDs []string            `json:"folderIds"`
+		Tags      []string            `json:"tags"`
+	}
+
+	// Try reading as object with items, or fallback to direct array
+	bodyBytes := make([]byte, 0, 1024*1024)
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Body.Read(buf)
+		if n > 0 {
+			bodyBytes = append(bodyBytes, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+
+	if err := json.Unmarshal(bodyBytes, &batchPayload); err != nil || len(batchPayload.Items) == 0 {
+		var rawList []ItemImportRequest
+		if listErr := json.Unmarshal(bodyBytes, &rawList); listErr == nil && len(rawList) > 0 {
+			batchPayload.Items = rawList
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid batch payload")
+			return
+		}
+	}
+
+	type importResult struct {
+		item *Item
+		err  error
+	}
+
+	itemsLen := len(batchPayload.Items)
+	results := make([]importResult, itemsLen)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 6) // concurrency limiter
+
+	for idx, req := range batchPayload.Items {
+		wg.Add(1)
+		go func(i int, itReq ItemImportRequest) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			opts := itReq.ToOptions()
+			// Merge shared batch folder IDs
+			if strings.TrimSpace(batchPayload.FolderID) != "" {
+				opts.FolderIDs = append(opts.FolderIDs, strings.TrimSpace(batchPayload.FolderID))
+			}
+			opts.FolderIDs = append(opts.FolderIDs, batchPayload.FolderIDs...)
+			opts.Tags = append(opts.Tags, batchPayload.Tags...)
+
+			var imported *Item
+			var err error
+			rawB64 := itReq.Base64
+			if rawB64 == "" {
+				rawB64 = itReq.Data
+			}
+
+			if rawB64 != "" {
+				fn := opts.Name
+				if fn == "" {
+					fn = fmt.Sprintf("clip_%d_%d.png", time.Now().Unix(), i)
+				}
+				imported, err = s.manager.ImportFromBase64WithOptions(fn, rawB64, opts)
+			} else if strings.TrimSpace(itReq.URL) != "" {
+				imported, err = s.manager.ImportFromURLWithOptions(itReq.URL, opts)
+			} else {
+				err = fmt.Errorf("item #%d has neither url nor base64", i)
+			}
+
+			results[i] = importResult{item: imported, err: err}
+		}(idx, req)
+	}
+
+	wg.Wait()
+
+	var successItems []Item
+	var failedCount int
+	for _, res := range results {
+		if res.err == nil && res.item != nil {
+			successItems = append(successItems, *res.item)
+		} else {
+			failedCount++
+		}
+	}
+
+	writeSuccess(w, map[string]any{
+		"total":   itemsLen,
+		"success": len(successItems),
+		"failed":  failedCount,
+		"items":   successItems,
+	})
+}
+
+// handleAPIItemList lists items in the active library.
+func (s *AssetServer) handleAPIItemList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "no active library")
+		return
+	}
+
+	q := r.URL.Query().Get("q")
+	sortOrder := r.URL.Query().Get("sortOrder")
+	items, err := s.manager.GetItems(q, sortOrder)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if items == nil {
+		items = []Item{}
+	}
+	writeSuccess(w, items)
+}

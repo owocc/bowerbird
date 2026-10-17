@@ -81,6 +81,20 @@ export interface ImageMeta {
 }
 
 /**
+ * ImportItemOptions specifies metadata when importing items via API or browser extension.
+ */
+export interface ImportItemOptions {
+    "name"?: string;
+    "url"?: string;
+    "note"?: string;
+    "rating"?: number;
+    "prompt"?: string;
+    "tags"?: string[] | null;
+    "folderIds"?: string[] | null;
+    "headers"?: { [_ in string]?: string } | null;
+}
+
+/**
  * Item represents a single managed asset in the library.
  */
 export interface Item {

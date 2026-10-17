@@ -92,6 +92,10 @@ export function EmptyTrash(): $CancellablePromise<void> {
     return $Call.ByID(1085111149);
 }
 
+export function GetAPIServerPort(): $CancellablePromise<number> {
+    return $Call.ByID(3148749180);
+}
+
 export function GetActiveLibrary(): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(990194437);
 }
@@ -174,8 +178,16 @@ export function ImportFromBase64(filename: string, base64Data: string): $Cancell
     return $Call.ByID(2134855510, filename, base64Data);
 }
 
+export function ImportFromBase64WithOptions(filename: string, base64Data: string, opts: $models.ImportItemOptions): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(3781759292, filename, base64Data, opts);
+}
+
 export function ImportFromURL(rawURL: string): $CancellablePromise<$models.Item | null> {
     return $Call.ByID(780943642, rawURL);
+}
+
+export function ImportFromURLWithOptions(rawURL: string, opts: $models.ImportItemOptions): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(1007862344, rawURL, opts);
 }
 
 /**
