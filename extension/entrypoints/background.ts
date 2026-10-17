@@ -106,47 +106,60 @@ export default defineBackground(() => {
     }
   });
 
-  // Handle messages from content script or popup
-  browser.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  // Handle messages from content script
+  browser.runtime.onMessage.addListener((message: unknown, sender: unknown, sendResponse: (res: any) => void) => {
     if (!message || typeof message !== "object" || !("type" in message)) return;
-    const msgType = message.type;
-    if (msgType === "BOWERBIRD_API_PROXY") {
-      const { action, args } = message as unknown as { action: string; args?: any };
-      handleApiProxy(action, args)
-        .then((data) => sendResponse({ data }))
-        .catch((err: unknown) => {
-          const error = err instanceof Error ? err.message : String(err);
-          sendResponse({ error });
-        });
-      return true; // async sendResponse
-    }
+    const msg = message as { type: string; [key: string]: any };
 
-    if (msgType === "CAPTURE_VISIBLE_TAB") {
-      const capturePromise = sender.tab?.windowId !== undefined
-        ? browser.tabs.captureVisibleTab(sender.tab.windowId, { format: "png" })
-        : browser.tabs.captureVisibleTab({ format: "png" });
+    const handle = async () => {
+      switch (msg.type) {
+        case "CHECK_APP_RUNNING":
+          return await checkAppRunning(msg.targetUrl);
+        case "CHECK_CONNECTION":
+          return await checkConnection(msg.targetUrl);
+        case "FETCH_FOLDERS":
+          return await fetchFolders(msg.targetUrl);
+        case "CREATE_FOLDER":
+          return await createFolder(msg.name, msg.parentId, msg.targetUrl);
+        case "FETCH_TAGS":
+          return await fetchTags(msg.targetUrl);
+        case "IMPORT_FROM_URL":
+          return await importFromURL(msg.payload, msg.targetUrl);
+        case "IMPORT_FROM_BASE64":
+          return await importFromBase64(msg.payload, msg.targetUrl);
+        case "IMPORT_BOOKMARK":
+          return await importBookmark(msg.payload, msg.targetUrl);
+        case "IMPORT_BATCH":
+          return await importBatch(msg.payload, msg.targetUrl);
+        case "CAPTURE_VISIBLE_TAB": {
+          try {
+            const winId = (sender as any)?.tab?.windowId;
+            const dataUrl = winId !== undefined
+              ? await browser.tabs.captureVisibleTab(winId, { format: "png" })
+              : await browser.tabs.captureVisibleTab({ format: "png" });
+            return { success: true, dataUrl };
+          } catch (err: unknown) {
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
+          }
+        }
+        case "FLASH_BADGE": {
+          flashBadge(msg.text || "✓", msg.color || "#10b981");
+          return { success: true };
+        }
+        default:
+          return undefined;
+      }
+    };
 
-      capturePromise
-        .then((dataUrl) => sendResponse({ success: true, dataUrl }))
-        .catch((err: unknown) => {
-          const errText = err instanceof Error ? err.message : String(err);
-          sendResponse({ success: false, error: errText });
-        });
-      return true; // async sendResponse
-    }
-
-    if (msgType === "CHECK_CONNECTION") {
-      checkConnection().then((res) => sendResponse(res));
-      return true;
-    }
-
-    if (msgType === "FLASH_BADGE") {
-      const text = "text" in message && typeof message.text === "string" ? message.text : "✓";
-      const color = "color" in message && typeof message.color === "string" ? message.color : "#10b981";
-      flashBadge(text, color);
-      sendResponse({ success: true });
-      return true;
-    }
+    const promise = handle();
+    promise.then((res) => {
+      if (res !== undefined) {
+        try {
+          sendResponse(res);
+        } catch {}
+      }
+    });
+    return promise;
   });
 });
 
@@ -157,32 +170,9 @@ function flashBadge(text: string, color: string) {
     actionApi.setBadgeText({ text });
     actionApi.setBadgeBackgroundColor({ color });
     setTimeout(() => {
-      actionApi.setBadgeText({ text: "" });
+      try {
+        actionApi.setBadgeText({ text: "" });
+      } catch {}
     }, 2500);
   } catch {}
-}
-
-async function handleApiProxy(action: string, args: any = {}) {
-  switch (action) {
-    case "checkAppRunning":
-      return checkAppRunning(args?.targetUrl);
-    case "checkConnection":
-      return checkConnection(args?.targetUrl);
-    case "fetchFolders":
-      return fetchFolders(args?.targetUrl);
-    case "createFolder":
-      return createFolder(args?.name, args?.parentId, args?.targetUrl);
-    case "fetchTags":
-      return fetchTags(args?.targetUrl);
-    case "importFromURL":
-      return importFromURL(args?.payload, args?.targetUrl);
-    case "importFromBase64":
-      return importFromBase64(args?.payload, args?.targetUrl);
-    case "importBookmark":
-      return importBookmark(args?.payload, args?.targetUrl);
-    case "importBatch":
-      return importBatch(args?.payload, args?.targetUrl);
-    default:
-      throw new Error(`Unknown API proxy action: ${action}`);
-  }
 }

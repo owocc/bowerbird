@@ -118,11 +118,10 @@ async function showDropZone() {
 
   const now = Date.now();
   if (!cachedStatus || now - lastStatusCheckTime > 5000) {
-    cachedStatus = await checkAppRunning();
+    cachedStatus = await getAppStatus();
     lastStatusCheckTime = now;
     if (cachedStatus.running) {
-      const folderTree = await fetchFolders();
-      cachedFolders = flattenFolders(folderTree);
+      cachedFolders = await getFoldersList();
     }
   }
 
@@ -191,26 +190,52 @@ async function handleMediaDrop(
       return { success: false, error: "No media detected" };
     }
 
-    let res;
-    if (targetUrl.startsWith("data:")) {
-      res = await importFromBase64({
-        base64: targetUrl,
-        name: targetName,
-        website: window.location.href,
-        tags: ["web-drop"],
-        folderId,
-      });
-    } else {
-      res = await importFromURL({
-        url: targetUrl,
-        name: targetName,
-        website: window.location.href,
-        tags: ["web-drop"],
-        folderId,
-        headers: { Referer: window.location.href },
-      });
-    }
+    let res: { success: boolean; error?: string } | null = null;
+    try {
+      if (targetUrl.startsWith("data:")) {
+        res = (await browser.runtime.sendMessage({
+          type: "IMPORT_FROM_BASE64",
+          payload: {
+            base64: targetUrl,
+            name: targetName,
+            website: window.location.href,
+            tags: ["web-drop"],
+            folderId,
+          },
+        })) as { success: boolean; error?: string } | null;
+      } else {
+        res = (await browser.runtime.sendMessage({
+          type: "IMPORT_FROM_URL",
+          payload: {
+            url: targetUrl,
+            name: targetName,
+            website: window.location.href,
+            tags: ["web-drop"],
+            folderId,
+            headers: { Referer: window.location.href },
+          },
+        })) as { success: boolean; error?: string } | null;
+      }
+    } catch {}
 
+    if (!res) {
+      res = targetUrl.startsWith("data:")
+        ? await importFromBase64({
+            base64: targetUrl,
+            name: targetName,
+            website: window.location.href,
+            tags: ["web-drop"],
+            folderId,
+          })
+        : await importFromURL({
+            url: targetUrl,
+            name: targetName,
+            website: window.location.href,
+            tags: ["web-drop"],
+            folderId,
+            headers: { Referer: window.location.href },
+          });
+    }
     if (res.success) {
       browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
       return { success: true };
@@ -229,4 +254,24 @@ function readFileAsDataURL(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+async function getAppStatus(): Promise<AppRunningStatus> {
+  try {
+    const res = await browser.runtime.sendMessage({ type: "CHECK_APP_RUNNING" });
+    if (res && typeof res === "object" && typeof (res as any).running === "boolean") {
+      return res as AppRunningStatus;
+    }
+  } catch {}
+  return await checkAppRunning();
+}
+
+async function getFoldersList(): Promise<FlatFolder[]> {
+  try {
+    const res = await browser.runtime.sendMessage({ type: "FETCH_FOLDERS" });
+    if (Array.isArray(res)) {
+      return flattenFolders(res);
+    }
+  } catch {}
+  return flattenFolders(await fetchFolders());
 }

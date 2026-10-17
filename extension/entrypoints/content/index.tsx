@@ -12,6 +12,7 @@ import {
   importBatch,
   importFromBase64,
   type FlatFolder,
+  type Folder,
 } from "@/lib/api";
 
 export default defineContentScript({
@@ -53,7 +54,14 @@ async function openBatchCollector() {
     return;
   }
 
-  const folderTree = await fetchFolders().catch(() => []);
+  let folderTree: Folder[] = [];
+  try {
+    const res = await browser.runtime.sendMessage({ type: "FETCH_FOLDERS" });
+    if (Array.isArray(res)) folderTree = res;
+  } catch {}
+  if (folderTree.length === 0) {
+    folderTree = await fetchFolders().catch(() => []);
+  }
   const flatFolders = flattenFolders(folderTree);
 
   batchShadowHost = document.createElement("div");
@@ -84,7 +92,13 @@ async function openBatchCollector() {
           folderId,
           tags: ["batch-collector"],
         };
-        const res = await importBatch(payload);
+        let res: { success: boolean; total?: number; count?: number; error?: string } | null = null;
+        try {
+          res = (await browser.runtime.sendMessage({ type: "IMPORT_BATCH", payload })) as any;
+        } catch {}
+        if (!res) {
+          res = await importBatch(payload);
+        }
         if (res.success) {
           browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
         }
@@ -172,12 +186,26 @@ function startAreaSelection() {
 
             const croppedB64 = canvas.toDataURL("image/png");
             const pageTitle = document.title || "Selected Region";
-            const importRes = await importFromBase64({
-              base64: croppedB64,
-              name: `${pageTitle} - Region`,
-              website: window.location.href,
-              tags: ["area-screenshot"],
-            });
+            let importRes: { success: boolean; item?: any; error?: string } | null = null;
+            try {
+              importRes = (await browser.runtime.sendMessage({
+                type: "IMPORT_FROM_BASE64",
+                payload: {
+                  base64: croppedB64,
+                  name: `${pageTitle} - Region`,
+                  website: window.location.href,
+                  tags: ["area-screenshot"],
+                },
+              })) as any;
+            } catch {}
+            if (!importRes) {
+              importRes = await importFromBase64({
+                base64: croppedB64,
+                name: `${pageTitle} - Region`,
+                website: window.location.href,
+                tags: ["area-screenshot"],
+              });
+            }
 
             if (importRes.success) {
               browser.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });

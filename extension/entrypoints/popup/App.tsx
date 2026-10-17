@@ -60,17 +60,26 @@ export function App() {
 
   const loadData = async (targetUrl?: string) => {
     setIsChecking(true);
-    const conn = await checkConnection(targetUrl);
-    setStatus(conn);
-    setIsChecking(false);
-
-    if (conn.connected) {
-      const [fList, tList] = await Promise.all([
-        fetchFolders(targetUrl),
-        fetchTags(targetUrl),
-      ]);
-      setFolders(fList);
-      setTags(tList);
+    try {
+      const conn = (await checkConnection(targetUrl)) || { connected: false, error: "Connection failed" };
+      setStatus(conn);
+      if (conn?.connected) {
+        const [fList, tList] = await Promise.all([
+          fetchFolders(targetUrl),
+          fetchTags(targetUrl),
+        ]);
+        setFolders(fList || []);
+        setTags(tList || []);
+      } else {
+        setFolders([]);
+        setTags([]);
+      }
+    } catch (err: unknown) {
+      setStatus({ connected: false, error: err instanceof Error ? err.message : "Error checking connection" });
+      setFolders([]);
+      setTags([]);
+    } finally {
+      setIsChecking(false);
     }
   };
 
@@ -88,7 +97,7 @@ export function App() {
 
   // 1. Capture Visible Screen
   const handleCaptureVisible = async () => {
-    if (!status.connected) {
+    if (!status?.connected) {
       showToast("Cannot connect to Bowerbird", true);
       return;
     }
@@ -151,7 +160,7 @@ export function App() {
 
   // 3. Save Bookmark
   const handleSaveBookmark = async () => {
-    if (!status.connected) {
+    if (!status?.connected) {
       showToast("Cannot connect to Bowerbird", true);
       return;
     }
@@ -267,25 +276,25 @@ export function App() {
       <div
         className={cn(
           "rounded-xl border p-2.5 flex items-center justify-between transition-colors",
-          status.connected
+          status?.connected
             ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-300"
             : "border-destructive/30 bg-destructive/10 text-destructive"
         )}
       >
         <div className="flex items-center gap-2 min-w-0 pr-2">
           <span className="relative flex size-2 shrink-0">
-            {status.connected && (
+            {status?.connected && (
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
             )}
             <span
               className={cn(
                 "relative inline-flex rounded-full size-2",
-                status.connected ? "bg-emerald-500" : "bg-destructive"
+                status?.connected ? "bg-emerald-500" : "bg-destructive"
               )}
             />
           </span>
           <span className="text-[11px] font-medium truncate">
-            {status.connected
+            {status?.connected
               ? `Connected: ${status.libraryName || "Active Library"}`
               : "Disconnected from Bowerbird"}
           </span>

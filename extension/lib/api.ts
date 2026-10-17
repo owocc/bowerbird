@@ -12,29 +12,31 @@ export interface Folder {
   id: string;
   name: string;
   parentId: string;
-  sortOrder?: number;
-  itemCount?: number;
   children?: Folder[];
+  itemCount?: number;
 }
 
 export interface Tag {
+  id: string;
   name: string;
-  itemCount: number;
+  count: number;
 }
 
 export interface Item {
   id: string;
   name: string;
-  extension: string;
-  filename: string;
+  ext: string;
   size: number;
-  mimeType: string;
   width: number;
   height: number;
-  url: string;
-  note: string;
-  tags: string[];
-  folders: string[];
+  duration?: number;
+  tags?: string[];
+  folders?: string[];
+  thumbnailPath?: string;
+  website?: string;
+  sourceUrl?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface APIStatusResult {
@@ -57,22 +59,27 @@ export interface AppRunningStatus {
 export interface FlatFolder {
   id: string;
   name: string;
-  path: string;
-  itemCount: number;
+  fullPath: string;
+  depth: number;
+  parentId: string;
+  path?: string;
+  itemCount?: number;
 }
 
-export function flattenFolders(folders: Folder[], prefix = ""): FlatFolder[] {
-  const result: FlatFolder[] = [];
+export function flattenFolders(folders: Folder[], prefix = "", depth = 0): FlatFolder[] {
+  let result: FlatFolder[] = [];
   for (const f of folders) {
     const fullPath = prefix ? `${prefix} / ${f.name}` : f.name;
     result.push({
       id: f.id,
       name: f.name,
-      path: fullPath,
-      itemCount: f.itemCount || 0,
+      fullPath,
+      depth,
+      parentId: f.parentId,
+      itemCount: f.itemCount,
     });
     if (f.children && f.children.length > 0) {
-      result.push(...flattenFolders(f.children, fullPath));
+      result = result.concat(flattenFolders(f.children, fullPath, depth + 1));
     }
   }
   return result;
@@ -80,36 +87,14 @@ export function flattenFolders(folders: Folder[], prefix = ""): FlatFolder[] {
 
 export const DEFAULT_API_URL = "http://127.0.0.1:41595";
 
-export function isContentScript(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const extUrl = browser?.runtime?.getURL?.("");
-    if (!extUrl) return false;
-    // An extension page (popup, options, background) starts with the extension base URL.
-    // A webpage content script URL does NOT start with the extension base URL.
-    return !window.location.href.startsWith(extUrl);
-  } catch {
-    return false;
-  }
-}
-
-async function callBackgroundAPI<T>(action: string, args: Record<string, unknown> = {}): Promise<T> {
-  const res = (await browser.runtime.sendMessage({
-    type: "BOWERBIRD_API_PROXY",
-    action,
-    args,
-  })) as { data?: T; error?: string } | undefined;
-  if (res && res.error) {
-    throw new Error(res.error);
-  }
-  return res?.data as T;
-}
-
 export async function getStoredApiUrl(): Promise<string> {
   try {
-    const res = (await browser.storage.local.get(["apiUrl"])) as { apiUrl?: string };
-    if (res.apiUrl && typeof res.apiUrl === "string") {
-      return res.apiUrl.replace(/\/+$/, "");
+    const storageApi = browser?.storage?.local ?? (globalThis as any).chrome?.storage?.local;
+    if (storageApi) {
+      const res = await storageApi.get(["apiUrl"]);
+      if (res && res.apiUrl && typeof res.apiUrl === "string") {
+        return res.apiUrl.replace(/\/+$/, "");
+      }
     }
   } catch {}
   return DEFAULT_API_URL;
@@ -117,7 +102,12 @@ export async function getStoredApiUrl(): Promise<string> {
 
 export async function setStoredApiUrl(url: string): Promise<void> {
   const clean = url.trim().replace(/\/+$/, "");
-  await browser.storage.local.set({ apiUrl: clean });
+  try {
+    const storageApi = browser?.storage?.local ?? (globalThis as any).chrome?.storage?.local;
+    if (storageApi) {
+      await storageApi.set({ apiUrl: clean });
+    }
+  } catch {}
 }
 
 /**
@@ -125,17 +115,6 @@ export async function setStoredApiUrl(url: string): Promise<void> {
  * Uses a fast 1500ms timeout to avoid UI blocking.
  */
 export async function checkAppRunning(targetUrl?: string): Promise<AppRunningStatus> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI<AppRunningStatus>("checkAppRunning", { targetUrl });
-    } catch (err: unknown) {
-      return {
-        running: false,
-        hasActiveLibrary: false,
-        error: err instanceof Error ? err.message : "Bowerbird desktop app is not running",
-      };
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const controller = new AbortController();
@@ -173,16 +152,6 @@ export async function checkAppRunning(targetUrl?: string): Promise<AppRunningSta
 }
 
 export async function checkConnection(targetUrl?: string): Promise<APIStatusResult> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI<APIStatusResult>("checkConnection", { targetUrl });
-    } catch (err: unknown) {
-      return {
-        connected: false,
-        error: err instanceof Error ? err.message : "Bowerbird not reachable",
-      };
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const controller = new AbortController();
@@ -218,13 +187,6 @@ export async function checkConnection(targetUrl?: string): Promise<APIStatusResu
 }
 
 export async function fetchFolders(targetUrl?: string): Promise<Folder[]> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI<Folder[]>("fetchFolders", { targetUrl });
-    } catch {
-      return [];
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/folders`);
@@ -238,13 +200,6 @@ export async function fetchFolders(targetUrl?: string): Promise<Folder[]> {
 }
 
 export async function createFolder(name: string, parentId: string = "", targetUrl?: string): Promise<Folder | null> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI<Folder | null>("createFolder", { name, parentId, targetUrl });
-    } catch {
-      return null;
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/folder/create`, {
@@ -262,13 +217,6 @@ export async function createFolder(name: string, parentId: string = "", targetUr
 }
 
 export async function fetchTags(targetUrl?: string): Promise<Tag[]> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI<Tag[]>("fetchTags", { targetUrl });
-    } catch {
-      return [];
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/tags`);
@@ -294,13 +242,6 @@ export async function importFromURL(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; item?: Item; error?: string }> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI("importFromURL", { payload, targetUrl });
-    } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : "Network error" };
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromURL`, {
@@ -313,8 +254,9 @@ export async function importFromURL(
       return { success: true, item: json.data };
     }
     return { success: false, error: json.message || `HTTP ${resp.status}` };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Network error" };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Network error";
+    return { success: false, error: msg };
   }
 }
 
@@ -330,13 +272,6 @@ export async function importFromBase64(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; item?: Item; error?: string }> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI("importFromBase64", { payload, targetUrl });
-    } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : "Network error" };
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromBase64`, {
@@ -349,8 +284,9 @@ export async function importFromBase64(
       return { success: true, item: json.data };
     }
     return { success: false, error: json.message || `HTTP ${resp.status}` };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Network error" };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Network error";
+    return { success: false, error: msg };
   }
 }
 
@@ -365,13 +301,6 @@ export async function importBookmark(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; item?: Item; error?: string }> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI("importBookmark", { payload, targetUrl });
-    } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : "Network error" };
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addBookmark`, {
@@ -384,8 +313,9 @@ export async function importBookmark(
       return { success: true, item: json.data };
     }
     return { success: false, error: json.message || `HTTP ${resp.status}` };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Network error" };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Network error";
+    return { success: false, error: msg };
   }
 }
 
@@ -404,14 +334,6 @@ export async function importBatch(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; total?: number; count?: number; error?: string }> {
-  if (isContentScript()) {
-    try {
-      return await callBackgroundAPI("importBatch", { payload, targetUrl });
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : "Network error";
-      return { success: false, error: errorMsg };
-    }
-  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromURLs`, {

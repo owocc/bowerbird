@@ -251,15 +251,15 @@ export function DragDropPanel({
                                   : dropState.error || "Failed"
                                 : folder.name}
                             </div>
-                            {folder.path !== folder.name && (
+                            {folder.fullPath && folder.fullPath !== folder.name && (
                               <div className="text-[9px] text-muted-foreground truncate">
-                                {folder.path}
+                                {folder.fullPath}
                               </div>
                             )}
                           </div>
                         </div>
 
-                        {folder.itemCount > 0 && (
+                        {(folder.itemCount ?? 0) > 0 && (
                           <Badge
                             variant="secondary"
                             className="text-[9px] font-mono px-1.5 pointer-events-none"
