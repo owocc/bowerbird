@@ -1,0 +1,193 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { DragDropPanel } from "@/components/DragDropPanel";
+import contentStyle from "./style.css?inline";
+import {
+  checkAppRunning,
+  fetchFolders,
+  flattenFolders,
+  importFromURL,
+  importFromBase64,
+  type FlatFolder,
+  type AppRunningStatus,
+} from "@/lib/api";
+
+interface DraggedMediaInfo {
+  url?: string;
+  name?: string;
+  website?: string;
+}
+
+let currentDragMedia: DraggedMediaInfo | null = null;
+let shadowHost: HTMLElement | null = null;
+let reactRoot: ReactDOM.Root | null = null;
+let hideTimer: number | null = null;
+let cachedFolders: FlatFolder[] = [];
+let cachedStatus: AppRunningStatus | null = null;
+let lastStatusCheckTime = 0;
+
+/**
+ * Initializes the floating media drag-and-drop overlay on the current webpage.
+ */
+export function initMediaDragDropZone() {
+  window.addEventListener("dragstart", (e: DragEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+
+    let mediaUrl = "";
+    let mediaName = "";
+
+    if (target instanceof HTMLImageElement) {
+      mediaUrl = target.currentSrc || target.src;
+      mediaName = target.alt || target.title || document.title || "Dragged Image";
+    } else if (target instanceof HTMLAnchorElement) {
+      const childImg = target.querySelector("img");
+      if (childImg && (childImg.currentSrc || childImg.src)) {
+        mediaUrl = childImg.currentSrc || childImg.src;
+        mediaName = childImg.alt || childImg.title || target.innerText.trim();
+      } else {
+        mediaUrl = target.href;
+        mediaName = target.innerText.trim() || target.title || "Dragged Link";
+      }
+    } else if (target instanceof HTMLVideoElement) {
+      mediaUrl = target.poster || target.src;
+      mediaName = "Dragged Video";
+    } else {
+      const bg = window.getComputedStyle(target).backgroundImage;
+      if (bg && bg.startsWith("url(")) {
+        const match = bg.match(/url\(['"]?(.*?)['"]?\)/);
+        if (match && match[1]) {
+          mediaUrl = match[1];
+          mediaName = "Dragged Background Image";
+        }
+      }
+    }
+
+    if (mediaUrl) {
+      currentDragMedia = {
+        url: mediaUrl,
+        name: mediaName,
+        website: window.location.href,
+      };
+      showDropZone();
+    }
+  });
+
+  window.addEventListener("dragenter", (e: DragEvent) => {
+    if (!e.dataTransfer) return;
+    const types = Array.from(e.dataTransfer.types);
+    if (types.includes("Files") || types.includes("text/uri-list") || types.includes("text/plain")) {
+      showDropZone();
+    }
+  });
+
+  window.addEventListener("dragend", () => {
+    currentDragMedia = null;
+    scheduleHideDropZone(200);
+  });
+
+  document.documentElement.addEventListener("dragleave", (e: DragEvent) => {
+    if (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+      scheduleHideDropZone(300);
+    }
+  });
+}
+
+function scheduleHideDropZone(delayMs = 200) {
+  clearTimeout(hideTimer ?? undefined);
+  hideTimer = window.setTimeout(() => {
+    hideDropZone();
+  }, delayMs);
+}
+
+function hideDropZone() {
+  if (shadowHost) {
+    if (reactRoot) {
+      reactRoot.unmount();
+      reactRoot = null;
+    }
+    shadowHost.remove();
+    shadowHost = null;
+  }
+}
+
+async function showDropZone() {
+  clearTimeout(hideTimer ?? undefined);
+  hideTimer = null;
+
+  const now = Date.now();
+  if (!cachedStatus || now - lastStatusCheckTime > 5000) {
+    cachedStatus = await checkAppRunning();
+    lastStatusCheckTime = now;
+    if (cachedStatus.running) {
+      const folderTree = await fetchFolders();
+      cachedFolders = flattenFolders(folderTree);
+    }
+  }
+
+  if (!shadowHost) {
+    shadowHost = document.createElement("div");
+    shadowHost.id = "bowerbird-drag-drop-host";
+    shadowHost.style.cssText = `
+      position: fixed; right: 24px; top: 50%; transform: translateY(-50%);
+      z-index: 2147483646; pointer-events: auto;
+    `;
+
+    const shadow = shadowHost.attachShadow({ mode: "open" });
+    const styleEl = document.createElement("style");
+    styleEl.textContent = contentStyle;
+    shadow.appendChild(styleEl);
+
+    const mountPoint = document.createElement("div");
+    shadow.appendChild(mountPoint);
+    document.body.appendChild(shadowHost);
+
+    reactRoot = ReactDOM.createRoot(mountPoint);
+  }
+
+  renderPanel();
+}
+
+function renderPanel() {
+  if (!reactRoot || !cachedStatus) return;
+
+  reactRoot.render(
+    <DragDropPanel
+      status={cachedStatus}
+      folders={cachedFolders}
+      onDropMedia={handleMediaDrop}
+      onClose={hideDropZone}
+    />
+  );
+}
+
+async function handleMediaDrop(
+  folderId?: string,
+  folderName?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    let targetUrl = currentDragMedia?.url;
+    let targetName = currentDragMedia?.name || document.title || "Dropped Asset";
+
+    if (!targetUrl) {
+      return { success: false, error: "No media detected" };
+    }
+
+    const res = await importFromURL({
+      url: targetUrl,
+      website: window.location.href,
+      tags: ["web-drop"],
+      folderId,
+      headers: { Referer: window.location.href },
+    });
+
+    if (res.success) {
+      chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
+      return { success: true };
+    }
+    return { success: false, error: res.error || "Import failed" };
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : "Drop error";
+    return { success: false, error: errorMsg };
+  }
+}
