@@ -1,10 +1,14 @@
 import { defineBackground } from "wxt/utils/define-background";
 import {
+  checkAppRunning,
+  checkConnection,
+  fetchFolders,
+  createFolder,
+  fetchTags,
   importFromURL,
   importFromBase64,
   importBookmark,
-  checkConnection,
-  getStoredApiUrl,
+  importBatch,
 } from "@/lib/api";
 
 export default defineBackground(() => {
@@ -103,6 +107,16 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     if (!message || typeof message !== "object" || !("type" in message)) return;
     const msgType = message.type;
+    if (msgType === "BOWERBIRD_API_PROXY") {
+      const { action, args } = message as unknown as { action: string; args?: any };
+      handleApiProxy(action, args)
+        .then((data) => sendResponse({ data }))
+        .catch((err: unknown) => {
+          const error = err instanceof Error ? err.message : String(err);
+          sendResponse({ error });
+        });
+      return true; // async sendResponse
+    }
 
     if (msgType === "CAPTURE_VISIBLE_TAB") {
       const capturePromise = sender.tab?.windowId !== undefined
@@ -139,4 +153,29 @@ function flashBadge(text: string, color: string) {
   setTimeout(() => {
     chrome.action.setBadgeText({ text: "" });
   }, 2500);
+}
+
+async function handleApiProxy(action: string, args: any = {}) {
+  switch (action) {
+    case "checkAppRunning":
+      return checkAppRunning(args?.targetUrl);
+    case "checkConnection":
+      return checkConnection(args?.targetUrl);
+    case "fetchFolders":
+      return fetchFolders(args?.targetUrl);
+    case "createFolder":
+      return createFolder(args?.name, args?.parentId, args?.targetUrl);
+    case "fetchTags":
+      return fetchTags(args?.targetUrl);
+    case "importFromURL":
+      return importFromURL(args?.payload, args?.targetUrl);
+    case "importFromBase64":
+      return importFromBase64(args?.payload, args?.targetUrl);
+    case "importBookmark":
+      return importBookmark(args?.payload, args?.targetUrl);
+    case "importBatch":
+      return importBatch(args?.payload, args?.targetUrl);
+    default:
+      throw new Error(`Unknown API proxy action: ${action}`);
+  }
 }

@@ -79,6 +79,39 @@ export function flattenFolders(folders: Folder[], prefix = ""): FlatFolder[] {
 
 export const DEFAULT_API_URL = "http://127.0.0.1:41595";
 
+export function isContentScript(): boolean {
+  if (typeof window === "undefined") return false;
+  if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return false;
+  const proto = window.location?.protocol || "";
+  return (
+    proto !== "chrome-extension:" &&
+    proto !== "safari-extension:" &&
+    proto !== "moz-extension:"
+  );
+}
+
+async function callBackgroundAPI<T>(action: string, args: Record<string, unknown> = {}): Promise<T> {
+  return new Promise((resolve, reject) => {
+    try {
+      chrome.runtime.sendMessage(
+        { type: "BOWERBIRD_API_PROXY", action, args },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (response && response.error) {
+            reject(new Error(response.error));
+            return;
+          }
+          resolve(response?.data as T);
+        }
+      );
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
 export async function getStoredApiUrl(): Promise<string> {
   try {
     const res = await chrome.storage.local.get(["apiUrl"]);
@@ -99,6 +132,17 @@ export async function setStoredApiUrl(url: string): Promise<void> {
  * Uses a fast 1500ms timeout to avoid UI blocking.
  */
 export async function checkAppRunning(targetUrl?: string): Promise<AppRunningStatus> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI<AppRunningStatus>("checkAppRunning", { targetUrl });
+    } catch (err: unknown) {
+      return {
+        running: false,
+        hasActiveLibrary: false,
+        error: err instanceof Error ? err.message : "Bowerbird desktop app is not running",
+      };
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const controller = new AbortController();
@@ -136,6 +180,16 @@ export async function checkAppRunning(targetUrl?: string): Promise<AppRunningSta
 }
 
 export async function checkConnection(targetUrl?: string): Promise<APIStatusResult> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI<APIStatusResult>("checkConnection", { targetUrl });
+    } catch (err: unknown) {
+      return {
+        connected: false,
+        error: err instanceof Error ? err.message : "Bowerbird not reachable",
+      };
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const controller = new AbortController();
@@ -171,6 +225,13 @@ export async function checkConnection(targetUrl?: string): Promise<APIStatusResu
 }
 
 export async function fetchFolders(targetUrl?: string): Promise<Folder[]> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI<Folder[]>("fetchFolders", { targetUrl });
+    } catch {
+      return [];
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/folders`);
@@ -184,6 +245,13 @@ export async function fetchFolders(targetUrl?: string): Promise<Folder[]> {
 }
 
 export async function createFolder(name: string, parentId: string = "", targetUrl?: string): Promise<Folder | null> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI<Folder | null>("createFolder", { name, parentId, targetUrl });
+    } catch {
+      return null;
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/folder/create`, {
@@ -201,6 +269,13 @@ export async function createFolder(name: string, parentId: string = "", targetUr
 }
 
 export async function fetchTags(targetUrl?: string): Promise<Tag[]> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI<Tag[]>("fetchTags", { targetUrl });
+    } catch {
+      return [];
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/tags`);
@@ -226,6 +301,13 @@ export async function importFromURL(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; item?: Item; error?: string }> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI("importFromURL", { payload, targetUrl });
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromURL`, {
@@ -255,6 +337,13 @@ export async function importFromBase64(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; item?: Item; error?: string }> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI("importFromBase64", { payload, targetUrl });
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromBase64`, {
@@ -283,6 +372,13 @@ export async function importBookmark(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; item?: Item; error?: string }> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI("importBookmark", { payload, targetUrl });
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : "Network error" };
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addBookmark`, {
@@ -315,6 +411,14 @@ export async function importBatch(
   },
   targetUrl?: string
 ): Promise<{ success: boolean; total?: number; count?: number; error?: string }> {
+  if (isContentScript()) {
+    try {
+      return await callBackgroundAPI("importBatch", { payload, targetUrl });
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : "Network error";
+      return { success: false, error: errorMsg };
+    }
+  }
   const base = targetUrl || (await getStoredApiUrl());
   try {
     const resp = await fetch(`${base}/api/item/addFromURLs`, {

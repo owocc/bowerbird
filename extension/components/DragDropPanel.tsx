@@ -16,7 +16,7 @@ import type { AppRunningStatus, FlatFolder } from "@/lib/api";
 export interface DragDropPanelProps {
   status: AppRunningStatus;
   folders: FlatFolder[];
-  onDropMedia: (folderId?: string, folderName?: string) => Promise<{ success: boolean; error?: string }>;
+  onDropMedia: (folderId?: string, folderName?: string, dataTransfer?: DataTransfer | null) => Promise<{ success: boolean; error?: string }>;
   onClose: () => void;
 }
 
@@ -69,7 +69,7 @@ export function DragDropPanel({
       status: "saving",
     });
 
-    const result = await onDropMedia(folderId, folderName);
+    const result = await onDropMedia(folderId, folderName, e.dataTransfer);
     if (result.success) {
       setDropState({
         slotId,

@@ -163,23 +163,52 @@ function renderPanel() {
 
 async function handleMediaDrop(
   folderId?: string,
-  folderName?: string
+  _folderName?: string,
+  dataTransfer?: DataTransfer | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
     let targetUrl = currentDragMedia?.url;
     let targetName = currentDragMedia?.name || document.title || "Dropped Asset";
 
+    // If not detected from dragstart, try dataTransfer fallback (crucial for Safari & external files)
+    if (!targetUrl && dataTransfer) {
+      if (dataTransfer.files && dataTransfer.files.length > 0) {
+        const file = dataTransfer.files[0];
+        if (file) {
+          targetName = file.name || targetName;
+          targetUrl = await readFileAsDataURL(file);
+        }
+      } else {
+        const uriList = dataTransfer.getData("text/uri-list");
+        const urlData = dataTransfer.getData("URL");
+        const textData = dataTransfer.getData("text/plain")?.trim();
+        targetUrl = uriList || urlData || (textData?.startsWith("http") || textData?.startsWith("data:") ? textData : undefined);
+      }
+    }
+
     if (!targetUrl) {
       return { success: false, error: "No media detected" };
     }
 
-    const res = await importFromURL({
-      url: targetUrl,
-      website: window.location.href,
-      tags: ["web-drop"],
-      folderId,
-      headers: { Referer: window.location.href },
-    });
+    let res;
+    if (targetUrl.startsWith("data:")) {
+      res = await importFromBase64({
+        base64: targetUrl,
+        name: targetName,
+        website: window.location.href,
+        tags: ["web-drop"],
+        folderId,
+      });
+    } else {
+      res = await importFromURL({
+        url: targetUrl,
+        name: targetName,
+        website: window.location.href,
+        tags: ["web-drop"],
+        folderId,
+        headers: { Referer: window.location.href },
+      });
+    }
 
     if (res.success) {
       chrome.runtime.sendMessage({ type: "FLASH_BADGE", text: "✓", color: "#10b981" });
@@ -190,4 +219,13 @@ async function handleMediaDrop(
     const errorMsg = err instanceof Error ? err.message : "Drop error";
     return { success: false, error: errorMsg };
   }
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
