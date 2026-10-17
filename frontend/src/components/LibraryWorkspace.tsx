@@ -147,11 +147,16 @@ export function LibraryWorkspace({
   const colorFilter = ws.color ?? null;
   const folderFilter = ws.filterFolder ?? null;
   const orientationFilter = ws.orientation;
+  const sizeFilter = ws.size;
+  const hasUrlFilter = ws.hasUrl;
+  const hasNoteFilter = ws.hasNote;
+  const ratingFilter = ws.rating ?? null;
   const inlinePreviewOpen = ws.preview === "inline";
   const fullWindowPreviewOpen = ws.preview === "full";
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [items, setItems] = useState<Item[]>([]);
+  const [trashItems, setTrashItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [trashCount, setTrashCount] = useState<number>(0);
@@ -249,23 +254,14 @@ export function LibraryWorkspace({
 
   const isTrashView = activeFolderId === TRASH_FOLDER_ID;
 
-  const refreshItems = useCallback(async () => {
+  const refreshActiveItems = useCallback(async () => {
     const t0 = performance.now();
     try {
-      if (isTrashView) {
-        const data = await GetTrashItems("", sortOrder);
-        setItems(data || []);
-        const dur = performance.now() - t0;
-        if (dur >= 25) {
-          logDiagnostic("perf", "perf", "Loaded trash items", `count=${data?.length ?? 0} sort=${sortOrder}`, dur);
-        }
-      } else {
-        const data = await GetItems("", sortOrder);
-        setItems(data || []);
-        const dur = performance.now() - t0;
-        if (dur >= 25) {
-          logDiagnostic("perf", "perf", "Loaded library items", `count=${data?.length ?? 0} sort=${sortOrder}`, dur);
-        }
+      const data = await GetItems("", sortOrder);
+      setItems(data || []);
+      const dur = performance.now() - t0;
+      if (dur >= 25) {
+        logDiagnostic("perf", "perf", "Loaded library items", `count=${data?.length ?? 0} sort=${sortOrder}`, dur);
       }
     } catch (err) {
       console.error("Failed to load items:", err);
@@ -273,7 +269,47 @@ export function LibraryWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [isTrashView, sortOrder]);
+  }, [sortOrder]);
+
+  const refreshTrashItems = useCallback(async () => {
+    const t0 = performance.now();
+    try {
+      const data = await GetTrashItems("", sortOrder);
+      const list = data || [];
+      setTrashItems(list);
+      setTrashCount(list.length);
+      const dur = performance.now() - t0;
+      if (dur >= 25) {
+        logDiagnostic("perf", "perf", "Loaded trash items", `count=${list.length} sort=${sortOrder}`, dur);
+      }
+    } catch (err) {
+      console.error("Failed to load trash items:", err);
+      logDiagnostic("error", "ui", "Failed to load trash items", String(err), 0);
+    }
+  }, [sortOrder]);
+
+  const refreshItems = useCallback(async () => {
+    await refreshActiveItems();
+    if (isTrashView) {
+      await refreshTrashItems();
+    }
+  }, [refreshActiveItems, refreshTrashItems, isTrashView]);
+
+  const handleItemUpdatedInPlace = useCallback(
+    (updated?: Item) => {
+      if (updated && updated.id) {
+        setItems((prev) =>
+          prev.map((it) => (it.id === updated.id ? updated : it))
+        );
+        setTrashItems((prev) =>
+          prev.map((it) => (it.id === updated.id ? updated : it))
+        );
+        return;
+      }
+      void refreshItems();
+    },
+    [refreshItems]
+  );
 
   const refreshFolders = useCallback(async () => {
     try {
@@ -312,9 +348,14 @@ export function LibraryWorkspace({
   }, [refreshItems, refreshFolders, refreshTags, refreshTrashCount]);
 
   useEffect(() => {
-    refreshItems();
-  }, [refreshItems]);
+    void refreshActiveItems();
+  }, [refreshActiveItems]);
 
+  useEffect(() => {
+    if (isTrashView) {
+      void refreshTrashItems();
+    }
+  }, [isTrashView, refreshTrashItems]);
   useEffect(() => {
     refreshFolders();
   }, [refreshFolders]);
@@ -364,13 +405,13 @@ export function LibraryWorkspace({
     previousLibraryPathRef.current = library.path;
     setSelectedOrder([]);
     setActiveItemId(null);
+    setTrashItems([]);
     previewPushedRef.current = false;
     ws.reset();
-    refreshItems();
-    refreshFolders();
-    refreshTags();
-    refreshTrashCount();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void refreshActiveItems();
+    void refreshFolders();
+    void refreshTags();
+    void refreshTrashCount();
   }, [library.path]);
 
   const isRealFolderId = (id: string | null): id is string =>
@@ -433,8 +474,7 @@ export function LibraryWorkspace({
     return () => window.removeEventListener("paste", handlePaste);
   }, [importFileList]);
 
-  // Fast lookup map for O(1) resolution of selectedOrder -> Item[]
-  const itemsById = useMemo(() => {
+  const activeItemsById = useMemo(() => {
     const map = new Map<string, Item>();
     for (const it of items) {
       map.set(it.id, it);
@@ -442,6 +482,17 @@ export function LibraryWorkspace({
     return map;
   }, [items]);
 
+  const currentViewItems = isTrashView ? trashItems : items;
+
+  // Fast lookup map for O(1) resolution of selectedOrder -> Item[] in current view
+  const itemsById = useMemo(() => {
+    if (!isTrashView) return activeItemsById;
+    const map = new Map<string, Item>();
+    for (const it of trashItems) {
+      map.set(it.id, it);
+    }
+    return map;
+  }, [isTrashView, activeItemsById, trashItems]);
   // Selected items strictly ordered by selection sequence (FIFO)
   const selectedItems = useMemo(() => {
     const result: Item[] = [];
@@ -492,13 +543,13 @@ export function LibraryWorkspace({
   const historyItems = useMemo(() => {
     const out: Item[] = [];
     for (const entry of historyEntries) {
-      const found = itemsById.get(entry.itemId);
+      const found = activeItemsById.get(entry.itemId);
       if (found && !found.inTrash) {
         out.push(found);
       }
     }
     return out;
-  }, [historyEntries, itemsById]);
+  }, [historyEntries, activeItemsById]);
 
   const flatFolderList = useMemo(() => {
     const out: { id: string; name: string; count: number }[] = [];
@@ -622,12 +673,13 @@ export function LibraryWorkspace({
 
   const filteredItems = useMemo(() => {
     let sourceItems: Item[];
-    if (activeFolderId === HISTORY_FOLDER_ID) {
+    if (activeFolderId === TRASH_FOLDER_ID) {
+      sourceItems = trashItems;
+    } else if (activeFolderId === HISTORY_FOLDER_ID) {
       sourceItems =
         sortOrder === "asc" ? [...historyItems].reverse() : historyItems;
     } else if (
       activeFolderId !== null &&
-      activeFolderId !== TRASH_FOLDER_ID &&
       !tagsSidebarOpen &&
       activeFolderId !== UNTAGGED_FOLDER_ID &&
       activeFolderId !== UNCATEGORIZED_FOLDER_ID &&
@@ -638,7 +690,6 @@ export function LibraryWorkspace({
     } else {
       sourceItems = items;
     }
-
     const hasExtraFilters =
       Boolean(normalizedQuery) ||
       tagsSidebarOpen ||
@@ -651,8 +702,11 @@ export function LibraryWorkspace({
       categoryFilter !== "all" ||
       Boolean(folderFilter) ||
       orientationFilter !== "all" ||
-      Boolean(colorFilter);
-
+      Boolean(colorFilter) ||
+      sizeFilter !== "all" ||
+      hasUrlFilter !== "all" ||
+      hasNoteFilter !== "all" ||
+      ratingFilter !== null;
     if (!hasExtraFilters) {
       return sourceItems;
     }
@@ -662,10 +716,19 @@ export function LibraryWorkspace({
         const matchesName = item.name?.toLowerCase().includes(normalizedQuery);
         const matchesExt = item.extension?.toLowerCase().includes(normalizedQuery);
         const matchesHex = item.hex?.toLowerCase().includes(normalizedQuery);
+        const matchesNote = item.note?.toLowerCase().includes(normalizedQuery);
+        const matchesPrompt = item.prompt?.toLowerCase().includes(normalizedQuery);
         const matchesTag = (item.tags || []).some((t) =>
           t.toLowerCase().includes(normalizedQuery)
         );
-        if (!matchesName && !matchesExt && !matchesHex && !matchesTag) {
+        if (
+          !matchesName &&
+          !matchesExt &&
+          !matchesHex &&
+          !matchesNote &&
+          !matchesPrompt &&
+          !matchesTag
+        ) {
           return false;
         }
       }
@@ -743,10 +806,41 @@ export function LibraryWorkspace({
         }
       }
 
+      // 5. File Size filter
+      if (sizeFilter !== "all") {
+        const sz = item.size || 0;
+        const ONE_MB = 1024 * 1024;
+        const TEN_MB = 10 * ONE_MB;
+        if (sizeFilter === "small" && sz >= ONE_MB) return false;
+        if (sizeFilter === "medium" && (sz < ONE_MB || sz > TEN_MB)) return false;
+        if (sizeFilter === "large" && sz <= TEN_MB) return false;
+      }
+
+      // 6. URL presence filter
+      if (hasUrlFilter !== "all") {
+        const hasLink = Boolean(item.url && item.url.trim().length > 0);
+        if (hasUrlFilter === "has" && !hasLink) return false;
+        if (hasUrlFilter === "empty" && hasLink) return false;
+      }
+
+      // 7. Notes presence filter
+      if (hasNoteFilter !== "all") {
+        const hasNote = Boolean(item.note && item.note.trim().length > 0);
+        if (hasNoteFilter === "has" && !hasNote) return false;
+        if (hasNoteFilter === "empty" && hasNote) return false;
+      }
+
+      // 8. Star Rating filter
+      if (ratingFilter !== null) {
+        const itemRating = item.rating || 0;
+        if (itemRating !== ratingFilter) return false;
+      }
+
       return true;
     });
   }, [
     items,
+    trashItems,
     itemsByFolderId,
     historyItems,
     sortOrder,
@@ -760,6 +854,10 @@ export function LibraryWorkspace({
     folderFilter,
     orientationFilter,
     colorFilter,
+    sizeFilter,
+    hasUrlFilter,
+    hasNoteFilter,
+    ratingFilter,
   ]);
 
   useEffect(() => {
@@ -1630,16 +1728,24 @@ export function LibraryWorkspace({
                     )}
 
                     <FilterBar
-                      items={items}
+                      items={currentViewItems}
                       folders={folders}
                       categoryFilter={categoryFilter}
                       colorFilter={colorFilter}
                       folderFilter={folderFilter}
                       orientationFilter={orientationFilter}
+                      sizeFilter={sizeFilter}
+                      hasUrlFilter={hasUrlFilter}
+                      hasNoteFilter={hasNoteFilter}
+                      ratingFilter={ratingFilter}
                       onCategoryChange={(cat) => ws.setCategory(cat)}
                       onColorChange={(c) => ws.setColorFilter(c)}
                       onFolderChange={(f) => ws.setFolderFilter(f)}
                       onOrientationChange={(o) => ws.setOrientationFilter(o)}
+                      onSizeChange={(s) => ws.setSizeFilter(s)}
+                      onHasUrlChange={(u) => ws.setHasUrlFilter(u)}
+                      onHasNoteChange={(n) => ws.setHasNoteFilter(n)}
+                      onRatingChange={(r) => ws.setRatingFilter(r)}
                       onClearAll={() => ws.clearAllFilters()}
                     />
                   </div>
@@ -2116,7 +2222,7 @@ export function LibraryWorkspace({
                   }}
                   sidebarOpen={sidebarOpen}
                   onToggleSidebar={() => setSidebarOpen(true)}
-                  onItemUpdated={refreshItems}
+                  onItemUpdated={handleItemUpdatedInPlace}
                 />
               )}
             </main>
@@ -2181,7 +2287,7 @@ export function LibraryWorkspace({
                     }
                     onFolderUpdated={handleFullRefresh}
                     onTagsUpdated={handleFullRefresh}
-                    onItemUpdated={refreshItems}
+                    onItemUpdated={handleItemUpdatedInPlace}
                   />
                 )}
               </ResizablePanel>
@@ -2202,7 +2308,7 @@ export function LibraryWorkspace({
           }}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(true)}
-          onItemUpdated={refreshItems}
+          onItemUpdated={handleItemUpdatedInPlace}
         />
 
         {/* ENHANCED COMMAND CONTEXT MENU */}

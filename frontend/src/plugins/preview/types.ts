@@ -4,7 +4,16 @@ import {
   SaveItemThumbnail,
   OpenWithDefaultApp,
   RevealInFinder,
+  UpdateItemDetails,
+  OpenExternalURL,
 } from "../../../bindings/bowerbird/core/service";
+
+export interface ItemDetailsPatch {
+  note?: string;
+  url?: string;
+  rating?: number;
+  prompt?: string;
+}
 
 export interface PreviewZoomController {
   scale: number;
@@ -60,6 +69,10 @@ export interface PreviewPluginHostAPI {
   openWithDefaultApp: () => Promise<void>;
   /** Reveals the original file in macOS Finder / Windows Explorer */
   revealInFinder: () => Promise<void>;
+  /** Opens an external HTTP/HTTPS URL in the OS default browser */
+  openExternalURL: (url: string) => Promise<void>;
+  /** Persists user-editable metadata fields (note, url, rating, prompt) and updates updatedAt */
+  updateItemDetails: (patch: ItemDetailsPatch) => Promise<Item | null>;
   /** Notifies the host workspace to refresh item state */
   onItemUpdated?: (updated: Item) => void;
 }
@@ -79,10 +92,19 @@ export interface PreviewInspectorProps {
   onDragStart?: (e: React.DragEvent) => void;
   api: PreviewPluginHostAPI;
 }
+export interface InspectorExtensionProps {
+  item: Item;
+  isTrashView?: boolean;
+  api: PreviewPluginHostAPI;
+}
+
+export type PluginKind = "preview" | "metadata";
 
 export interface PreviewPlugin {
-  /** Unique identifier of the built-in or custom preview plugin */
+  /** Unique identifier of the built-in or custom plugin */
   id: string;
+  /** Plugin capability kind: "preview" (default) or "metadata" (inspector extension) */
+  kind?: PluginKind;
   /** Human-readable name */
   name: string;
   /** Optional i18n translation key for the plugin name */
@@ -99,7 +121,7 @@ export interface PreviewPlugin {
   builtin?: boolean;
   /**
    * Whether this plugin can be disabled by the user.
-   * Defaults to false for built-in core plugins (Image & Video).
+   * Defaults to false for built-in core preview plugins (Image & Video).
    */
   canDisable?: boolean;
   /** Whether this plugin should be hidden from the user-facing plugin management list (e.g. system fallback) */
@@ -115,9 +137,11 @@ export interface PreviewPlugin {
   /** Whether the main header should render ZoomControls for this plugin */
   supportsZoom?: boolean;
   /** Main viewport renderer (used by both inline and full-window QuickLook preview) */
-  Viewport: React.ComponentType<PreviewViewportProps>;
+  Viewport?: React.ComponentType<PreviewViewportProps>;
   /** Borderless adaptive inspector preview renderer for the right detail panel */
-  InspectorPreview: React.ComponentType<PreviewInspectorProps>;
+  InspectorPreview?: React.ComponentType<PreviewInspectorProps>;
+  /** Optional inspector metadata extension panel rendered inside ItemDetailPanel when enabled */
+  InspectorExtension?: React.ComponentType<InspectorExtensionProps>;
 }
 
 /**
@@ -210,6 +234,26 @@ export function createPreviewPluginHostAPI(
     },
     revealInFinder: async () => {
       await RevealInFinder(item.id);
+    },
+    openExternalURL: async (rawUrl: string) => {
+      await OpenExternalURL(rawUrl);
+    },
+    updateItemDetails: async (patch: ItemDetailsPatch) => {
+      try {
+        const updated = await UpdateItemDetails(
+          item.id,
+          patch.note !== undefined ? patch.note : item.note || "",
+          patch.url !== undefined ? patch.url : item.url || "",
+          patch.rating !== undefined ? patch.rating : item.rating || 0,
+          patch.prompt !== undefined ? patch.prompt : item.prompt || ""
+        );
+        if (updated) {
+          onItemUpdated?.(updated);
+        }
+        return updated;
+      } catch {
+        return null;
+      }
     },
     onItemUpdated,
   };

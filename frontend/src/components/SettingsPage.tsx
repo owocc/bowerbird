@@ -11,11 +11,13 @@ import {
   FileImage,
   FileVideo,
   Puzzle,
+  Sparkles,
   ZoomIn,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { useTheme, type Theme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   previewRegistry,
   usePreviewPlugins,
@@ -59,6 +61,8 @@ function PluginIcon({ pluginId, className }: { pluginId: string; className?: str
       return <FileImage className={className} />;
     case "builtin.video":
       return <FileVideo className={className} />;
+    case "plugin.prompt-metadata":
+      return <Sparkles className={className} />;
     default:
       return <Puzzle className={className} />;
   }
@@ -76,10 +80,24 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
   const extensions = plugin.extensions ?? [];
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card/60 p-4 transition-colors hover:border-border">
+    <div
+      className={cn(
+        "rounded-xl border p-4 transition-colors",
+        enabled
+          ? "border-border/70 bg-card/70 hover:border-border"
+          : "border-border/40 bg-muted/20 opacity-85 hover:opacity-100"
+      )}
+    >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <div
+            className={cn(
+              "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
+              enabled
+                ? "bg-primary/10 text-primary"
+                : "bg-muted/60 text-muted-foreground"
+            )}
+          >
             <PluginIcon pluginId={plugin.id} className="size-4.5" />
           </div>
           <div className="min-w-0 space-y-1">
@@ -106,6 +124,15 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
                   {t("settings.plugins.builtinBadge")}
                 </Badge>
               )}
+              {plugin.kind === "metadata" && (
+                <Badge
+                  variant="secondary"
+                  className="h-4 px-1.5 text-[10px] gap-1"
+                >
+                  <Sparkles className="size-2.5" />
+                  {t("settings.plugins.metadataBadge")}
+                </Badge>
+              )}
               {plugin.supportsZoom && (
                 <Badge
                   variant="secondary"
@@ -125,41 +152,39 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
           </div>
         </div>
 
-        {/* Enable / Disable Control (Built-in core plugins are locked and cannot be disabled) */}
-        <div className="shrink-0 flex items-center gap-2">
+        {/* Enable / Disable Switch Control (Built-in core plugins are locked on) */}
+        <div className="shrink-0 flex items-center gap-2.5 pt-0.5">
           {!canDisable ? (
             <div
               title={t("settings.plugins.cannotDisableHint")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1 text-[11px] font-medium text-muted-foreground cursor-not-allowed"
+              className="inline-flex items-center gap-2"
             >
-              <Lock className="size-3 text-muted-foreground/80" />
-              <span>{t("settings.plugins.alwaysEnabled")}</span>
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                <Lock className="size-3 text-muted-foreground/80" />
+                <span>{t("settings.plugins.alwaysEnabled")}</span>
+              </span>
+              <Switch checked={true} disabled={true} aria-label={displayName} />
             </div>
           ) : (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              onClick={() => previewRegistry.setEnabled(plugin.id, !enabled)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors cursor-pointer",
-                enabled
-                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
-                  : "border-border/60 bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-              )}
-            >
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
               <span
                 className={cn(
-                  "size-1.5 rounded-full",
-                  enabled ? "bg-primary" : "bg-muted-foreground/50"
+                  "text-[11px] font-medium transition-colors",
+                  enabled ? "text-primary" : "text-muted-foreground"
                 )}
-              />
-              <span>
+              >
                 {enabled
                   ? t("settings.plugins.enabled")
                   : t("settings.plugins.disabled")}
               </span>
-            </button>
+              <Switch
+                checked={enabled}
+                onCheckedChange={(checked) =>
+                  previewRegistry.setEnabled(plugin.id, checked)
+                }
+                aria-label={displayName}
+              />
+            </label>
           )}
         </div>
       </div>

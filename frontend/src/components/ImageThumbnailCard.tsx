@@ -48,7 +48,7 @@ export const ImageThumbnailCard = React.memo(function ImageThumbnailCard({
           aspectRatio={cardHeight ? undefined : "1 / 1"}
           objectFit="cover"
           draggable={false}
-          showFormatBadge={false}
+          showFormatBadge={true}
           className={`w-full transition-colors ${
             isSelected
               ? "border-primary/80 bg-primary/10"

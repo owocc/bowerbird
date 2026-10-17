@@ -101,12 +101,17 @@ export interface Item {
     "dominantColor": string;
     "palette": string[] | null;
     "meta"?: ImageMeta | null;
+    "note": string;
+    "url": string;
+    "rating": number;
+    "prompt": string;
     "tags": string[] | null;
     "folders": string[] | null;
     "inTrash": boolean;
     "trashedAt": number;
     "createdAt": number;
     "importedAt": number;
+    "updatedAt": number;
 
     /**
      * local disk path of item directory (items/<HEX>)

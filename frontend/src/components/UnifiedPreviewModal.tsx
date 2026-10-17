@@ -245,14 +245,16 @@ export function UnifiedPreviewModal({
       )}
 
       <div className="flex-1 min-h-0 w-full relative overflow-hidden flex items-center justify-center">
-        <PluginViewport
-          item={activeItem}
-          mode={mode}
-          scale={scale}
-          onScaleChange={setScale}
-          controllerRef={controllerRef}
-          api={hostApi}
-        />
+        {PluginViewport && (
+          <PluginViewport
+            item={activeItem}
+            mode={mode}
+            scale={scale}
+            onScaleChange={setScale}
+            controllerRef={controllerRef}
+            api={hostApi}
+          />
+        )}
       </div>
 
       {!isInline && items.length > 1 && (

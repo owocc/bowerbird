@@ -93,7 +93,13 @@ export function UniversalThumbnail({
   };
 
   const hasVisual = !imageError && (isImage || item.hasThumbnail);
-
+  const normalizedExt = (item.extension || "").trim().toLowerCase();
+  const shouldShowFormatBadge =
+    showFormatBadge &&
+    Boolean(normalizedExt) &&
+    normalizedExt !== "jpg" &&
+    normalizedExt !== "jpeg" &&
+    normalizedExt !== "png";
   return (
     <div
       draggable={draggable}
@@ -140,10 +146,10 @@ export function UniversalThumbnail({
         </div>
       )}
 
-      {showFormatBadge && (
-        <div className="absolute bottom-1 right-1 pointer-events-none">
-          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase font-semibold bg-background/85 backdrop-blur-md text-muted-foreground border border-border/40 shadow-2xs">
-            {item.extension}
+      {shouldShowFormatBadge && (
+        <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
+          <span className="px-1.5 py-0.5 rounded-xs text-[9px] leading-none font-mono uppercase font-bold tracking-wider bg-black/65 text-white backdrop-blur-xs border border-white/15 shadow-xs">
+            {normalizedExt.toUpperCase()}
           </span>
         </div>
       )}

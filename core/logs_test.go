@@ -141,3 +141,61 @@ func TestComplexFolderHierarchyAndInPlaceCacheUpdates(t *testing.T) {
 		t.Fatalf("expected restored item with folder %s, got %+v", secondFolder, restoredActive)
 	}
 }
+
+func TestUpdateItemDetailsAndNoteSearch(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", tmpDir)
+
+	mgr := core.NewLibraryManager()
+	_, err := mgr.CreateLibrary(tmpDir, "MetaTest")
+	if err != nil {
+		t.Fatalf("CreateLibrary failed: %v", err)
+	}
+
+	b64PNG := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	item, err := mgr.ImportFromBase64("hero.png", b64PNG)
+	if err != nil || item == nil {
+		t.Fatalf("ImportFromBase64 failed: %v", err)
+	}
+	if item.Note != "" || item.URL != "" || item.Rating != 0 || item.Prompt != "" {
+		t.Fatalf("expected newly imported item fields to default empty/0, got %+v", item)
+	}
+
+	updated, err := mgr.UpdateItemDetails(
+		item.ID,
+		"Reference concept art for cyberpunk neon street",
+		"https://example.com/reference/123",
+		4,
+		"cinematic cyberpunk street, rain reflections, 8k --ar 16:9",
+	)
+	if err != nil || updated == nil {
+		t.Fatalf("UpdateItemDetails failed: %v", err)
+	}
+	if updated.Note != "Reference concept art for cyberpunk neon street" {
+		t.Fatalf("unexpected note: %q", updated.Note)
+	}
+	if updated.URL != "https://example.com/reference/123" {
+		t.Fatalf("unexpected url: %q", updated.URL)
+	}
+	if updated.Rating != 4 {
+		t.Fatalf("expected rating 4, got %d", updated.Rating)
+	}
+	if updated.Prompt != "cinematic cyberpunk street, rain reflections, 8k --ar 16:9" {
+		t.Fatalf("unexpected prompt: %q", updated.Prompt)
+	}
+	if updated.UpdatedAt <= 0 {
+		t.Fatalf("expected positive updatedAt timestamp, got %d", updated.UpdatedAt)
+	}
+
+	// Verify search by note keyword
+	matchedByNote, err := mgr.GetItems("cyberpunk neon", "desc")
+	if err != nil || len(matchedByNote) != 1 {
+		t.Fatalf("expected 1 match searching by note keyword, got %d (err=%v)", len(matchedByNote), err)
+	}
+
+	// Verify search by prompt keyword
+	matchedByPrompt, err := mgr.GetItems("rain reflections", "desc")
+	if err != nil || len(matchedByPrompt) != 1 {
+		t.Fatalf("expected 1 match searching by prompt keyword, got %d (err=%v)", len(matchedByPrompt), err)
+	}
+}

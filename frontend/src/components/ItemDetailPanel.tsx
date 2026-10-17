@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -9,8 +9,13 @@ import {
   HardDrive,
   Star,
   Tag as TagIcon,
+  ExternalLink,
+  Link as LinkIcon,
+  FileText,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Popover,
   PopoverTrigger,
@@ -99,7 +104,13 @@ export function ItemDetailPanel({
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
+  const [noteInput, setNoteInput] = useState("");
+  const [urlInput, setUrlInput] = useState("");
 
+  useEffect(() => {
+    setNoteInput(item?.note || "");
+    setUrlInput(item?.url || "");
+  }, [item?.id, item?.note, item?.url]);
   // Flatten folder tree for selection
   const flatFolderList = useMemo(() => {
     const result: { id: string; name: string }[] = [];
@@ -230,11 +241,43 @@ export function ItemDetailPanel({
 
   const plugin = previewRegistry.resolve(item);
   const PluginInspectorPreview = plugin.InspectorPreview;
+  const inspectorExtensions = previewRegistry.resolveInspectorExtensions(item);
   const hostApi = createPreviewPluginHostAPI(item, (updated) => {
     onItemUpdated?.(updated);
-    onFolderUpdated?.();
   });
 
+  const commitNoteAndUrl = async (nextNote?: string, nextUrl?: string) => {
+    if (isTrashView) return;
+    const targetNote = nextNote !== undefined ? nextNote : noteInput;
+    const targetUrl = (nextUrl !== undefined ? nextUrl : urlInput).trim();
+    if (targetNote === (item.note || "") && targetUrl === (item.url || "")) {
+      return;
+    }
+    await hostApi.updateItemDetails({
+      note: targetNote,
+      url: targetUrl,
+    });
+  };
+
+  const handleRatingChange = async (newRating: number) => {
+    if (isTrashView) return;
+    const nextRating = (item.rating || 0) === newRating ? 0 : newRating;
+    await hostApi.updateItemDetails({ rating: nextRating });
+  };
+
+  const handleOpenExternalUrl = async () => {
+    const clean = urlInput.trim() || (item.url || "").trim();
+    if (!clean) return;
+    try {
+      if (clean !== (item.url || "")) {
+        await commitNoteAndUrl(noteInput, clean);
+      }
+      await hostApi.openExternalURL(clean);
+    } catch (err) {
+      console.error("Failed to open external URL:", err);
+      toast.error(t("inspector.openUrlFailed"));
+    }
+  };
   const paletteColors =
     item.palette && item.palette.length > 0
       ? item.palette
@@ -259,7 +302,9 @@ export function ItemDetailPanel({
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}
         <div className="w-full flex items-center justify-center">
-          <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
+          {PluginInspectorPreview && (
+            <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
+          )}
         </div>
 
         {/* Dominant Color Palette Swatches (if extracted) */}
@@ -302,10 +347,65 @@ export function ItemDetailPanel({
           </p>
         </div>
 
+        {/* Note & External Link Fields (empty by default) */}
+        <div className="space-y-2 pt-0.5">
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+              <FileText className="size-3 text-muted-foreground/80" />
+              <span>{t("inspector.note")}</span>
+            </label>
+            <Textarea
+              value={noteInput}
+              disabled={isTrashView}
+              onChange={(e) => setNoteInput(e.target.value)}
+              onBlur={() => void commitNoteAndUrl()}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.currentTarget.blur();
+                }
+              }}
+              placeholder={t("inspector.notePlaceholder")}
+              className="min-h-14 text-xs rounded-lg bg-muted/40 border-border/60 leading-relaxed resize-y"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+              <LinkIcon className="size-3 text-muted-foreground/80" />
+              <span>{t("inspector.url")}</span>
+            </label>
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={urlInput}
+                disabled={isTrashView}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onBlur={() => void commitNoteAndUrl()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.currentTarget.blur();
+                  }
+                }}
+                placeholder={t("inspector.urlPlaceholder")}
+                className="h-7 text-xs bg-muted/40 border-border/60 rounded-lg flex-1 min-w-0"
+              />
+              {urlInput.trim().length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleOpenExternalUrl()}
+                  title={t("inspector.openInBrowser")}
+                  className="inline-flex items-center justify-center size-7 shrink-0 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/10 transition-colors cursor-pointer"
+                >
+                  <ExternalLink className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* Accordion Metadata Sections (replaces bulky cards) */}
         <Accordion
           type="multiple"
-          defaultValue={["folders", "tags", "basic", "imageMeta"]}
+          defaultValue={["folders", "tags", "plugin-prompt", "basic", "imageMeta"]}
           className="border-t border-border/50"
         >
           {/* 1. Folders Accordion */}
@@ -573,10 +673,52 @@ export function ItemDetailPanel({
             </AccordionContent>
           </AccordionItem>
 
+          {/* Dynamic Plugin Inspector Extensions (e.g., Prompt Metadata Plugin) */}
+          {inspectorExtensions.map((extPlugin) => {
+            const ExtComp = extPlugin.InspectorExtension!;
+            return (
+              <ExtComp
+                key={extPlugin.id}
+                item={item}
+                isTrashView={isTrashView}
+                api={hostApi}
+              />
+            );
+          })}
+
           {/* 3. Basic Properties Accordion */}
           <AccordionItem value="basic">
             <AccordionTrigger>{t("inspector.basicProperties")}</AccordionTrigger>
             <AccordionContent className="space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">
+                  {t("inspector.rating")}
+                </span>
+                <div className="flex items-center gap-0.5">
+                  {[1, 2, 3, 4, 5].map((starValue) => {
+                    const active = (item.rating || 0) >= starValue;
+                    return (
+                      <button
+                        key={starValue}
+                        type="button"
+                        disabled={isTrashView}
+                        onClick={() => void handleRatingChange(starValue)}
+                        title={t("inspector.ratingValue", { count: starValue })}
+                        className="p-0.5 rounded hover:bg-muted/60 transition-transform hover:scale-110 cursor-pointer disabled:cursor-default"
+                      >
+                        <Star
+                          className={cn(
+                            "size-3.5 transition-colors",
+                            active
+                              ? "text-amber-500 fill-amber-500"
+                              : "text-muted-foreground/40 hover:text-amber-500/60"
+                          )}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               {item.width > 0 && item.height > 0 && (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">
@@ -631,6 +773,16 @@ export function ItemDetailPanel({
                   {formatDate(item.importedAt)}
                 </span>
               </div>
+              {(item.updatedAt > 0 || item.importedAt > 0) && (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    {t("inspector.updatedAt")}
+                  </span>
+                  <span className="font-mono text-[10px] text-muted-foreground">
+                    {formatDate(item.updatedAt || item.importedAt)}
+                  </span>
+                </div>
+              )}
             </AccordionContent>
           </AccordionItem>
 

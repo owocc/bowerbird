@@ -4,7 +4,7 @@ import type { PreviewPlugin } from "./types";
 import { ImagePreviewPlugin } from "./builtin/image-plugin";
 import { VideoPreviewPlugin } from "./builtin/video-plugin";
 import { FallbackPreviewPlugin } from "./builtin/fallback-plugin";
-
+import { PromptMetadataPlugin } from "./builtin/prompt-plugin";
 const DISABLED_PLUGINS_STORAGE_KEY = "bowerbird-disabled-preview-plugins";
 
 function loadDisabledPluginIds(): Set<string> {
@@ -192,6 +192,9 @@ export class PreviewPluginRegistry {
     const mime = (item.mimeType || "").toLowerCase();
 
     for (const plugin of this.plugins) {
+      if ((plugin.kind && plugin.kind !== "preview") || !plugin.Viewport || !plugin.InspectorPreview) {
+        continue;
+      }
       if (!this.isEnabled(plugin.id)) {
         continue;
       }
@@ -212,14 +215,52 @@ export class PreviewPluginRegistry {
 
     return FallbackPreviewPlugin;
   }
+
+  /**
+   * Resolves all currently enabled plugins that provide an `InspectorExtension`
+   * matching `item`.
+   */
+  resolveInspectorExtensions(item: Item | null | undefined): PreviewPlugin[] {
+    if (!item) return [];
+    const ext = (item.extension || "").toLowerCase();
+    const mime = (item.mimeType || "").toLowerCase();
+    const matched: PreviewPlugin[] = [];
+
+    for (const plugin of this.plugins) {
+      if (!plugin.InspectorExtension || !this.isEnabled(plugin.id)) {
+        continue;
+      }
+      if (plugin.match) {
+        if (plugin.match(item)) matched.push(plugin);
+        continue;
+      }
+      if (plugin.extensions && plugin.extensions.length > 0) {
+        if (ext && plugin.extensions.includes(ext)) matched.push(plugin);
+        continue;
+      }
+      if (plugin.mimePrefixes && plugin.mimePrefixes.length > 0) {
+        if (
+          mime &&
+          plugin.mimePrefixes.some((prefix) => mime.startsWith(prefix.toLowerCase()))
+        ) {
+          matched.push(plugin);
+        }
+        continue;
+      }
+      matched.push(plugin);
+    }
+
+    return matched;
+  }
 }
 
 /**
- * Singleton registry pre-populated with built-in preview plugins.
+ * Singleton registry pre-populated with built-in preview and metadata plugins.
  */
 export const previewRegistry = new PreviewPluginRegistry([
   ImagePreviewPlugin,
   VideoPreviewPlugin,
+  PromptMetadataPlugin,
   FallbackPreviewPlugin,
 ]);
 
@@ -238,5 +279,6 @@ export * from "./types";
 export {
   ImagePreviewPlugin,
   VideoPreviewPlugin,
+  PromptMetadataPlugin,
   FallbackPreviewPlugin,
 };

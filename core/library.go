@@ -350,7 +350,7 @@ func (m *LibraryManager) invalidateCache() {
 }
 
 func buildItemSearchKey(item *Item) string {
-	return strings.ToLower(item.Name + "\x00" + strings.Join(item.Tags, ",") + "\x00" + item.Extension + "\x00" + item.Hex)
+	return strings.ToLower(item.Name + "\x00" + strings.Join(item.Tags, ",") + "\x00" + item.Extension + "\x00" + item.Hex + "\x00" + item.Note + "\x00" + item.Prompt)
 }
 
 func (m *LibraryManager) acquireItemLock(hexID string) *sync.Mutex {
@@ -394,7 +394,7 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 		fRows.Close()
 	}
 
-	rows, err := db.Query("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, ''), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items ORDER BY imported_at DESC")
+	rows, err := db.Query("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(updated_at, 0), COALESCE(note, ''), COALESCE(url, ''), COALESCE(rating, 0), COALESCE(prompt, ''), COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(trashed_folders, ''), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items ORDER BY imported_at DESC")
 	if err != nil {
 		RecordLog("error", "core", "Failed to load item cache", err.Error(), time.Since(start).Milliseconds())
 		return fmt.Errorf("failed to query items: %w", err)
@@ -429,6 +429,11 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 			&tagsStr,
 			&item.CreatedAt,
 			&item.ImportedAt,
+			&item.UpdatedAt,
+			&item.Note,
+			&item.URL,
+			&item.Rating,
+			&item.Prompt,
 			&inTrashInt,
 			&trashedAtInt,
 			&trashedFoldersStr,
@@ -437,6 +442,9 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 			&metaJSONStr,
 		); err != nil {
 			continue
+		}
+		if item.UpdatedAt <= 0 {
+			item.UpdatedAt = item.ImportedAt
 		}
 		item.InTrash = inTrashInt == 1
 		item.TrashedAt = trashedAtInt
@@ -717,6 +725,11 @@ func (m *LibraryManager) initSchema(db *sql.DB) error {
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN dominant_color TEXT DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN palette TEXT DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE items ADD COLUMN meta_json TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN note TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN url TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN rating INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN prompt TEXT DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE items ADD COLUMN updated_at INTEGER DEFAULT 0")
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_items_in_trash ON items(in_trash)")
 	_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_items_dominant_color ON items(dominant_color)")
 	_, _ = db.Exec(`CREATE TABLE IF NOT EXISTS tags (
@@ -808,7 +821,7 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 	}
 	m.cacheMu.RUnlock()
 
-	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE id = ? OR hex = ?", id, id)
+	row := db.QueryRow("SELECT id, COALESCE(hex, ''), name, extension, filename, size, mime_type, width, height, has_thumbnail, tags, created_at, imported_at, COALESCE(updated_at, 0), COALESCE(note, ''), COALESCE(url, ''), COALESCE(rating, 0), COALESCE(prompt, ''), COALESCE(in_trash, 0), COALESCE(trashed_at, 0), COALESCE(dominant_color, ''), COALESCE(palette, ''), COALESCE(meta_json, '') FROM items WHERE id = ? OR hex = ?", id, id)
 	var item Item
 	var tagsStr string
 	var hasThumbInt int
@@ -830,6 +843,11 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 		&tagsStr,
 		&item.CreatedAt,
 		&item.ImportedAt,
+		&item.UpdatedAt,
+		&item.Note,
+		&item.URL,
+		&item.Rating,
+		&item.Prompt,
 		&inTrashInt,
 		&trashedAtInt,
 		&item.DominantColor,
@@ -838,9 +856,10 @@ func (m *LibraryManager) GetItem(id string) (*Item, error) {
 	); err != nil {
 		return nil, err
 	}
+	if item.UpdatedAt <= 0 {
+		item.UpdatedAt = item.ImportedAt
+	}
 	item.InTrash = inTrashInt == 1
-	item.TrashedAt = trashedAtInt
-	item.HasThumbnail = hasThumbInt == 1
 	if paletteStr != "" {
 		item.Palette = strings.Split(paletteStr, ",")
 	} else {
@@ -1060,8 +1079,8 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 
 	tx, err := db.Begin()
 	if err == nil {
-		itemStmt, itemStmtErr := tx.Prepare(`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		itemStmt, itemStmtErr := tx.Prepare(`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			hex = excluded.hex,
 			name = excluded.name,
@@ -1085,7 +1104,7 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 			if !r.isExisting && itemStmtErr == nil {
 				_, _ = itemStmt.Exec(
 					r.item.ID, r.item.Hex, r.item.Name, r.item.Extension, r.item.Filename, r.item.Size, r.item.MimeType,
-					r.item.Width, r.item.Height, r.hasThumb, r.item.DominantColor, r.paletteStr, r.metaJSON, "", r.item.CreatedAt, r.item.ImportedAt,
+					r.item.Width, r.item.Height, r.hasThumb, r.item.DominantColor, r.paletteStr, r.metaJSON, "", r.item.CreatedAt, r.item.ImportedAt, r.item.UpdatedAt,
 				)
 			}
 			if r.folderID != "" && folderStmtErr == nil {
@@ -1354,6 +1373,7 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 		Folders:       folders,
 		CreatedAt:     createdAt,
 		ImportedAt:    now,
+		UpdatedAt:     now,
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
@@ -1375,6 +1395,7 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 		Folders:       item.Folders,
 		CreatedAt:     item.CreatedAt,
 		ImportedAt:    item.ImportedAt,
+		UpdatedAt:     item.UpdatedAt,
 	})
 	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
 
@@ -1481,6 +1502,7 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 		Tags:          []string{},
 		CreatedAt:     now,
 		ImportedAt:    now,
+		UpdatedAt:     now,
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
@@ -1501,6 +1523,7 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 		Tags:          item.Tags,
 		CreatedAt:     item.CreatedAt,
 		ImportedAt:    item.ImportedAt,
+		UpdatedAt:     item.UpdatedAt,
 	}, "", "  ")
 	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
 
@@ -1515,8 +1538,8 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 		metaJSONStr = string(metaJSONBytes)
 	}
 	_, err = db.Exec(
-		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 			hex = excluded.hex,
 			name = excluded.name,
@@ -1531,7 +1554,7 @@ func (m *LibraryManager) ImportFromBase64(filename string, base64Data string) (*
 			palette = excluded.palette,
 			meta_json = excluded.meta_json`,
 		item.ID, item.Hex, item.Name, item.Extension, item.Filename, item.Size, item.MimeType,
-		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr, "", item.CreatedAt, item.ImportedAt,
+		item.Width, item.Height, hasThumbInt, item.DominantColor, paletteStr, metaJSONStr, "", item.CreatedAt, item.ImportedAt, item.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -3168,24 +3191,27 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 	existingTags = append(existingTags, cleanTag)
 	newTagsStr := strings.Join(existingTags, ",")
 
-	_, err = db.Exec("UPDATE items SET tags = ? WHERE id = ? OR hex = ?", newTagsStr, itemID, itemID)
+	now := time.Now().Unix()
+	_, err = db.Exec("UPDATE items SET tags = ?, updated_at = ? WHERE id = ? OR hex = ?", newTagsStr, now, itemID, itemID)
 	if err != nil {
 		return err
 	}
 
-	_, _ = db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", cleanTag, time.Now().Unix())
+	_, _ = db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", cleanTag, now)
 
 	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
 	if data, readErr := os.ReadFile(metaPath); readErr == nil {
 		var meta ItemMetadata
 		if json.Unmarshal(data, &meta) == nil {
 			meta.Tags = existingTags
+			meta.UpdatedAt = now
 			updated, _ := json.MarshalIndent(meta, "", "  ")
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
 	m.mutateCachedItem(itemID, func(it *Item) {
 		it.Tags = existingTags
+		it.UpdatedAt = now
 	})
 	return nil
 }
@@ -3219,7 +3245,8 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 	}
 	newTagsStr := strings.Join(newTags, ",")
 
-	_, err = db.Exec("UPDATE items SET tags = ? WHERE id = ? OR hex = ?", newTagsStr, itemID, itemID)
+	now := time.Now().Unix()
+	_, err = db.Exec("UPDATE items SET tags = ?, updated_at = ? WHERE id = ? OR hex = ?", newTagsStr, now, itemID, itemID)
 	if err != nil {
 		return err
 	}
@@ -3229,6 +3256,7 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 		var meta ItemMetadata
 		if json.Unmarshal(data, &meta) == nil {
 			meta.Tags = newTags
+			meta.UpdatedAt = now
 			updated, _ := json.MarshalIndent(meta, "", "  ")
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
@@ -3239,6 +3267,7 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 		} else {
 			it.Tags = newTags
 		}
+		it.UpdatedAt = now
 	})
 	return nil
 }
@@ -3270,7 +3299,7 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 	}
 
 	newTagsStr := strings.Join(cleanTags, ",")
-	_, err := db.Exec("UPDATE items SET tags = ? WHERE id = ? OR hex = ?", newTagsStr, itemID, itemID)
+	_, err := db.Exec("UPDATE items SET tags = ?, updated_at = ? WHERE id = ? OR hex = ?", newTagsStr, now, itemID, itemID)
 	if err != nil {
 		return err
 	}
@@ -3280,12 +3309,14 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 		var meta ItemMetadata
 		if json.Unmarshal(data, &meta) == nil {
 			meta.Tags = cleanTags
+			meta.UpdatedAt = now
 			updated, _ := json.MarshalIndent(meta, "", "  ")
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
 	}
 	m.mutateCachedItem(itemID, func(it *Item) {
 		it.Tags = cleanTags
+		it.UpdatedAt = now
 	})
 	return nil
 }
@@ -3361,7 +3392,8 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 		}
 	}
 
-	_, err = db.Exec("UPDATE items SET name = ?, filename = ? WHERE id = ? OR hex = ?", displayName, newFilename, id, id)
+	now := time.Now().Unix()
+	_, err = db.Exec("UPDATE items SET name = ?, filename = ?, updated_at = ? WHERE id = ? OR hex = ?", displayName, newFilename, now, id, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update item in database: %w", err)
 	}
@@ -3372,6 +3404,7 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 		if json.Unmarshal(data, &meta) == nil {
 			meta.Name = displayName
 			meta.Filename = newFilename
+			meta.UpdatedAt = now
 			updated, _ := json.MarshalIndent(meta, "", "  ")
 			_ = os.WriteFile(metaPath, updated, 0644)
 		}
@@ -3379,13 +3412,102 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 
 	item.Name = displayName
 	item.Filename = newFilename
+	item.UpdatedAt = now
 	m.populateItemPaths(item, active.Path, port)
 	m.mutateCachedItem(id, func(it *Item) {
 		it.Name = displayName
 		it.Filename = newFilename
+		it.UpdatedAt = now
 		m.populateItemPaths(it, active.Path, port)
 	})
 	return item, nil
+}
+
+// UpdateItemDetails updates the user-editable metadata fields (note, url, rating, prompt) and records updatedAt.
+func (m *LibraryManager) UpdateItemDetails(id string, note string, rawURL string, rating int, prompt string) (*Item, error) {
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	port := m.GetAssetServerPort()
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return nil, errors.New("no active library")
+	}
+
+	item, err := m.GetItem(id)
+	if err != nil || item == nil {
+		return nil, errors.New("item not found")
+	}
+
+	cleanURL := strings.TrimSpace(rawURL)
+	if rating < 0 {
+		rating = 0
+	} else if rating > 5 {
+		rating = 5
+	}
+	now := time.Now().Unix()
+
+	_, err = db.Exec(
+		"UPDATE items SET note = ?, url = ?, rating = ?, prompt = ?, updated_at = ? WHERE id = ? OR hex = ?",
+		note, cleanURL, rating, prompt, now, item.ID, item.ID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update item details: %w", err)
+	}
+
+	metaPath := filepath.Join(item.ItemPath, "metadata.json")
+	if data, readErr := os.ReadFile(metaPath); readErr == nil {
+		var meta ItemMetadata
+		if json.Unmarshal(data, &meta) == nil {
+			meta.Note = note
+			meta.URL = cleanURL
+			meta.Rating = rating
+			meta.Prompt = prompt
+			meta.UpdatedAt = now
+			updated, _ := json.MarshalIndent(meta, "", "  ")
+			_ = os.WriteFile(metaPath, updated, 0644)
+		}
+	}
+
+	item.Note = note
+	item.URL = cleanURL
+	item.Rating = rating
+	item.Prompt = prompt
+	item.UpdatedAt = now
+	m.populateItemPaths(item, active.Path, port)
+	m.mutateCachedItem(item.ID, func(it *Item) {
+		it.Note = note
+		it.URL = cleanURL
+		it.Rating = rating
+		it.Prompt = prompt
+		it.UpdatedAt = now
+	})
+	return item, nil
+}
+
+// OpenExternalURL opens a URL in the OS default web browser.
+func OpenExternalURL(rawURL string) error {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return errors.New("url cannot be empty")
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "https://" + trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("unsupported URL scheme: %s", rawURL)
+	}
+	target := parsed.String()
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", target).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", target).Start()
+	default:
+		return exec.Command("xdg-open", target).Start()
+	}
 }
 
 // OpenWithDefaultApp opens the physical file with the OS default application.

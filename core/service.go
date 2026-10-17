@@ -459,3 +459,14 @@ func (s *Service) SaveItemThumbnail(itemID string, base64Data string, videoWidth
 	}
 	return s.mgr.SaveItemThumbnail(itemID, base64Data, videoWidth, videoHeight)
 }
+
+func (s *Service) UpdateItemDetails(id string, note string, rawURL string, rating int, prompt string) (*Item, error) {
+	if s.mgr == nil {
+		return nil, errors.New("core manager not initialized")
+	}
+	return s.mgr.UpdateItemDetails(id, note, rawURL, rating, prompt)
+}
+
+func (s *Service) OpenExternalURL(rawURL string) error {
+	return OpenExternalURL(rawURL)
+}

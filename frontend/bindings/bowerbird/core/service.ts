@@ -204,6 +204,10 @@ export function MoveToTrash(id: string): $CancellablePromise<void> {
     return $Call.ByID(3048189762, id);
 }
 
+export function OpenExternalURL(rawURL: string): $CancellablePromise<void> {
+    return $Call.ByID(698852412, rawURL);
+}
+
 export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(2189258727, libraryPath);
 }
@@ -309,4 +313,8 @@ export function StartDragItems(ids: string[] | null): $CancellablePromise<void> 
 
 export function ToggleFavorite(itemID: string): $CancellablePromise<boolean> {
     return $Call.ByID(2124554484, itemID);
+}
+
+export function UpdateItemDetails(id: string, note: string, rawURL: string, rating: number, prompt: string): $CancellablePromise<$models.Item | null> {
+    return $Call.ByID(217761380, id, note, rawURL, rating, prompt);
 }

@@ -57,12 +57,17 @@ type Item struct {
 	DominantColor string     `json:"dominantColor"`
 	Palette       []string   `json:"palette"`
 	Meta          *ImageMeta `json:"meta,omitempty"`
+	Note          string     `json:"note"`
+	URL           string     `json:"url"`
+	Rating        int        `json:"rating"`
+	Prompt        string     `json:"prompt"`
 	Tags          []string   `json:"tags"`
 	Folders       []string   `json:"folders"`
 	InTrash       bool       `json:"inTrash"`
 	TrashedAt     int64      `json:"trashedAt"`
 	CreatedAt     int64      `json:"createdAt"`
 	ImportedAt    int64      `json:"importedAt"`
+	UpdatedAt     int64      `json:"updatedAt"`
 	ItemPath      string     `json:"itemPath"`     // local disk path of item directory (items/<HEX>)
 	FilePath      string     `json:"filePath"`     // absolute local path to physical file
 	ShellPath     string     `json:"shellPath"`    // shell-escaped path with backslash spaces
@@ -87,6 +92,10 @@ type ItemMetadata struct {
 	DominantColor  string     `json:"dominantColor,omitempty"`
 	Palette        []string   `json:"palette,omitempty"`
 	Meta           *ImageMeta `json:"meta,omitempty"`
+	Note           string     `json:"note,omitempty"`
+	URL            string     `json:"url,omitempty"`
+	Rating         int        `json:"rating,omitempty"`
+	Prompt         string     `json:"prompt,omitempty"`
 	Tags           []string   `json:"tags"`
 	Folders        []string   `json:"folders"`
 	InTrash        bool       `json:"inTrash,omitempty"`
@@ -94,4 +103,5 @@ type ItemMetadata struct {
 	TrashedFolders []string   `json:"trashedFolders,omitempty"`
 	CreatedAt      int64      `json:"createdAt"`
 	ImportedAt     int64      `json:"importedAt"`
+	UpdatedAt      int64      `json:"updatedAt,omitempty"`
 }

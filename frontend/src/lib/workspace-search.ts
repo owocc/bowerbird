@@ -18,6 +18,8 @@ export type WorkspaceCategory =
 export type WorkspaceSort = "desc" | "asc";
 export type PreviewMode = "inline" | "full";
 export type WorkspaceOrientation = "all" | "landscape" | "portrait" | "square";
+export type WorkspaceSizeFilter = "all" | "small" | "medium" | "large";
+export type WorkspacePresenceFilter = "all" | "has" | "empty";
 
 export interface WorkspaceSearch {
   /** `all` = every asset, `trash` = the recycle bin. */
@@ -38,6 +40,14 @@ export interface WorkspaceSearch {
   filterTag?: string;
   /** Active aspect orientation filter */
   orientation: WorkspaceOrientation;
+  /** Active file size range filter */
+  size: WorkspaceSizeFilter;
+  /** Active URL presence filter */
+  hasUrl: WorkspacePresenceFilter;
+  /** Active Note presence filter */
+  hasNote: WorkspacePresenceFilter;
+  /** Active star rating filter (undefined = all, 0 = unrated, 1..5 = exact star rating) */
+  rating?: number;
   /** Active preview overlay, if any. */
   preview?: PreviewMode;
   /** Item shown by the preview overlay. */
@@ -51,8 +61,10 @@ export const WORKSPACE_SEARCH_DEFAULTS = {
   sort: "desc",
   tags: false,
   orientation: "all",
+  size: "all",
+  hasUrl: "all",
+  hasNote: "all",
 } as const satisfies Partial<WorkspaceSearch>;
-
 const CATEGORIES: WorkspaceCategory[] = [
   "all",
   "image",
@@ -70,12 +82,28 @@ const ORIENTATIONS: WorkspaceOrientation[] = [
   "square",
 ];
 
+const SIZE_FILTERS: WorkspaceSizeFilter[] = [
+  "all",
+  "small",
+  "medium",
+  "large",
+];
+
+const PRESENCE_FILTERS: WorkspacePresenceFilter[] = ["all", "has", "empty"];
+
 function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 function asBool(value: unknown): boolean {
   return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function asRating(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const num = Number(value);
+  if (Number.isInteger(num) && num >= 0 && num <= 5) return num;
+  return undefined;
 }
 
 export type WorkspaceSearchInput = Partial<WorkspaceSearch> & SearchSchemaInput;
@@ -104,6 +132,16 @@ export function validateWorkspaceSearch(
     orientation: ORIENTATIONS.includes(raw.orientation as WorkspaceOrientation)
       ? (raw.orientation as WorkspaceOrientation)
       : "all",
+    size: SIZE_FILTERS.includes(raw.size as WorkspaceSizeFilter)
+      ? (raw.size as WorkspaceSizeFilter)
+      : "all",
+    hasUrl: PRESENCE_FILTERS.includes(raw.hasUrl as WorkspacePresenceFilter)
+      ? (raw.hasUrl as WorkspacePresenceFilter)
+      : "all",
+    hasNote: PRESENCE_FILTERS.includes(raw.hasNote as WorkspacePresenceFilter)
+      ? (raw.hasNote as WorkspacePresenceFilter)
+      : "all",
+    rating: asRating(raw.rating),
     preview:
       raw.preview === "inline" || raw.preview === "full"
         ? raw.preview
@@ -136,6 +174,10 @@ export interface WorkspaceSearchApi extends WorkspaceSearch {
   setColorFilter: (color: string | null) => void;
   setFolderFilter: (folderId: string | null) => void;
   setOrientationFilter: (orientation: WorkspaceOrientation) => void;
+  setSizeFilter: (size: WorkspaceSizeFilter) => void;
+  setHasUrlFilter: (hasUrl: WorkspacePresenceFilter) => void;
+  setHasNoteFilter: (hasNote: WorkspacePresenceFilter) => void;
+  setRatingFilter: (rating: number | null) => void;
   clearAllFilters: () => void;
   setTagsPanel: (open: boolean) => void;
   toggleTagsPanel: () => void;
@@ -270,6 +312,10 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
     setColorFilter: (color) => patch({ color: color ?? undefined }),
     setFolderFilter: (folderId) => patch({ filterFolder: folderId ?? undefined }),
     setOrientationFilter: (orientation) => patch({ orientation }),
+    setSizeFilter: (size) => patch({ size }),
+    setHasUrlFilter: (hasUrl) => patch({ hasUrl }),
+    setHasNoteFilter: (hasNote) => patch({ hasNote }),
+    setRatingFilter: (rating) => patch({ rating: rating ?? undefined }),
     clearAllFilters: () =>
       patch({
         type: "all",
@@ -277,6 +323,10 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         filterFolder: undefined,
         filterTag: undefined,
         orientation: "all",
+        size: "all",
+        hasUrl: "all",
+        hasNote: "all",
+        rating: undefined,
       }),
     setTagsPanel: (open) =>
       patch({
@@ -322,6 +372,10 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
           filterFolder: undefined,
           filterTag: undefined,
           orientation: "all",
+          size: "all",
+          hasUrl: "all",
+          hasNote: "all",
+          rating: undefined,
           preview: undefined,
           item: undefined,
         },
