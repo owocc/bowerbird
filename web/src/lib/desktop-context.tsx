@@ -75,12 +75,19 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(timer);
   }, [checkConnection]);
 
-  const installViaProtocol = React.useCallback((plugin: MarketplacePlugin) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-    const manifestUrl = plugin.manifestUrl.startsWith("http")
+  const getInstallUrl = (plugin: MarketplacePlugin, origin: string) => {
+    if (plugin.downloadUrl && plugin.downloadUrl.endsWith(".zip")) {
+      return plugin.downloadUrl;
+    }
+    return plugin.manifestUrl.startsWith("http")
       ? plugin.manifestUrl
       : `${origin}${plugin.manifestUrl}`;
-    const uri = `bowerbird://plugin/install?manifest=${encodeURIComponent(manifestUrl)}&id=${encodeURIComponent(plugin.id)}&version=${encodeURIComponent(plugin.version)}`;
+  };
+
+  const installViaProtocol = React.useCallback((plugin: MarketplacePlugin) => {
+    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+    const installUrl = getInstallUrl(plugin, origin);
+    const uri = `bowerbird://plugin/install?manifest=${encodeURIComponent(installUrl)}&id=${encodeURIComponent(plugin.id)}&version=${encodeURIComponent(plugin.version)}`;
     if (typeof window !== "undefined") {
       window.location.href = uri;
     }
@@ -91,15 +98,12 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
       setInstallingId(plugin.id);
       try {
         const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
-        const manifestUrl = plugin.manifestUrl.startsWith("http")
-          ? plugin.manifestUrl
-          : `${origin}${plugin.manifestUrl}`;
-        // Request desktop app to open confirmation dialog - manual user confirmation required
+        const installUrl = getInstallUrl(plugin, origin);
         const res = await fetch(`${DESKTOP_API_BASE}/api/plugin/install`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            manifestUrl,
+            manifestUrl: installUrl,
             id: plugin.id,
             version: plugin.version,
             name: plugin.name,

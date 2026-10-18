@@ -132,7 +132,9 @@ jobs:
               plugin_id=$(basename "$d")
               mkdir -p "repo/$plugin_id"
               cp "$d/manifest.json" "repo/$plugin_id/manifest.json"
-            fi
+              if [ -f "$d/index.js" ]; then
+                cp "$d/index.js" "repo/$plugin_id/index.js"
+              fi
           done
 
           # Create/update README.md

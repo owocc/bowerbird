@@ -138,6 +138,7 @@ export async function handlePluginApiRequest(
 
   const origin = url.origin;
   const releaseBaseUrl = env?.PLUGIN_RELEASE_BASE_URL || process.env.PLUGIN_RELEASE_BASE_URL;
+  const indexUrl = env?.PLUGIN_REPO_INDEX_URL || process.env.PLUGIN_REPO_INDEX_URL;
 
   // 1. GET /api/plugins - List all plugins
   if (pathname === "/api/plugins" || pathname === "/api/plugins/") {
@@ -250,11 +251,10 @@ export async function handlePluginApiRequest(
     });
   }
 
-  // 4. /api/plugins/:id/download or /api/plugins/:id/index.js
-  const downloadMatch = pathname.match(/^\/api\/plugins\/([a-zA-Z0-9_\-.]+)\/(download|index\.js)$/);
+  // 4. /api/plugins/:id/download -> ZIP download
+  const downloadMatch = pathname.match(/^\/api\/plugins\/([a-zA-Z0-9_\-.]+)\/download$/);
   if (downloadMatch) {
     const pluginId = downloadMatch[1];
-    const mode = downloadMatch[2]; // "download" (zip) or "index.js"
     const registry = await fetchPluginRegistry(env);
     const plugin = registry.plugins.find((p) => p.id === pluginId);
 
@@ -267,47 +267,24 @@ export async function handlePluginApiRequest(
 
     const assetName = plugin.assetFileName || `${plugin.id}-v${plugin.version}.zip`;
 
-    // When configured with remote release base, redirect directly without intercepting file stream
+    // When configured with remote release base, redirect directly to original release ZIP
     if (releaseBaseUrl && releaseBaseUrl.startsWith("http")) {
       const remoteDownloadUrl = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
       return Response.redirect(remoteDownloadUrl, 302);
     }
 
-    // Local fallback only when running purely offline without release base
-    if (mode === "index.js") {
-      const localJsCandidates = [
-        path.resolve(process.cwd(), `../dist/plugins/${pluginId}/index.js`),
-        path.resolve(process.cwd(), `dist/plugins/${pluginId}/index.js`),
-      ];
-      for (const p of localJsCandidates) {
-        if (fs.existsSync(p)) {
-          const content = fs.readFileSync(p);
-          return new Response(content, {
-            status: 200,
-            headers: {
-              "Content-Type": "application/javascript",
-              "Cache-Control": "public, max-age=300",
-              ...corsHeaders,
-            },
-          });
-        }
-      }
-    }
-
+    // Local fallback
     const localZipCandidates = [
       path.resolve(process.cwd(), `../dist/plugins/releases/${assetName}`),
       path.resolve(process.cwd(), `dist/plugins/releases/${assetName}`),
-      path.resolve(process.cwd(), `../dist/plugins/${pluginId}/index.js`),
     ];
-
     for (const cand of localZipCandidates) {
       if (fs.existsSync(cand)) {
         const fileBuf = fs.readFileSync(cand);
-        const isZip = cand.endsWith(".zip");
         return new Response(fileBuf, {
           status: 200,
           headers: {
-            "Content-Type": isZip ? "application/zip" : "application/javascript",
+            "Content-Type": "application/zip",
             "Content-Disposition": `attachment; filename="${path.basename(cand)}"`,
             ...corsHeaders,
           },
@@ -315,9 +292,44 @@ export async function handlePluginApiRequest(
       }
     }
 
-    return new Response(JSON.stringify({ error: `Asset for ${pluginId} not found` }), {
+    return new Response(JSON.stringify({ error: `Zip asset for ${pluginId} not found` }), {
       status: 404,
       headers: { "Content-Type": "application/json", ...corsHeaders },
+    });
+  }
+
+  // 5. /api/plugins/:id/index.js -> JavaScript bundle only (NEVER return zip!)
+  const jsMatch = pathname.match(/^\/api\/plugins\/([a-zA-Z0-9_\-.]+)\/index\.js$/);
+  if (jsMatch) {
+    const pluginId = jsMatch[1];
+    const localJsCandidates = [
+      path.resolve(process.cwd(), `../dist/plugins/${pluginId}/index.js`),
+      path.resolve(process.cwd(), `dist/plugins/${pluginId}/index.js`),
+    ];
+    for (const p of localJsCandidates) {
+      if (fs.existsSync(p)) {
+        const content = fs.readFileSync(p);
+        return new Response(content, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/javascript",
+            "Cache-Control": "public, max-age=300",
+            ...corsHeaders,
+          },
+        });
+      }
+    }
+
+    // Remote fallback: if indexUrl is configured (e.g. raw.githubusercontent.com/.../index.min.json),
+    // redirect to raw index.js in repo/<id>/index.js
+    if (indexUrl && indexUrl.startsWith("http")) {
+      const remoteJsUrl = indexUrl.replace(/\/index\.min\.json$/, `/repo/${pluginId}/index.js`);
+      return Response.redirect(remoteJsUrl, 302);
+    }
+
+    return new Response(`// Plugin ${pluginId} entry not found`, {
+      status: 404,
+      headers: { "Content-Type": "application/javascript", ...corsHeaders },
     });
   }
 
