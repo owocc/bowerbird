@@ -38,6 +38,30 @@ function parseFrontmatterAndBody(raw) {
 		body
 	};
 }
+function extractOutline(text) {
+	const lines = text.split("\n");
+	const outline = [];
+	let inCode = false;
+	for (const line of lines) {
+		if (line.trim().startsWith("```")) {
+			inCode = !inCode;
+			continue;
+		}
+		if (inCode) continue;
+		const match = line.match(/^(#{1,6})\s+(.*)$/);
+		if (match) {
+			const level = match[1].length;
+			const text = match[2].trim().replace(/[#*`_~]/g, "");
+			const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+			outline.push({
+				level,
+				text,
+				id
+			});
+		}
+	}
+	return outline;
+}
 function renderInlineMarkdown(text, onLinkClick, isDark = true) {
 	const nodes = [];
 	let remaining = text;
@@ -560,6 +584,9 @@ function usePluginTheme(propTheme, api) {
 	}, [propTheme, api]);
 	return theme;
 }
+function stripMarkdown(raw) {
+	return raw.replace(/^---[\s\S]*?---\s*/m, "").replace(/^#+\s+/gm, "").replace(/```[\s\S]*?```/g, "").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/~~([^~]+)~~/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/!\[([^\]]*)\]\([^)]+\)/g, "").replace(/^>\s*/gm, "").replace(/^[-*+]\s+/gm, "").replace(/^\d+\.\s+/gm, "").replace(/<[^>]+>/g, "").replace(/\r\n/g, "\n").replace(/\n{2,}/g, " ").replace(/\s+/g, " ").trim();
+}
 function MarkdownInspectorPreview({ item, api, theme: propTheme, onOpenPreview, onDragStart }) {
 	const isDark = usePluginTheme(propTheme, api) === "dark";
 	const [content, setContent] = useState("");
@@ -675,7 +702,53 @@ var markdownPreviewPlugin = definePlugin({
 	mimePrefixes: ["text/markdown", "text/x-markdown"],
 	supportsZoom: false,
 	Viewport: MarkdownViewport,
-	InspectorPreview: MarkdownInspectorPreview
+	InspectorPreview: MarkdownInspectorPreview,
+	contextMenus: [
+		{
+			id: "markdown-copy-text",
+			label: "Copy as Plain Text",
+			target: "file",
+			extensions: [
+				"md",
+				"markdown",
+				"txt"
+			],
+			onClick: async (ctx) => {
+				if (!ctx.items?.[0]) return;
+				try {
+					const fileHandle = ctx.api.getOriginalFile();
+					const clean = stripMarkdown(fileHandle.fetchText ? await fileHandle.fetchText() : await (await fileHandle.fetchBlob()).text());
+					await navigator.clipboard.writeText(clean);
+				} catch (err) {
+					console.error("[MarkdownPlugin] Copy plain text failed:", err);
+				}
+			}
+		},
+		{
+			id: "markdown-copy-outline",
+			label: "Copy Document Outline",
+			target: "file",
+			extensions: ["md", "markdown"],
+			onClick: async (ctx) => {
+				if (!ctx.items?.[0]) return;
+				try {
+					const fileHandle = ctx.api.getOriginalFile();
+					const formatted = extractOutline(fileHandle.fetchText ? await fileHandle.fetchText() : await (await fileHandle.fetchBlob()).text()).map((o) => `${"  ".repeat(o.level - 1)}- ${o.text}`).join("\n");
+					await navigator.clipboard.writeText(formatted);
+				} catch (err) {
+					console.error("[MarkdownPlugin] Copy outline failed:", err);
+				}
+			}
+		},
+		{
+			id: "markdown-folder-summary",
+			label: "Scan Markdown in Folder",
+			target: "folder",
+			onClick: async (ctx) => {
+				console.log("[MarkdownPlugin] Folder scan requested for:", ctx.folder?.name);
+			}
+		}
+	]
 });
 //#endregion
 export { markdownPreviewPlugin as default, markdownPreviewPlugin as plugin };

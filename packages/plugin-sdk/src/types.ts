@@ -178,9 +178,36 @@ export interface InspectorExtensionProps<TItem = PluginItem> {
   api: PreviewPluginHostAPI<TItem>;
   theme?: ThemeMode;
 }
+export type ContextMenuTarget = "file" | "folder" | "general";
+
+export interface PluginContextMenuFolder {
+  id: string;
+  name: string;
+  itemCount?: number;
+  parentId?: string;
+}
+
+export interface PluginContextMenuContext<TItem = PluginItem> {
+  target: ContextMenuTarget;
+  items?: TItem[];
+  folder?: PluginContextMenuFolder | null;
+  position?: { x: number; y: number };
+  api: PreviewPluginHostAPI<TItem>;
+}
+
+export interface PluginContextMenuItem<TItem = PluginItem> {
+  id: string;
+  label: string;
+  labelKey?: string;
+  icon?: string;
+  target: ContextMenuTarget;
+  extensions?: string[];
+  disabled?: boolean | ((ctx: PluginContextMenuContext<TItem>) => boolean);
+  hidden?: boolean | ((ctx: PluginContextMenuContext<TItem>) => boolean);
+  onClick: (ctx: PluginContextMenuContext<TItem>) => void | Promise<void>;
+}
 
 export type PluginKind = "preview" | "metadata";
-
 export interface PreviewPlugin<TItem = PluginItem> {
   /** Unique identifier of the plugin (e.g. "official.markdown-preview") */
   id: string;
@@ -223,4 +250,11 @@ export interface PreviewPlugin<TItem = PluginItem> {
   InspectorPreview?: React.ComponentType<PreviewInspectorProps<TItem>>;
   /** Optional inspector metadata extension panel rendered inside ItemDetailPanel when enabled */
   InspectorExtension?: React.ComponentType<InspectorExtensionProps<TItem>>;
+  /** Registered context menu items for file, folder, and general canvas */
+  contextMenus?: PluginContextMenuItem<TItem>[];
+  /** Dynamic context menu item contributor */
+  getContextMenuItems?: (
+    target: ContextMenuTarget,
+    context: PluginContextMenuContext<TItem>
+  ) => PluginContextMenuItem<TItem>[];
 }

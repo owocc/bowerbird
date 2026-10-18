@@ -20,6 +20,10 @@ import type {
   PluginKind,
   PluginManifest,
   PluginItem,
+  ContextMenuTarget,
+  PluginContextMenuContext,
+  PluginContextMenuItem,
+  PluginContextMenuFolder,
 } from "@bowerbird/plugin-sdk";
 
 export type {
@@ -29,8 +33,11 @@ export type {
   PluginKind,
   PluginManifest,
   PluginItem,
+  ContextMenuTarget,
+  PluginContextMenuContext,
+  PluginContextMenuItem,
+  PluginContextMenuFolder,
 };
-
 export type PreviewPluginHostAPI = BasePreviewPluginHostAPI<Item>;
 
 export interface PreviewViewportProps extends Omit<BasePreviewViewportProps<Item>, "controllerRef"> {

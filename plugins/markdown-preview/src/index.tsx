@@ -934,6 +934,57 @@ const markdownPreviewPlugin: PreviewPlugin = definePlugin({
   supportsZoom: false,
   Viewport: MarkdownViewport,
   InspectorPreview: MarkdownInspectorPreview,
+  contextMenus: [
+    {
+      id: "markdown-copy-text",
+      label: "Copy as Plain Text",
+      target: "file",
+      extensions: ["md", "markdown", "txt"],
+      onClick: async (ctx) => {
+        const item = ctx.items?.[0];
+        if (!item) return;
+        try {
+          const fileHandle = ctx.api.getOriginalFile();
+          const text = fileHandle.fetchText
+            ? await fileHandle.fetchText()
+            : await (await fileHandle.fetchBlob()).text();
+          const clean = stripMarkdown(text);
+          await navigator.clipboard.writeText(clean);
+        } catch (err) {
+          console.error("[MarkdownPlugin] Copy plain text failed:", err);
+        }
+      },
+    },
+    {
+      id: "markdown-copy-outline",
+      label: "Copy Document Outline",
+      target: "file",
+      extensions: ["md", "markdown"],
+      onClick: async (ctx) => {
+        const item = ctx.items?.[0];
+        if (!item) return;
+        try {
+          const fileHandle = ctx.api.getOriginalFile();
+          const text = fileHandle.fetchText
+            ? await fileHandle.fetchText()
+            : await (await fileHandle.fetchBlob()).text();
+          const outline = extractOutline(text);
+          const formatted = outline.map((o) => `${"  ".repeat(o.level - 1)}- ${o.text}`).join("\n");
+          await navigator.clipboard.writeText(formatted);
+        } catch (err) {
+          console.error("[MarkdownPlugin] Copy outline failed:", err);
+        }
+      },
+    },
+    {
+      id: "markdown-folder-summary",
+      label: "Scan Markdown in Folder",
+      target: "folder",
+      onClick: async (ctx) => {
+        console.log("[MarkdownPlugin] Folder scan requested for:", ctx.folder?.name);
+      },
+    },
+  ],
 });
 
 export default markdownPreviewPlugin;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Folder as FolderIcon,
   FolderOpen,
@@ -18,7 +18,12 @@ import {
   Tags,
   FolderX,
   History,
+  Puzzle,
 } from "lucide-react";
+import {
+  previewRegistry,
+  type PluginContextMenuContext,
+} from "@/plugins/preview/registry";
 import {
   SidebarHeader,
   SidebarContent,
@@ -64,7 +69,7 @@ import {
   OpenLibrary,
   SelectLibraryDialog,
 } from "../../bindings/bowerbird/core/service";
-import type { Folder, LibraryInfo } from "../../bindings/bowerbird/core/models";
+import type { Folder, LibraryInfo, Item } from "../../bindings/bowerbird/core/models";
 
 export interface SidebarDirectoryTreeProps {
   library: LibraryInfo;
@@ -1207,6 +1212,16 @@ function FolderContextMenu({
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const pluginItems = useMemo(() => {
+    if (!folder) return [];
+    const ctx: PluginContextMenuContext<Item> = {
+      target: "folder",
+      folder: { id: folder.id, name: folder.name, itemCount: folder.itemCount, parentId: folder.parentId },
+      position: position || undefined,
+      api: {} as any,
+    };
+    return previewRegistry.resolveContextMenuItems("folder", ctx);
+  }, [folder, position]);
   useEffect(() => {
     if (!position) return;
     const handleClickOutside = (e: MouseEvent) => {
@@ -1288,6 +1303,33 @@ function FolderContextMenu({
             <Trash2 className="size-3.5 text-destructive" />
             <span>{t("sidebar.deleteFolderMenu")}</span>
           </button>
+          {pluginItems.length > 0 && (
+            <>
+              <div className="my-1 h-px bg-border/60" />
+              {pluginItems.map((pItem) => (
+                <button
+                  key={pItem.id}
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    const ctx: PluginContextMenuContext<Item> = {
+                      target: "folder",
+                      folder: folder
+                        ? { id: folder.id, name: folder.name, itemCount: folder.itemCount, parentId: folder.parentId }
+                        : null,
+                      position: position || undefined,
+                      api: {} as any,
+                    };
+                    pItem.onClick(ctx);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left transition-colors cursor-pointer"
+                >
+                  <Puzzle className="size-3.5 text-primary" />
+                  <span>{pItem.label}</span>
+                </button>
+              ))}
+            </>
+          )}
         </>
       ) : (
         <button

@@ -250,9 +250,22 @@ export function LibraryWorkspace({
 
   const [contextMenu, setContextMenu] = useState<{
     position: ContextMenuPosition;
-    isItemContext: boolean;
+    targetType: "file" | "folder" | "general";
+    targetItem?: Item | null;
+    targetFolder?: Folder | null;
   } | null>(null);
 
+  const [folderCreateDialog, setFolderCreateDialog] = useState<{
+    open: boolean;
+    parentId?: string;
+  }>({ open: false });
+  const [folderCreateName, setFolderCreateName] = useState("");
+
+  const [folderRenameDialog, setFolderRenameDialog] = useState<{
+    open: boolean;
+    folder: Folder | null;
+    newName: string;
+  }>({ open: false, folder: null, newName: "" });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1296,7 +1309,8 @@ export function LibraryWorkspace({
       setActiveItemId((prev) => (prev === item.id ? prev : item.id));
       setContextMenu({
         position: { x: e.clientX, y: e.clientY },
-        isItemContext: true,
+        targetType: "file",
+        targetItem: item,
       });
     },
     []
@@ -1306,7 +1320,7 @@ export function LibraryWorkspace({
     (e: React.MouseEvent) => {
       setContextMenu({
         position: { x: e.clientX, y: e.clientY },
-        isItemContext: false,
+        targetType: "general",
       });
     },
     []
@@ -2311,7 +2325,7 @@ export function LibraryWorkspace({
                   e.preventDefault();
                   setContextMenu({
                     position: { x: e.clientX, y: e.clientY },
-                    isItemContext: false,
+                    targetType: "general",
                   });
                 }}
                 className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag"
@@ -2376,6 +2390,15 @@ export function LibraryWorkspace({
                                   data-folder-id={sub.id}
                                   data-subfolder-id={sub.id}
                                   data-drag-over={isSubDragOver ? "true" : undefined}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setContextMenu({
+                                      position: { x: e.clientX, y: e.clientY },
+                                      targetType: "folder",
+                                      targetFolder: sub,
+                                    });
+                                  }}
                                   onClick={() => {
                                     navigateToFolder(sub.id);
                                     setSelectedOrder([]);
@@ -2787,50 +2810,182 @@ export function LibraryWorkspace({
           <CustomContextMenu
             position={contextMenu.position}
             onClose={() => setContextMenu(null)}
+            targetType={contextMenu.targetType}
             selectedCount={selectedOrder.length}
-            isItemContext={contextMenu.isItemContext}
+            selectedItems={selectedItems}
+            isItemContext={contextMenu.targetType === "file"}
             activeFolderId={activeFolderId}
-            targetItem={activeItem}
-          layoutMode={layoutMode}
-          onLayoutModeChange={(mode) => ws.setLayout(mode)}
-          onPreview={() => openPreview("full")}
-          onRename={() => activeItem && handleOpenRename(activeItem)}
-          onReveal={handleBatchReveal}
-          onOpenWithDefaultApp={() =>
-            activeItem && handleOpenDefaultApp(activeItem)
-          }
-          onCopy={() => handleCopyItems()}
-          onCopyPath={() => handleCopyPath()}
-          onToggleFavorite={() =>
-            activeItem && handleToggleFavorite(activeItem)
-          }
-          onDelete={() => handleRequestDelete()}
-          onEmptyTrash={
-            trashCount > 0 || filteredItems.length > 0
-              ? handleRequestEmptyTrash
-              : undefined
-          }
-          onRestore={() => handleRestore()}
-          onOpenAddToFolderPalette={() => setFolderPaletteOpen(true)}
-          onRemoveFromCurrentFolder={() => {
-            if (isRealFolderId(activeFolderId)) {
-              handleBatchRemoveFromFolder(activeFolderId);
+            targetItem={contextMenu.targetItem || activeItem}
+            targetFolder={contextMenu.targetFolder}
+            isTrashFolder={activeFolderId === TRASH_FOLDER_ID}
+            layoutMode={layoutMode}
+            onLayoutModeChange={(mode) => ws.setLayout(mode)}
+            onPreview={() => openPreview("full")}
+            onRename={() => activeItem && handleOpenRename(activeItem)}
+            onReveal={handleBatchReveal}
+            onOpenWithDefaultApp={() =>
+              activeItem && handleOpenDefaultApp(activeItem)
             }
-          }}
-          onSelectAll={() => {
-            setSelectedOrder(filteredItems.map((i) => i.id));
-            if (filteredItems.length > 0) {
-              setActiveItemId(filteredItems[filteredItems.length - 1].id);
+            onCopy={() => handleCopyItems()}
+            onCopyPath={() => handleCopyPath()}
+            onToggleFavorite={() =>
+              activeItem && handleToggleFavorite(activeItem)
             }
-          }}
-          onClearSelection={() => {
-            setSelectedOrder([]);
-            setActiveItemId(null);
-          }}
-          onImportFiles={() => fileInputRef.current?.click()}
-          onCreateFolder={() => handleCreateFolder(t("workspace.newFolder"))}
+            onDelete={() => handleRequestDelete()}
+            onEmptyTrash={
+              trashCount > 0 || filteredItems.length > 0
+                ? handleRequestEmptyTrash
+                : undefined
+            }
+            onRestore={() => handleRestore()}
+            onOpenAddToFolderPalette={() => setFolderPaletteOpen(true)}
+            onRemoveFromCurrentFolder={() => {
+              if (isRealFolderId(activeFolderId)) {
+                handleBatchRemoveFromFolder(activeFolderId);
+              }
+            }}
+            onSelectAll={() => {
+              setSelectedOrder(filteredItems.map((i) => i.id));
+              if (filteredItems.length > 0) {
+                setActiveItemId(filteredItems[filteredItems.length - 1].id);
+              }
+            }}
+            onClearSelection={() => {
+              setSelectedOrder([]);
+              setActiveItemId(null);
+            }}
+            onImportFiles={() => fileInputRef.current?.click()}
+            onCreateFolder={() => {
+              setFolderCreateDialog({ open: true, parentId: undefined });
+              setFolderCreateName("");
+            }}
+            onCreateSubfolder={(parentId) => {
+              setFolderCreateDialog({ open: true, parentId });
+              setFolderCreateName("");
+            }}
+            onRenameFolder={(folder) => {
+              setFolderRenameDialog({ open: true, folder, newName: folder.name });
+            }}
+            onDeleteFolder={async (fId, fName) => {
+              await handleDeleteFolder(fId);
+              notifySuccess(t("sidebar.folderDeleted", { defaultValue: `Deleted folder "${fName}"` }));
+            }}
+            onExportFolder={(folder) => {
+              notifySuccess(t("sidebar.exportFolder", { defaultValue: `Exporting folder "${folder.name}"` }));
+            }}
           />
         )}
+
+        {/* FOLDER CREATE MODAL (FOR SUBFOLDERS & CANVAS RIGHT-CLICK) */}
+        <Dialog
+          open={folderCreateDialog.open}
+          onOpenChange={(open) => !open && setFolderCreateDialog({ open: false })}
+        >
+          <DialogContent className="max-w-xs text-xs">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold">
+                {folderCreateDialog.parentId
+                  ? t("sidebar.newSubfolderMenu", { defaultValue: "New Subfolder" })
+                  : t("sidebar.newFolderMenu", { defaultValue: "New Folder" })}
+              </DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!folderCreateName.trim()) return;
+                await handleCreateFolder(folderCreateName.trim(), folderCreateDialog.parentId);
+                setFolderCreateDialog({ open: false });
+                setFolderCreateName("");
+              }}
+              className="space-y-4 pt-2"
+            >
+              <Input
+                autoFocus
+                placeholder={t("sidebar.folderNamePlaceholder", { defaultValue: "Folder name" })}
+                value={folderCreateName}
+                onChange={(e) => setFolderCreateName(e.target.value)}
+                className="h-8 text-xs"
+              />
+              <DialogFooter className="gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFolderCreateDialog({ open: false })}
+                  className="h-7 text-xs"
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!folderCreateName.trim()}
+                  className="h-7 text-xs"
+                >
+                  {t("common.create")}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* FOLDER RENAME MODAL (FOR SUBFOLDERS) */}
+        <Dialog
+          open={folderRenameDialog.open}
+          onOpenChange={(open) =>
+            !open && setFolderRenameDialog({ open: false, folder: null, newName: "" })
+          }
+        >
+          <DialogContent className="max-w-xs text-xs">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold">
+                {t("sidebar.renameMenu", { defaultValue: "Rename Folder" })}
+              </DialogTitle>
+            </DialogHeader>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!folderRenameDialog.folder || !folderRenameDialog.newName.trim()) return;
+                await handleRenameFolder(
+                  folderRenameDialog.folder.id,
+                  folderRenameDialog.newName.trim()
+                );
+                setFolderRenameDialog({ open: false, folder: null, newName: "" });
+              }}
+              className="space-y-4 pt-2"
+            >
+              <Input
+                autoFocus
+                value={folderRenameDialog.newName}
+                onChange={(e) =>
+                  setFolderRenameDialog((prev) => ({ ...prev, newName: e.target.value }))
+                }
+                className="h-8 text-xs"
+              />
+              <DialogFooter className="gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setFolderRenameDialog({ open: false, folder: null, newName: "" })
+                  }
+                  className="h-7 text-xs"
+                >
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={!folderRenameDialog.newName.trim()}
+                  className="h-7 text-xs"
+                >
+                  {t("common.save")}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
         {folderPaletteOpen && (
           <CommandDialog
             open={folderPaletteOpen}
