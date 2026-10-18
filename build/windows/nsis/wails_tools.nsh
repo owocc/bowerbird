@@ -243,7 +243,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
   WriteRegStr SHELL_CONTEXT "Software\Classes\${PROTOCOL}\DefaultIcon" "" "${ICON}"
   WriteRegStr SHELL_CONTEXT "Software\Classes\${PROTOCOL}\shell" "" ""
   WriteRegStr SHELL_CONTEXT "Software\Classes\${PROTOCOL}\shell\open" "" ""
-  WriteRegStr SHELL_CONTEXT "Software\Classes\${PROTOCOL}\shell\open\command" "" "${COMMAND}"
+  WriteRegStr SHELL_CONTEXT "Software\Classes\${PROTOCOL}\shell\open\command" "" `${COMMAND}`
 !macroend
 
 !macro CUSTOM_PROTOCOL_UNASSOCIATE PROTOCOL
@@ -252,7 +252,7 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 
 !macro wails.associateCustomProtocols
     ; Create custom protocols associations
-    !insertmacro CUSTOM_PROTOCOL_ASSOCIATE "bowerbird" "URL:bowerbird Protocol" "$INSTDIR\${PRODUCT_EXECUTABLE},0" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%1"'
+    !insertmacro CUSTOM_PROTOCOL_ASSOCIATE "bowerbird" "URL:bowerbird Protocol" "$INSTDIR\${PRODUCT_EXECUTABLE},0" `"$INSTDIR\${PRODUCT_EXECUTABLE}" "%1"`
 !macroend
 
 !macro wails.unassociateCustomProtocols
