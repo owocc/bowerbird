@@ -139,7 +139,7 @@ function renderInlineMarkdown(text, onLinkClick, isDark = true) {
 	}
 	return nodes;
 }
-function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
+function MarkdownRenderer({ body, onLinkClick, isDark = true, compact = false }) {
 	const [copiedIndex, setCopiedIndex] = useState(null);
 	const lines = useMemo(() => body.split("\n"), [body]);
 	const elements = [];
@@ -165,13 +165,13 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 			const currentIdx = blockKey++;
 			elements.push(/* @__PURE__ */ jsxs("div", {
 				style: {
-					margin: "1rem 0",
-					borderRadius: "8px",
+					margin: compact ? "0.4rem 0" : "1rem 0",
+					borderRadius: "6px",
 					overflow: "hidden",
 					border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
 					background: isDark ? "rgba(18, 18, 22, 0.8)" : "#f8fafc"
 				},
-				children: [/* @__PURE__ */ jsxs("div", {
+				children: [!compact && /* @__PURE__ */ jsxs("div", {
 					style: {
 						display: "flex",
 						alignItems: "center",
@@ -180,7 +180,7 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 						background: isDark ? "rgba(255, 255, 255, 0.04)" : "#f1f5f9",
 						borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
 						fontSize: "0.75rem",
-						color: isDark ? "#94a3b8" : "#64748b",
+						color: isDark ? "#94a3b8" : "#4b5563",
 						fontFamily: "monospace"
 					},
 					children: [/* @__PURE__ */ jsx("span", { children: lang }), /* @__PURE__ */ jsx("button", {
@@ -202,12 +202,12 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 					})]
 				}), /* @__PURE__ */ jsx("pre", {
 					style: {
-						padding: "0.8rem 1rem",
+						padding: compact ? "0.4rem 0.6rem" : "0.8rem 1rem",
 						margin: 0,
 						overflowX: "auto",
 						fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-						fontSize: "0.85rem",
-						lineHeight: 1.5,
+						fontSize: compact ? "0.75rem" : "0.85rem",
+						lineHeight: 1.45,
 						color: isDark ? "#e2e8f0" : "#000000"
 					},
 					children: /* @__PURE__ */ jsx("code", { children: fullCode })
@@ -221,24 +221,33 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 			const text = headingMatch[2].trim();
 			const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 			const Tag = `h${level}`;
+			const fontSizes = compact ? [
+				"1.05rem",
+				"0.95rem",
+				"0.85rem",
+				"0.8rem",
+				"0.75rem",
+				"0.75rem"
+			] : [
+				"1.875rem",
+				"1.5rem",
+				"1.25rem",
+				"1.1rem",
+				"1rem",
+				"0.9rem"
+			];
 			elements.push(/* @__PURE__ */ jsx(Tag, {
 				id,
 				style: {
-					fontSize: [
-						"1.875rem",
-						"1.5rem",
-						"1.25rem",
-						"1.1rem",
-						"1rem",
-						"0.9rem"
-					][level - 1],
+					fontSize: fontSizes[level - 1],
 					fontWeight: 700,
-					marginTop: level === 1 ? "1.5rem" : "1.25rem",
-					marginBottom: "0.5rem",
-					paddingBottom: level <= 2 ? "0.3rem" : void 0,
-					borderBottom: level <= 2 ? isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0" : void 0,
+					marginTop: compact ? blockKey === 1 ? "0" : "0.55rem" : level === 1 ? "1.5rem" : "1.25rem",
+					marginBottom: compact ? "0.25rem" : "0.5rem",
+					paddingBottom: !compact && level <= 2 ? "0.3rem" : void 0,
+					borderBottom: !compact && level <= 2 ? isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0" : void 0,
 					color: isDark ? "#f8fafc" : "#000000",
-					scrollMarginTop: "2rem"
+					scrollMarginTop: "2rem",
+					lineHeight: 1.35
 				},
 				children: renderInlineMarkdown(text, onLinkClick, isDark)
 			}, `heading-${blockKey++}`));
@@ -348,10 +357,10 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 			const ListTag = isOrdered ? "ol" : "ul";
 			elements.push(/* @__PURE__ */ jsx(ListTag, {
 				style: {
-					margin: "0.5rem 0",
-					paddingLeft: "1.5rem",
+					margin: compact ? "0.25rem 0" : "0.5rem 0",
+					paddingLeft: compact ? "1.2rem" : "1.5rem",
 					color: isDark ? "#e2e8f0" : "#000000",
-					lineHeight: 1.6
+					lineHeight: compact ? 1.45 : 1.6
 				},
 				children: listItems.map((li, liIdx) => /* @__PURE__ */ jsxs("li", {
 					style: {
@@ -382,10 +391,10 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 		}
 		if (paraLines.length > 0) elements.push(/* @__PURE__ */ jsx("p", {
 			style: {
-				margin: "0.6rem 0",
-				lineHeight: 1.7,
+				margin: compact ? "0.3rem 0" : "0.6rem 0",
+				lineHeight: compact ? 1.45 : 1.7,
 				color: isDark ? "#e2e8f0" : "#000000",
-				fontSize: "0.95rem"
+				fontSize: compact ? "0.825rem" : "0.95rem"
 			},
 			children: renderInlineMarkdown(paraLines.join(" "), onLinkClick, isDark)
 		}, `p-${blockKey++}`));
@@ -716,267 +725,100 @@ function usePluginTheme(propTheme, api) {
 	}, [propTheme, api]);
 	return theme;
 }
-function stripMarkdown(raw) {
-	return raw.replace(/^---[\s\S]*?---\s*/m, "").replace(/^#+\s+/gm, "").replace(/```[\s\S]*?```/g, "").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/~~([^~]+)~~/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/!\[([^\]]*)\]\([^)]+\)/g, "").replace(/^>\s*/gm, "").replace(/^[-*+]\s+/gm, "").replace(/^\d+\.\s+/gm, "").replace(/<[^>]+>/g, "").replace(/\r\n/g, "\n").replace(/\n{2,}/g, " ").replace(/\s+/g, " ").trim();
-}
-function extractDocumentTitle(text, fallback) {
-	const { frontmatter, body } = parseFrontmatterAndBody(text);
-	if (frontmatter?.title && typeof frontmatter.title === "string") return frontmatter.title;
-	const lines = body.split("\n");
-	for (const line of lines) {
-		const trimmed = line.trim();
-		if (trimmed.startsWith("# ")) return trimmed.replace(/^#\s+/, "").trim();
-		if (trimmed.startsWith("## ")) return trimmed.replace(/^##\s+/, "").trim();
-	}
-	return fallback;
-}
 function MarkdownInspectorPreview({ item, api, theme: propTheme, onOpenPreview, onDragStart }) {
 	const isDark = usePluginTheme(propTheme, api) === "dark";
+	const [content, setContent] = useState("");
 	const [loading, setLoading] = useState(true);
-	const [docTitle, setDocTitle] = useState(item.name);
-	const [snippet, setSnippet] = useState("");
-	const [stats, setStats] = useState({
-		words: 0,
-		lines: 0
-	});
 	useEffect(() => {
 		let active = true;
-		const fetchSnippet = async () => {
+		const fetchContent = async () => {
 			try {
 				setLoading(true);
 				const fileHandle = api.getOriginalFile();
 				const text = fileHandle.fetchText ? await fileHandle.fetchText() : await (await fileHandle.fetchBlob()).text();
 				if (active) {
-					const title = extractDocumentTitle(text, item.name);
-					const clean = stripMarkdown(text);
-					const lines = text.split("\n");
-					const words = text.trim().split(/\s+/).filter(Boolean).length;
-					setDocTitle(title);
-					setSnippet(clean.slice(0, 160));
-					setStats({
-						words,
-						lines: lines.length
-					});
+					const { frontmatter, body } = parseFrontmatterAndBody(text);
+					let displayBody = body.trim();
+					if (frontmatter?.title && typeof frontmatter.title === "string" && !displayBody.startsWith("#")) displayBody = `# ${frontmatter.title}\n\n${displayBody}`;
+					setContent(displayBody);
 					setLoading(false);
 				}
 			} catch {
 				if (active) setLoading(false);
 			}
 		};
-		fetchSnippet();
+		fetchContent();
 		return () => {
 			active = false;
 		};
-	}, [
-		item.id,
-		api,
-		item.name
-	]);
-	const ext = (item.extension || "md").toUpperCase();
-	return /* @__PURE__ */ jsxs("div", {
+	}, [item.id, api]);
+	const handleDragStart = (e) => {
+		e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
+		e.dataTransfer.setData("application/x-bowerbird-item-id", item.id);
+		const rawPath = item.filePath || "";
+		let fileUrl = item.fileUrl || "";
+		if (!fileUrl && rawPath) fileUrl = encodeURI(`file://${rawPath.startsWith("/") ? "" : "/"}${rawPath}`);
+		else if (fileUrl && fileUrl.includes(" ")) fileUrl = encodeURI(fileUrl);
+		const mime = item.mimeType || "text/markdown";
+		if (rawPath) {
+			e.dataTransfer.setData("text/plain", rawPath);
+			e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
+			e.dataTransfer.setData("application/x-bowerbird-paths", JSON.stringify([rawPath]));
+		}
+		if (fileUrl) {
+			e.dataTransfer.setData("text/uri-list", fileUrl);
+			e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
+		}
+		e.dataTransfer.effectAllowed = "copyMove";
+		onDragStart?.(e);
+	};
+	return /* @__PURE__ */ jsx("div", {
+		draggable: true,
+		onDragStart: handleDragStart,
 		onDoubleClick: onOpenPreview,
-		onClick: onOpenPreview,
-		onDragStart,
-		draggable: Boolean(onDragStart),
-		title: "双击全屏预览",
+		className: "draggable-asset-card wails-no-drag select-none cursor-grab active:cursor-grabbing",
 		style: {
 			width: "100%",
-			borderRadius: "10px",
-			background: isDark ? "linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 100%)" : "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+			height: "210px",
+			maxHeight: "210px",
+			borderRadius: "14px",
+			background: isDark ? "#18181b" : "#ffffff",
 			border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(0, 0, 0, 0.08)",
-			boxShadow: isDark ? "0 2px 8px rgba(0, 0, 0, 0.25)" : "0 1px 3px rgba(0, 0, 0, 0.05)",
-			padding: "0.75rem 0.85rem",
-			cursor: "pointer",
-			userSelect: "none",
-			transition: "all 0.15s ease",
-			display: "flex",
-			flexDirection: "column",
-			gap: "0.5rem",
-			boxSizing: "border-box"
+			boxShadow: isDark ? "0 2px 10px rgba(0, 0, 0, 0.35)" : "0 1px 4px rgba(0, 0, 0, 0.06)",
+			padding: "1rem 1.15rem",
+			overflow: "hidden",
+			position: "relative",
+			boxSizing: "border-box",
+			maskImage: "linear-gradient(to bottom, black 75%, transparent 100%)",
+			WebkitMaskImage: "linear-gradient(to bottom, black 75%, transparent 100%)"
 		},
-		children: [
-			/* @__PURE__ */ jsxs("div", {
-				style: {
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "space-between",
-					fontSize: "0.7rem"
-				},
-				children: [/* @__PURE__ */ jsxs("div", {
-					style: {
-						display: "flex",
-						alignItems: "center",
-						gap: "0.4rem"
-					},
-					children: [
-						/* @__PURE__ */ jsx("div", {
-							style: {
-								width: "20px",
-								height: "20px",
-								borderRadius: "5px",
-								background: isDark ? "rgba(99, 102, 241, 0.15)" : "#eef2ff",
-								color: isDark ? "#818cf8" : "#4f46e5",
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "center",
-								flexShrink: 0
-							},
-							children: /* @__PURE__ */ jsxs("svg", {
-								width: "12",
-								height: "12",
-								viewBox: "0 0 24 24",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "2.2",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								children: [
-									/* @__PURE__ */ jsx("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }),
-									/* @__PURE__ */ jsx("polyline", { points: "14 2 14 8 20 8" }),
-									/* @__PURE__ */ jsx("line", {
-										x1: "16",
-										y1: "13",
-										x2: "8",
-										y2: "13"
-									}),
-									/* @__PURE__ */ jsx("line", {
-										x1: "16",
-										y1: "17",
-										x2: "8",
-										y2: "17"
-									}),
-									/* @__PURE__ */ jsx("polyline", { points: "10 9 9 9 8 9" })
-								]
-							})
-						}),
-						/* @__PURE__ */ jsx("span", {
-							style: {
-								fontWeight: 600,
-								fontSize: "0.72rem",
-								color: isDark ? "#e2e8f0" : "#1e293b",
-								letterSpacing: "0.02em"
-							},
-							children: "Markdown"
-						}),
-						/* @__PURE__ */ jsxs("span", {
-							style: {
-								fontSize: "0.65rem",
-								padding: "1px 5px",
-								borderRadius: "4px",
-								background: isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9",
-								color: isDark ? "#94a3b8" : "#64748b",
-								fontFamily: "ui-monospace, monospace"
-							},
-							children: [".", ext.toLowerCase()]
-						})
-					]
-				}), /* @__PURE__ */ jsx("span", {
-					style: {
-						fontSize: "0.68rem",
-						color: isDark ? "#64748b" : "#94a3b8",
-						display: "flex",
-						alignItems: "center",
-						gap: "0.3rem"
-					},
-					children: loading ? "..." : `${stats.words.toLocaleString()} 字 · ${stats.lines} 行`
-				})]
-			}),
-			/* @__PURE__ */ jsx("div", {
-				style: {
-					fontWeight: 600,
-					fontSize: "0.8rem",
-					color: isDark ? "#f8fafc" : "#0f172a",
-					overflow: "hidden",
-					textOverflow: "ellipsis",
-					whiteSpace: "nowrap",
-					lineHeight: "1.3"
-				},
-				title: docTitle,
-				children: docTitle
-			}),
-			/* @__PURE__ */ jsx("div", {
-				style: {
-					fontSize: "0.72rem",
-					lineHeight: "1.45",
-					color: isDark ? "#94a3b8" : "#475569",
-					minHeight: "44px",
-					maxHeight: "56px",
-					overflow: "hidden",
-					display: "-webkit-box",
-					WebkitLineClamp: 3,
-					WebkitBoxOrient: "vertical",
-					wordBreak: "break-word",
-					fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
-				},
-				children: loading ? /* @__PURE__ */ jsx("span", {
-					style: { color: isDark ? "#475569" : "#94a3b8" },
-					children: "正在加载文档..."
-				}) : snippet ? snippet : /* @__PURE__ */ jsx("span", {
-					style: {
-						fontStyle: "italic",
-						color: isDark ? "#475569" : "#94a3b8"
-					},
-					children: "(空文档)"
-				})
-			}),
-			/* @__PURE__ */ jsxs("div", {
-				style: {
-					display: "flex",
-					alignItems: "center",
-					justifyContent: "space-between",
-					paddingTop: "0.35rem",
-					borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid rgba(0, 0, 0, 0.05)",
-					fontSize: "0.68rem"
-				},
-				children: [/* @__PURE__ */ jsx("span", {
-					style: {
-						color: isDark ? "#6366f1" : "#4f46e5",
-						fontWeight: 500
-					},
-					children: "双击全屏预览"
-				}), /* @__PURE__ */ jsxs("div", {
-					style: {
-						display: "flex",
-						gap: "0.35rem"
-					},
-					children: [/* @__PURE__ */ jsx("button", {
-						type: "button",
-						onClick: (e) => {
-							e.stopPropagation();
-							api.openWithDefaultApp();
-						},
-						title: "用系统默认应用打开",
-						style: {
-							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
-							border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-							color: isDark ? "#cbd5e1" : "#475569",
-							borderRadius: "4px",
-							padding: "2px 6px",
-							fontSize: "0.68rem",
-							cursor: "pointer"
-						},
-						children: "编辑"
-					}), /* @__PURE__ */ jsx("button", {
-						type: "button",
-						onClick: (e) => {
-							e.stopPropagation();
-							api.revealInFinder();
-						},
-						title: "在访达中显示",
-						style: {
-							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
-							border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-							color: isDark ? "#cbd5e1" : "#475569",
-							borderRadius: "4px",
-							padding: "2px 6px",
-							fontSize: "0.68rem",
-							cursor: "pointer"
-						},
-						children: "定位"
-					})]
-				})]
+		children: loading ? /* @__PURE__ */ jsx("div", {
+			style: {
+				color: isDark ? "#71717a" : "#a1a1aa",
+				fontSize: "0.8rem",
+				paddingTop: "0.5rem"
+			},
+			children: "Loading..."
+		}) : content ? /* @__PURE__ */ jsx("div", {
+			style: {
+				pointerEvents: "none",
+				userSelect: "none"
+			},
+			children: /* @__PURE__ */ jsx(MarkdownRenderer, {
+				body: content,
+				onLinkClick: () => {},
+				isDark,
+				compact: true
 			})
-		]
+		}) : /* @__PURE__ */ jsx("div", {
+			style: {
+				color: isDark ? "#71717a" : "#a1a1aa",
+				fontSize: "0.8rem",
+				paddingTop: "0.5rem",
+				fontStyle: "italic"
+			},
+			children: "(Empty Markdown file)"
+		})
 	});
 }
 var markdownPreviewPlugin = definePlugin({

@@ -196,10 +196,12 @@ function MarkdownRenderer({
   body,
   onLinkClick,
   isDark = true,
+  compact = false,
 }: {
   body: string;
   onLinkClick: (url: string) => void;
   isDark?: boolean;
+  compact?: boolean;
 }) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -236,26 +238,27 @@ function MarkdownRenderer({
         <div
           key={`code-block-${currentIdx}`}
           style={{
-            margin: "1rem 0",
-            borderRadius: "8px",
+            margin: compact ? "0.4rem 0" : "1rem 0",
+            borderRadius: "6px",
             overflow: "hidden",
             border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
             background: isDark ? "rgba(18, 18, 22, 0.8)" : "#f8fafc",
           }}
         >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "0.4rem 0.8rem",
-              background: isDark ? "rgba(255, 255, 255, 0.04)" : "#f1f5f9",
-              borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-              fontSize: "0.75rem",
-              color: isDark ? "#94a3b8" : "#64748b",
-              fontFamily: "monospace",
-            }}
-          >
+          {!compact && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "0.4rem 0.8rem",
+                background: isDark ? "rgba(255, 255, 255, 0.04)" : "#f1f5f9",
+                borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+                fontSize: "0.75rem",
+                color: isDark ? "#94a3b8" : "#4b5563",
+                fontFamily: "monospace",
+              }}
+            >
             <span>{lang}</span>
             <button
               onClick={() => {
@@ -275,15 +278,16 @@ function MarkdownRenderer({
             >
               {copiedIndex === currentIdx ? "Copied!" : "Copy"}
             </button>
-          </div>
+            </div>
+          )}
           <pre
             style={{
-              padding: "0.8rem 1rem",
+              padding: compact ? "0.4rem 0.6rem" : "0.8rem 1rem",
               margin: 0,
               overflowX: "auto",
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              fontSize: "0.85rem",
-              lineHeight: 1.5,
+              fontSize: compact ? "0.75rem" : "0.85rem",
+              lineHeight: 1.45,
               color: isDark ? "#e2e8f0" : "#000000",
             }}
           >
@@ -301,7 +305,9 @@ function MarkdownRenderer({
       const text = headingMatch[2].trim();
       const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
       const Tag = (`h${level}`) as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-      const fontSizes = ["1.875rem", "1.5rem", "1.25rem", "1.1rem", "1rem", "0.9rem"];
+      const fontSizes = compact
+        ? ["1.05rem", "0.95rem", "0.85rem", "0.8rem", "0.75rem", "0.75rem"]
+        : ["1.875rem", "1.5rem", "1.25rem", "1.1rem", "1rem", "0.9rem"];
 
       elements.push(
         <Tag
@@ -310,12 +316,13 @@ function MarkdownRenderer({
           style={{
             fontSize: fontSizes[level - 1],
             fontWeight: 700,
-            marginTop: level === 1 ? "1.5rem" : "1.25rem",
-            marginBottom: "0.5rem",
-            paddingBottom: level <= 2 ? "0.3rem" : undefined,
-            borderBottom: level <= 2 ? (isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0") : undefined,
+            marginTop: compact ? (blockKey === 1 ? "0" : "0.55rem") : (level === 1 ? "1.5rem" : "1.25rem"),
+            marginBottom: compact ? "0.25rem" : "0.5rem",
+            paddingBottom: !compact && level <= 2 ? "0.3rem" : undefined,
+            borderBottom: !compact && level <= 2 ? (isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0") : undefined,
             color: isDark ? "#f8fafc" : "#000000",
             scrollMarginTop: "2rem",
+            lineHeight: 1.35,
           }}
         >
           {renderInlineMarkdown(text, onLinkClick, isDark)}
@@ -479,10 +486,10 @@ function MarkdownRenderer({
         <ListTag
           key={`list-${blockKey++}`}
           style={{
-            margin: "0.5rem 0",
-            paddingLeft: "1.5rem",
+            margin: compact ? "0.25rem 0" : "0.5rem 0",
+            paddingLeft: compact ? "1.2rem" : "1.5rem",
             color: isDark ? "#e2e8f0" : "#000000",
-            lineHeight: 1.6,
+            lineHeight: compact ? 1.45 : 1.6,
           }}
         >
           {listItems.map((li, liIdx) => (
@@ -533,10 +540,10 @@ function MarkdownRenderer({
         <p
           key={`p-${blockKey++}`}
           style={{
-            margin: "0.6rem 0",
-            lineHeight: 1.7,
+            margin: compact ? "0.3rem 0" : "0.6rem 0",
+            lineHeight: compact ? 1.45 : 1.7,
             color: isDark ? "#e2e8f0" : "#000000",
-            fontSize: "0.95rem",
+            fontSize: compact ? "0.825rem" : "0.95rem",
           }}
         >
           {renderInlineMarkdown(paraLines.join(" "), onLinkClick, isDark)}
@@ -944,17 +951,12 @@ function MarkdownInspectorPreview({
 }: PreviewInspectorProps) {
   const theme = usePluginTheme(propTheme, api);
   const isDark = theme === "dark";
+  const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
-  const [docTitle, setDocTitle] = useState<string>(item.name);
-  const [snippet, setSnippet] = useState<string>("");
-  const [stats, setStats] = useState<{ words: number; lines: number }>({
-    words: 0,
-    lines: 0,
-  });
 
   useEffect(() => {
     let active = true;
-    const fetchSnippet = async () => {
+    const fetchContent = async () => {
       try {
         setLoading(true);
         const fileHandle = api.getOriginalFile();
@@ -962,229 +964,89 @@ function MarkdownInspectorPreview({
           ? await fileHandle.fetchText()
           : await (await fileHandle.fetchBlob()).text();
         if (active) {
-          const title = extractDocumentTitle(text, item.name);
-          const clean = stripMarkdown(text);
-          const lines = text.split("\n");
-          const words = text.trim().split(/\s+/).filter(Boolean).length;
-          setDocTitle(title);
-          setSnippet(clean.slice(0, 160));
-          setStats({ words, lines: lines.length });
+          const { frontmatter, body } = parseFrontmatterAndBody(text);
+          let displayBody = body.trim();
+          if (frontmatter?.title && typeof frontmatter.title === "string" && !displayBody.startsWith("#")) {
+            displayBody = `# ${frontmatter.title}\n\n${displayBody}`;
+          }
+          setContent(displayBody);
           setLoading(false);
         }
       } catch {
         if (active) setLoading(false);
       }
     };
-    fetchSnippet();
+    fetchContent();
     return () => {
       active = false;
     };
-  }, [item.id, api, item.name]);
+  }, [item.id, api]);
 
-  const ext = (item.extension || "md").toUpperCase();
+  // Standard Bowerbird native/internal drag handler
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData("application/x-bowerbird-internal-drag", "true");
+    e.dataTransfer.setData("application/x-bowerbird-item-id", item.id);
+
+    const rawPath = item.filePath || "";
+    let fileUrl = item.fileUrl || "";
+    if (!fileUrl && rawPath) {
+      fileUrl = encodeURI(`file://${rawPath.startsWith("/") ? "" : "/"}${rawPath}`);
+    } else if (fileUrl && fileUrl.includes(" ")) {
+      fileUrl = encodeURI(fileUrl);
+    }
+    const mime = item.mimeType || "text/markdown";
+
+    if (rawPath) {
+      e.dataTransfer.setData("text/plain", rawPath);
+      e.dataTransfer.setData("application/x-bowerbird-path", rawPath);
+      e.dataTransfer.setData("application/x-bowerbird-paths", JSON.stringify([rawPath]));
+    }
+    if (fileUrl) {
+      e.dataTransfer.setData("text/uri-list", fileUrl);
+      e.dataTransfer.setData("DownloadURL", `${mime}:${item.filename}:${fileUrl}`);
+    }
+    e.dataTransfer.effectAllowed = "copyMove";
+
+    onDragStart?.(e);
+  };
 
   return (
     <div
+      draggable={true}
+      onDragStart={handleDragStart}
       onDoubleClick={onOpenPreview}
-      onClick={onOpenPreview}
-      onDragStart={onDragStart}
-      draggable={Boolean(onDragStart)}
-      title="双击全屏预览"
+      className="draggable-asset-card wails-no-drag select-none cursor-grab active:cursor-grabbing"
       style={{
         width: "100%",
-        borderRadius: "10px",
-        background: isDark
-          ? "linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 100%)"
-          : "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+        height: "210px",
+        maxHeight: "210px",
+        borderRadius: "14px",
+        background: isDark ? "#18181b" : "#ffffff",
         border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(0, 0, 0, 0.08)",
         boxShadow: isDark
-          ? "0 2px 8px rgba(0, 0, 0, 0.25)"
-          : "0 1px 3px rgba(0, 0, 0, 0.05)",
-        padding: "0.75rem 0.85rem",
-        cursor: "pointer",
-        userSelect: "none",
-        transition: "all 0.15s ease",
-        display: "flex",
-        flexDirection: "column",
-        gap: "0.5rem",
+          ? "0 2px 10px rgba(0, 0, 0, 0.35)"
+          : "0 1px 4px rgba(0, 0, 0, 0.06)",
+        padding: "1rem 1.15rem",
+        overflow: "hidden",
+        position: "relative",
         boxSizing: "border-box",
+        maskImage: "linear-gradient(to bottom, black 75%, transparent 100%)",
+        WebkitMaskImage: "linear-gradient(to bottom, black 75%, transparent 100%)",
       }}
     >
-      {/* Top Header Row */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          fontSize: "0.7rem",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-          <div
-            style={{
-              width: "20px",
-              height: "20px",
-              borderRadius: "5px",
-              background: isDark ? "rgba(99, 102, 241, 0.15)" : "#eef2ff",
-              color: isDark ? "#818cf8" : "#4f46e5",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-              <polyline points="14 2 14 8 20 8" />
-              <line x1="16" y1="13" x2="8" y2="13" />
-              <line x1="16" y1="17" x2="8" y2="17" />
-              <polyline points="10 9 9 9 8 9" />
-            </svg>
-          </div>
-          <span
-            style={{
-              fontWeight: 600,
-              fontSize: "0.72rem",
-              color: isDark ? "#e2e8f0" : "#1e293b",
-              letterSpacing: "0.02em",
-            }}
-          >
-            Markdown
-          </span>
-          <span
-            style={{
-              fontSize: "0.65rem",
-              padding: "1px 5px",
-              borderRadius: "4px",
-              background: isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9",
-              color: isDark ? "#94a3b8" : "#64748b",
-              fontFamily: "ui-monospace, monospace",
-            }}
-          >
-            .{ext.toLowerCase()}
-          </span>
+      {loading ? (
+        <div style={{ color: isDark ? "#71717a" : "#a1a1aa", fontSize: "0.8rem", paddingTop: "0.5rem" }}>
+          Loading...
         </div>
-
-        <span
-          style={{
-            fontSize: "0.68rem",
-            color: isDark ? "#64748b" : "#94a3b8",
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-          }}
-        >
-          {loading ? "..." : `${stats.words.toLocaleString()} 字 · ${stats.lines} 行`}
-        </span>
-      </div>
-
-      {/* Document Title */}
-      <div
-        style={{
-          fontWeight: 600,
-          fontSize: "0.8rem",
-          color: isDark ? "#f8fafc" : "#0f172a",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          lineHeight: "1.3",
-        }}
-        title={docTitle}
-      >
-        {docTitle}
-      </div>
-
-      {/* Document Prose Snippet */}
-      <div
-        style={{
-          fontSize: "0.72rem",
-          lineHeight: "1.45",
-          color: isDark ? "#94a3b8" : "#475569",
-          minHeight: "44px",
-          maxHeight: "56px",
-          overflow: "hidden",
-          display: "-webkit-box",
-          WebkitLineClamp: 3,
-          WebkitBoxOrient: "vertical",
-          wordBreak: "break-word",
-          fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-        }}
-      >
-        {loading ? (
-          <span style={{ color: isDark ? "#475569" : "#94a3b8" }}>正在加载文档...</span>
-        ) : snippet ? (
-          snippet
-        ) : (
-          <span style={{ fontStyle: "italic", color: isDark ? "#475569" : "#94a3b8" }}>
-            (空文档)
-          </span>
-        )}
-      </div>
-
-      {/* Bottom Action Footer */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          paddingTop: "0.35rem",
-          borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid rgba(0, 0, 0, 0.05)",
-          fontSize: "0.68rem",
-        }}
-      >
-        <span style={{ color: isDark ? "#6366f1" : "#4f46e5", fontWeight: 500 }}>
-          双击全屏预览
-        </span>
-        <div style={{ display: "flex", gap: "0.35rem" }}>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              api.openWithDefaultApp();
-            }}
-            title="用系统默认应用打开"
-            style={{
-              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-              color: isDark ? "#cbd5e1" : "#475569",
-              borderRadius: "4px",
-              padding: "2px 6px",
-              fontSize: "0.68rem",
-              cursor: "pointer",
-            }}
-          >
-            编辑
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              api.revealInFinder();
-            }}
-            title="在访达中显示"
-            style={{
-              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-              color: isDark ? "#cbd5e1" : "#475569",
-              borderRadius: "4px",
-              padding: "2px 6px",
-              fontSize: "0.68rem",
-              cursor: "pointer",
-            }}
-          >
-            定位
-          </button>
+      ) : content ? (
+        <div style={{ pointerEvents: "none", userSelect: "none" }}>
+          <MarkdownRenderer body={content} onLinkClick={() => {}} isDark={isDark} compact={true} />
         </div>
-      </div>
+      ) : (
+        <div style={{ color: isDark ? "#71717a" : "#a1a1aa", fontSize: "0.8rem", paddingTop: "0.5rem", fontStyle: "italic" }}>
+          (Empty Markdown file)
+        </div>
+      )}
     </div>
   );
 }
