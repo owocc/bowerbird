@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +77,9 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
 	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
 	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
+	mux.HandleFunc("/api/system/paths", s.handleAPISystemPaths)
+	mux.HandleFunc("/api/system/open-user-data", s.handleAPIOpenUserData)
+	mux.HandleFunc("/api/system/open-plugins", s.handleAPIOpenPlugins)
 }
 
 // handleAPIPing provides a lightweight check to determine if the desktop application is running.
@@ -774,4 +781,68 @@ func (s *AssetServer) handleAPIPluginUpgrade(w http.ResponseWriter, r *http.Requ
 	}
 
 	writeSuccess(w, updated)
+}
+
+func (s *AssetServer) handleAPISystemPaths(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	pluginsDir := filepath.Join(UserDataDir(), "plugins")
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		pluginsDir = s.manager.GetPluginManager().GetBaseDir()
+	}
+	writeSuccess(w, map[string]string{
+		"userDataDir": UserDataDir(),
+		"pluginsDir":  pluginsDir,
+	})
+}
+
+func (s *AssetServer) handleAPIOpenUserData(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	dir := UserDataDir()
+	_ = os.MkdirAll(dir, 0755)
+	var err error
+	switch runtime.GOOS {
+	case "darwin":
+		err = exec.Command("open", dir).Start()
+	case "windows":
+		err = exec.Command("explorer.exe", dir).Start()
+	default:
+		err = exec.Command("xdg-open", dir).Start()
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]any{"opened": true, "path": dir})
+}
+
+func (s *AssetServer) handleAPIOpenPlugins(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	dir := filepath.Join(UserDataDir(), "plugins")
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		dir = s.manager.GetPluginManager().GetBaseDir()
+	}
+	_ = os.MkdirAll(dir, 0755)
+	var err error
+	switch runtime.GOOS {
+	case "darwin":
+		err = exec.Command("open", dir).Start()
+	case "windows":
+		err = exec.Command("explorer.exe", dir).Start()
+	default:
+		err = exec.Command("xdg-open", dir).Start()
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]any{"opened": true, "path": dir})
 }

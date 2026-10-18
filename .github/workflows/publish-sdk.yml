@@ -1,0 +1,51 @@
+name: Publish Plugin SDK to npm
+
+on:
+  push:
+    tags:
+      - "sdk-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "npm dist-tag (e.g. latest, beta)"
+        required: false
+        default: "latest"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and Build SDK
+        run: |
+          pnpm --filter @bowerbird/plugin-sdk check
+          pnpm --filter @bowerbird/plugin-sdk build
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          TAG="${{ inputs.tag || 'latest' }}"
+          echo "Publishing @bowerbird/plugin-sdk with tag: $TAG..."
+          cd packages/plugin-sdk
+          pnpm publish --access public --tag "$TAG" --no-git-checks

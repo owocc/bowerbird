@@ -196,6 +196,13 @@ export function GetPendingPluginInstall(): $CancellablePromise<$models.PluginIns
     return $Call.ByID(2733326603);
 }
 
+/**
+ * GetPluginsDir returns the absolute path of the installed plugins directory.
+ */
+export function GetPluginsDir(): $CancellablePromise<string> {
+    return $Call.ByID(1288636959);
+}
+
 export function GetRecentLibraries(): $CancellablePromise<string[] | null> {
     return $Call.ByID(2812002174);
 }
@@ -218,6 +225,13 @@ export function GetTrashCount(): $CancellablePromise<number> {
 
 export function GetTrashItems(query: string, sortOrder: string): $CancellablePromise<$models.Item[] | null> {
     return $Call.ByID(2032446766, query, sortOrder);
+}
+
+/**
+ * GetUserDataDir returns the absolute path of the Bowerbird user data directory.
+ */
+export function GetUserDataDir(): $CancellablePromise<string> {
+    return $Call.ByID(2340716594);
 }
 
 export function ImportFiles(sourcePaths: string[] | null): $CancellablePromise<$models.Item[] | null> {
@@ -299,6 +313,13 @@ export function OpenExternalURL(rawURL: string): $CancellablePromise<void> {
     return $Call.ByID(698852412, rawURL);
 }
 
+/**
+ * OpenFolder opens a directory in macOS Finder, Windows Explorer, or Linux file manager.
+ */
+export function OpenFolder(targetPath: string): $CancellablePromise<void> {
+    return $Call.ByID(1059276008, targetPath);
+}
+
 export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.LibraryInfo | null> {
     return $Call.ByID(2189258727, libraryPath);
 }
@@ -319,6 +340,13 @@ export function OpenMarketplace(): $CancellablePromise<void> {
 }
 
 /**
+ * OpenPluginsFolder opens the plugins directory in the native file manager.
+ */
+export function OpenPluginsFolder(): $CancellablePromise<void> {
+    return $Call.ByID(4042695552);
+}
+
+/**
  * OpenSettingsWindow opens the settings UI in its own window. Only a single
  * instance is created; later calls simply reveal and focus the existing one.
  */
@@ -332,6 +360,13 @@ export function OpenSettingsWindow(): $CancellablePromise<void> {
  */
 export function OpenSetupWindow(): $CancellablePromise<void> {
     return $Call.ByID(2459692553);
+}
+
+/**
+ * OpenUserDataFolder opens the application data directory in the native file manager.
+ */
+export function OpenUserDataFolder(): $CancellablePromise<void> {
+    return $Call.ByID(2737114515);
 }
 
 export function OpenWithDefaultApp(id: string): $CancellablePromise<void> {

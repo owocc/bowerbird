@@ -105,6 +105,53 @@ Every step of the drag-and-drop pipeline is logged to `drag-debug.log` in the us
 
 ---
 
+## Data & Storage Architecture Specification
+
+Bowerbird enforces a strict physical separation between **User Libraries** and **Application State Data**:
+
+```text
+┌────────────────────────────────────────────────────────┐
+│ 1. User Asset Library (Portable Container Package)     │
+│    e.g. ~/Pictures/Designs.library/                    │
+│    ├── items/<hash>/original.<ext>                     │
+│    ├── items/<hash>/thumbnail.jpg                      │
+│    ├── items/<hash>/metadata.json                      │
+│    └── index.db (SQLite relational cache)              │
+└────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────┐
+│ 2. Application User Data Directory (<UserDataDir>)     │
+│    macOS:   ~/Library/Application Support/bowerbird/   │
+│    Windows: %APPDATA%\bowerbird\                       │
+│    Linux:   ~/.config/bowerbird/                       │
+│    ├── user_data.json      # Global UI settings        │
+│    ├── app.log             # Diagnostics runtime logs  │
+│    ├── drag-debug.log      # Drag & Drop trace logs    │
+│    └── plugins/            # Installed remote plugins  │
+│        ├── installed.json  # Installed plugin registry │
+│        └── <plugin-id>/    # Extracted plugin bundle   │
+│            ├── manifest.json                           │
+│            └── index.js                                │
+└────────────────────────────────────────────────────────┘
+```
+
+### Plugin Ecosystem & Distribution Specification
+
+1. **Source Isolation**:
+   - Source code for official plugins resides in `plugins/<plugin-id>/` (`src/index.tsx`, `manifest.json`, `package.json`).
+   - Built assets are strictly output to `dist/plugins/` (git-ignored). Committing pre-built JavaScript into `plugins/` is forbidden.
+2. **Dual-Channel Distribution Repository**:
+   - Distribution metadata is published to the dedicated repository (`owocc/bowerbird-plugins`).
+   - **`main` Branch**: Contains compact index metadata (`index.min.json`, `registry.json`, `repo/<id>/manifest.json`, `repo/<id>/index.js`).
+   - **GitHub Releases**: Contains pre-packaged release zip bundles (`<plugin-id>-v<version>.zip`).
+3. **Marketplace & Edge Resolution**:
+   - The plugin store (`web/`) reads metadata from `PLUGIN_REPO_INDEX_URL`.
+   - Release downloads directly route to `PLUGIN_RELEASE_BASE_URL` without intermediate proxying.
+4. **In-App Data Management**:
+   - The Settings panel includes a dedicated **Data & Storage** section with one-click shortcuts to reveal the **Plugins Directory** and **Application Data Directory** in the native OS file manager (Finder / Explorer).
+
+---
+
 ## Development & Verification
 
 ```bash

@@ -20,7 +20,7 @@ import {
   Camera,
   Box,
 } from "lucide-react";
-import { OFFICIAL_PLUGINS, type MarketplacePlugin } from "../data/plugins";
+import { usePluginsCatalog, type MarketplacePlugin } from "../data/plugins";
 import { I18nContext } from "../lib/i18n";
 import { DesktopContext } from "../lib/desktop-context";
 
@@ -52,9 +52,8 @@ function PluginDetailsPage() {
     React.useContext(DesktopContext);
 
   const [copiedLink, setCopiedLink] = React.useState<boolean>(false);
-
-  const plugin = OFFICIAL_PLUGINS.find((p) => p.id === pluginId);
-
+  const { plugins } = usePluginsCatalog();
+  const plugin = plugins.find((p) => p.id === pluginId);
   if (!plugin) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16 text-center space-y-4">
@@ -255,12 +254,11 @@ function PluginDetailsPage() {
               </a>
               <a
                 href={absoluteDownloadUrl}
-                download="index.js"
                 target="_blank"
                 rel="noreferrer"
                 className="w-full px-3 py-2 rounded-xl border border-border hover:bg-muted/70 text-xs font-medium text-foreground flex items-center justify-between transition-colors"
               >
-                <span>{t("downloadBundle")}</span>
+                <span>{absoluteDownloadUrl.endsWith(".zip") ? "Download Release ZIP" : t("downloadBundle")}</span>
                 <ExternalLink className="size-3 text-muted-foreground" />
               </a>
             </div>

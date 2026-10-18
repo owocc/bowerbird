@@ -1,7 +1,12 @@
 package core
 
 import (
+	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -570,4 +575,44 @@ func (s *Service) OpenMarketplace() error {
 		targetURL = "http://localhost:3000"
 	}
 	return OpenExternalURL(targetURL)
+}
+
+// GetUserDataDir returns the absolute path of the Bowerbird user data directory.
+func (s *Service) GetUserDataDir() string {
+	return UserDataDir()
+}
+
+// GetPluginsDir returns the absolute path of the installed plugins directory.
+func (s *Service) GetPluginsDir() string {
+	if s.mgr != nil && s.mgr.GetPluginManager() != nil {
+		return s.mgr.GetPluginManager().GetBaseDir()
+	}
+	return filepath.Join(UserDataDir(), "plugins")
+}
+
+// OpenFolder opens a directory in macOS Finder, Windows Explorer, or Linux file manager.
+func (s *Service) OpenFolder(targetPath string) error {
+	trimmed := strings.TrimSpace(targetPath)
+	if trimmed == "" {
+		return errors.New("path cannot be empty")
+	}
+	_ = os.MkdirAll(trimmed, 0755)
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", trimmed).Start()
+	case "windows":
+		return exec.Command("explorer.exe", trimmed).Start()
+	default:
+		return exec.Command("xdg-open", trimmed).Start()
+	}
+}
+
+// OpenUserDataFolder opens the application data directory in the native file manager.
+func (s *Service) OpenUserDataFolder() error {
+	return s.OpenFolder(s.GetUserDataDir())
+}
+
+// OpenPluginsFolder opens the plugins directory in the native file manager.
+func (s *Service) OpenPluginsFolder() error {
+	return s.OpenFolder(s.GetPluginsDir())
 }

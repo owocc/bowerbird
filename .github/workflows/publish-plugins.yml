@@ -1,0 +1,163 @@
+name: Publish Plugins to Distribution Repository
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "plugins/**"
+      - "!plugins/**/README.md"
+      - "packages/plugin-sdk/**"
+      - "!packages/plugin-sdk/README.md"
+      - "scripts/build-plugins.mjs"
+      - ".github/workflows/publish-plugins.yml"
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Target plugin distribution repository (e.g. owocc/bowerbird-plugins)"
+        required: false
+        default: ""
+      release_tag:
+        description: "Release tag in distribution repository"
+        required: false
+        default: "plugins-latest"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Plugin SDK
+        run: pnpm --filter @bowerbird/plugin-sdk build
+
+      - name: Build Plugins & Zip Packages
+        run: node scripts/build-plugins.mjs
+
+      - name: Determine Target Distribution Repo
+        id: target
+        shell: bash
+        run: |
+          TARGET="${{ inputs.target_repo }}"
+          if [ -z "$TARGET" ]; then
+            TARGET="${{ vars.PLUGINS_DIST_REPO }}"
+          fi
+          if [ -z "$TARGET" ]; then
+            TARGET="owocc/bowerbird-plugins"
+          fi
+          echo "repo=$TARGET" >> $GITHUB_OUTPUT
+          echo "tag=${{ inputs.release_tag || 'plugins-latest' }}" >> $GITHUB_OUTPUT
+
+      - name: Publish Release Zip Bundles to Distribution Repo
+        env:
+          GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          TARGET_REPO: ${{ steps.target.outputs.repo }}
+          TAG: ${{ steps.target.outputs.tag }}
+        shell: bash
+        run: |
+          echo "Publishing plugin artifacts to GitHub Releases on $TARGET_REPO ($TAG)..."
+          
+          # Check if release exists, create if missing
+          if ! gh release view "$TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            echo "Release $TAG does not exist. Creating..."
+            gh release create "$TAG" dist/plugins/releases/*.zip \
+              --repo "$TARGET_REPO" \
+              --title "Official Plugins (Latest)" \
+              --notes "Automated distribution build from commit ${{ github.sha }} (${{ github.ref_name }})"
+          else
+            echo "Release $TAG exists. Uploading/clobbering assets..."
+            gh release upload "$TAG" dist/plugins/releases/*.zip --repo "$TARGET_REPO" --clobber
+          fi
+
+      - name: Push Metadata Index to Distribution Repo Branch
+        env:
+          GH_TOKEN: ${{ secrets.PLUGINS_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          TARGET_REPO: ${{ steps.target.outputs.repo }}
+        shell: bash
+        run: |
+          echo "Updating metadata index on branch 'main' of $TARGET_REPO..."
+          WORK_DIR=$(mktemp -d)
+          cd "$WORK_DIR"
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${TARGET_REPO}.git"
+
+          if git clone --depth 1 "$REPO_URL" dist-repo 2>/dev/null; then
+            cd dist-repo
+          else
+            echo "Clone failed or empty repository. Initializing new repo..."
+            mkdir dist-repo && cd dist-repo
+            git init -b main
+            git remote add origin "$REPO_URL"
+          fi
+
+          # Copy index files
+          cp "$GITHUB_WORKSPACE/dist/plugins/index.min.json" ./index.min.json
+          cp "$GITHUB_WORKSPACE/dist/plugins/registry.json" ./registry.json
+
+          # Copy individual manifests into repo/<id>/manifest.json
+          mkdir -p repo
+          for d in "$GITHUB_WORKSPACE/dist/plugins"/*/; do
+            if [ -d "$d" ] && [ "$(basename "$d")" != "releases" ]; then
+              plugin_id=$(basename "$d")
+              mkdir -p "repo/$plugin_id"
+              cp "$d/manifest.json" "repo/$plugin_id/manifest.json"
+              if [ -f "$d/index.js" ]; then
+                cp "$d/index.js" "repo/$plugin_id/index.js"
+              fi
+          done
+
+          # Create/update README.md
+          cat << 'EOF' > README.md
+          # Bowerbird Official Plugins Distribution Repository
+
+          > ⚠️ This repository is automatically updated by GitHub Actions from the main Bowerbird repository. Do not edit directly.
+
+          This repository stores official Bowerbird plugin indices and release bundles.
+
+          - **`index.min.json`**: Compact JSON index of all available plugins and release download URLs.
+          - **`registry.json`**: Formatted JSON registry for debugging and documentation.
+          - **`repo/<id>/manifest.json`**: Individual plugin manifests.
+          - **Releases**: Pre-built `.zip` bundles containing `manifest.json` and bundled `index.js`.
+          EOF
+
+          git add .
+          if git diff --staged --quiet; then
+            echo "No changes in plugin index to commit."
+          else
+            git commit -m "chore(plugins): update index to $GITHUB_SHA [skip ci]"
+            git push -u origin main
+            echo "Successfully pushed plugin metadata to $TARGET_REPO:main."
+          fi

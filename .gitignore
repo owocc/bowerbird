@@ -17,3 +17,6 @@ build/android/gen/
 extension/node_modules
 extension/.output
 extension/.wxt
+.env
+.env.local
+.env.*.local
