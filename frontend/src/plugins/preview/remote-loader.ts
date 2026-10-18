@@ -272,8 +272,9 @@ export async function loadAllInstalledPlugins(
     const list: Array<{ id: string; name?: string; enabled?: boolean }> = json?.data || [];
 
     for (const item of list) {
-      if (item.enabled !== false) {
-        await loadRemotePlugin(item.id, assetBaseUrl);
+      await loadRemotePlugin(item.id, assetBaseUrl);
+      if (item.enabled === false) {
+        previewRegistry.setEnabled(item.id, false);
       }
     }
   } catch (err) {
@@ -301,6 +302,8 @@ export function initRemotePluginRuntime(
 
     if (action === "installed" || action === "updated") {
       loadRemotePlugin(id, assetBaseUrl);
+    } else if (action === "scanned") {
+      loadAllInstalledPlugins(assetBaseUrl);
     } else if (action === "uninstalled") {
       previewRegistry.unregister(id);
       loadedRemotePlugins.delete(id);

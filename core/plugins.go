@@ -136,6 +136,7 @@ func NewPluginManagerWithDir(baseDir string) *PluginManager {
 	}
 	_ = os.MkdirAll(baseDir, 0755)
 	pm.loadIndexLocked()
+	pm.scanLocalPluginsLocked()
 	return pm
 }
 
@@ -345,7 +346,10 @@ func (pm *PluginManager) saveIndexLocked() error {
 func (pm *PluginManager) ListInstalledPlugins() ([]InstalledPlugin, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
+	return pm.listInstalledPluginsLocked(), nil
+}
 
+func (pm *PluginManager) listInstalledPluginsLocked() []InstalledPlugin {
 	result := make([]InstalledPlugin, 0, len(pm.plugins))
 	for _, p := range pm.plugins {
 		result = append(result, *p)
@@ -356,7 +360,138 @@ func (pm *PluginManager) ListInstalledPlugins() ([]InstalledPlugin, error) {
 		}
 		return result[i].ID < result[j].ID
 	})
-	return result, nil
+	return result
+}
+
+// scanLocalPluginsLocked scans baseDir for manually placed plugin folders,
+// validates manifests, registers new plugins as disabled by default,
+// cleans up removed plugins, and saves installed.json.
+func (pm *PluginManager) scanLocalPluginsLocked() bool {
+	entries, err := os.ReadDir(pm.baseDir)
+	if err != nil {
+		return false
+	}
+
+	changed := false
+	seenIDs := make(map[string]bool)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		pluginFolder := filepath.Join(pm.baseDir, name)
+		manifestPath := filepath.Join(pluginFolder, "manifest.json")
+		manifestBytes, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+
+		var m PluginManifest
+		if err := json.Unmarshal(manifestBytes, &m); err != nil {
+			RecordLog("warn", "plugin", fmt.Sprintf("Ignored invalid manifest in %s: %v", name, err), "", 0)
+			continue
+		}
+
+		if err := ValidateManifest(&m); err != nil {
+			RecordLog("warn", "plugin", fmt.Sprintf("Manifest validation failed for %s: %v", name, err), "", 0)
+			continue
+		}
+
+		// Verify main entry file exists
+		mainFile := filepath.Join(pluginFolder, filepath.FromSlash(m.Main))
+		if info, err := os.Stat(mainFile); err != nil || info.IsDir() {
+			RecordLog("warn", "plugin", fmt.Sprintf("Plugin main entry %q not found in %s", m.Main, name), "", 0)
+			continue
+		}
+
+		// Verify style file if defined
+		if m.Style != "" {
+			styleFile := filepath.Join(pluginFolder, filepath.FromSlash(m.Style))
+			if info, err := os.Stat(styleFile); err != nil || info.IsDir() {
+				RecordLog("warn", "plugin", fmt.Sprintf("Plugin style file %q not found in %s", m.Style, name), "", 0)
+				continue
+			}
+		}
+
+		seenIDs[m.ID] = true
+
+		if existing, found := pm.plugins[m.ID]; found {
+			// Update metadata if changed on disk
+			if existing.Name != m.Name || existing.Version != m.Version ||
+				existing.Description != m.Description || existing.Author != m.Author ||
+				existing.Priority != m.Priority || existing.Main != m.Main || existing.Style != m.Style {
+				existing.Name = m.Name
+				existing.Version = m.Version
+				existing.Description = m.Description
+				existing.Author = m.Author
+				existing.Priority = m.Priority
+				existing.Extensions = m.Extensions
+				existing.MimePrefixes = m.MimePrefixes
+				existing.SupportsZoom = m.SupportsZoom
+				existing.Main = m.Main
+				existing.Style = m.Style
+				changed = true
+			}
+		} else {
+			// Newly discovered manual plugin: register as disabled by default
+			installed := &InstalledPlugin{
+				ID:           m.ID,
+				Name:         m.Name,
+				Version:      m.Version,
+				Description:  m.Description,
+				Author:       m.Author,
+				Kind:         m.Kind,
+				Priority:     m.Priority,
+				Extensions:   m.Extensions,
+				MimePrefixes: m.MimePrefixes,
+				SupportsZoom: m.SupportsZoom,
+				Main:         m.Main,
+				Style:        m.Style,
+				Enabled:      false, // 默认禁用 per user requirement
+				InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+				SourceURL:    "manual",
+			}
+			pm.plugins[m.ID] = installed
+			changed = true
+			RecordLog("info", "plugin", fmt.Sprintf("Discovered manual plugin %q (v%s, id: %s) in directory %s, registered as disabled", m.Name, m.Version, m.ID, name), pluginFolder, 0)
+		}
+	}
+
+	// Remove index entries for plugins whose directories no longer exist on disk
+	for id := range pm.plugins {
+		if !seenIDs[id] {
+			pluginDir := filepath.Join(pm.baseDir, id)
+			if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
+				delete(pm.plugins, id)
+				changed = true
+				RecordLog("info", "plugin", fmt.Sprintf("Removed orphaned plugin %q from index: directory %s no longer exists", id, pluginDir), "", 0)
+			}
+		}
+	}
+
+	if changed {
+		_ = pm.saveIndexLocked()
+	}
+	return changed
+}
+
+// ScanLocalPlugins scans the plugin directory for manually dropped plugins and updates the index.
+func (pm *PluginManager) ScanLocalPlugins() ([]InstalledPlugin, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	changed := pm.scanLocalPluginsLocked()
+	if changed && pm.app != nil {
+		pm.app.Event.Emit("plugin:changed", map[string]any{
+			"action": "scanned",
+		})
+	}
+	return pm.listInstalledPluginsLocked(), nil
 }
 
 // GetInstalledPlugin returns details of an installed plugin by ID.

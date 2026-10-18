@@ -54,10 +54,11 @@ import {
   GetNetworkSettings,
   SetNetworkSettings,
   TestNetworkConnection,
+  ScanLocalPlugins,
   OpenLogsWindow,
 } from "../../bindings/bowerbird/core/service";
 import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult } from "../../bindings/bowerbird/core/models";
-import { loadRemotePlugin } from "@/plugins/preview/remote-loader";
+import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
 import { Events } from "@wailsio/runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -414,6 +415,7 @@ export function SettingsPage() {
   const [testTargetUrl, setTestTargetUrl] = useState<string>("https://raw.githubusercontent.com");
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<NetworkTestResult | null>(null);
+  const [scanningPlugins, setScanningPlugins] = useState(false);
 
   useEffect(() => {
     GetNetworkSettings()
@@ -518,6 +520,30 @@ export function SettingsPage() {
       setTestingConnection(false);
     }
   };
+  const handleScanLocalPlugins = async () => {
+    setScanningPlugins(true);
+    try {
+      let plugins: any = null;
+      try {
+        plugins = await ScanLocalPlugins();
+      } catch {
+        const res = await fetch("http://127.0.0.1:41595/api/plugins/scan", { method: "POST" });
+        if (res.ok) {
+          const json = await res.json();
+          plugins = json.data;
+        }
+      }
+      await loadAllInstalledPlugins();
+      const count = Array.isArray(plugins) ? plugins.length : installedPlugins.length;
+      notifySuccess(t("settings.plugins.scanSuccess", { count, defaultValue: `Scan completed, synchronized local plugin folder (${count} plugins)` }));
+    } catch (err) {
+      console.error("Scan local plugins failed:", err);
+      notifyError(err);
+    } finally {
+      setScanningPlugins(false);
+    }
+  };
+
 
   useEffect(() => {
     fetch("http://127.0.0.1:41595/api/system/paths")
@@ -950,6 +976,20 @@ export function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
+                    size="sm"
+                    onClick={handleScanLocalPlugins}
+                    disabled={scanningPlugins}
+                    className="h-8 gap-1.5 text-xs cursor-pointer"
+                    title={t("settings.plugins.scanLocal", { defaultValue: "Scan Local Plugins" })}
+                  >
+                    <FolderOpen className={cn("size-3.5 text-primary", scanningPlugins && "animate-pulse")} />
+                    <span>
+                      {scanningPlugins
+                        ? t("settings.plugins.scanning", { defaultValue: "Scanning…" })
+                        : t("settings.plugins.scanLocal", { defaultValue: "Scan Local Plugins" })}
+                    </span>
+                  </Button>
+                  <Button
                     size="sm"
                     onClick={handleCheckUpdates}
                     disabled={checkingUpdates}

@@ -518,3 +518,96 @@ func TestCheckPluginUpdates_Batch(t *testing.T) {
 		t.Fatalf("unexpected update payload: %+v", updates[0])
 	}
 }
+
+func TestPluginManager_ScanLocalPlugins(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// 1. Manually create a plugin directory inside tempDir
+	manualPluginDir := filepath.Join(tempDir, "manual.custom-view")
+	if err := os.MkdirAll(manualPluginDir, 0755); err != nil {
+		t.Fatalf("failed to create manual plugin dir: %v", err)
+	}
+
+	manifestContent := `{
+		"id": "manual.custom-view",
+		"name": "Custom View",
+		"version": "1.0.0",
+		"description": "Manually dropped custom view plugin",
+		"author": "Local Developer",
+		"kind": "preview",
+		"priority": 40,
+		"extensions": ["custom"],
+		"main": "index.js"
+	}`
+	if err := os.WriteFile(filepath.Join(manualPluginDir, "manifest.json"), []byte(manifestContent), 0644); err != nil {
+		t.Fatalf("failed to write manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(manualPluginDir, "index.js"), []byte("console.log('manual');"), 0644); err != nil {
+		t.Fatalf("failed to write index.js: %v", err)
+	}
+
+	// 2. Initialize PluginManager (this triggers initial scan on startup)
+	pm := NewPluginManagerWithDir(tempDir)
+
+	// Verify it was detected and added
+	list, err := pm.ListInstalledPlugins()
+	if err != nil {
+		t.Fatalf("ListInstalledPlugins failed: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 plugin detected by initial scan, got %d", len(list))
+	}
+
+	p := list[0]
+	if p.ID != "manual.custom-view" {
+		t.Errorf("expected ID manual.custom-view, got %s", p.ID)
+	}
+	if p.Enabled {
+		t.Errorf("expected manual plugin to be disabled by default, got enabled=%v", p.Enabled)
+	}
+	if p.SourceURL != "manual" {
+		t.Errorf("expected sourceUrl to be 'manual', got %s", p.SourceURL)
+	}
+
+	// 3. User enables it
+	if err := pm.SetPluginEnabled("manual.custom-view", true); err != nil {
+		t.Fatalf("SetPluginEnabled failed: %v", err)
+	}
+
+	// 4. Trigger ScanLocalPlugins() again - existing enabled state must be preserved
+	scannedList, err := pm.ScanLocalPlugins()
+	if err != nil {
+		t.Fatalf("ScanLocalPlugins failed: %v", err)
+	}
+	if len(scannedList) != 1 || !scannedList[0].Enabled {
+		t.Errorf("expected plugin to remain enabled after re-scan, got enabled=%v", scannedList[0].Enabled)
+	}
+
+	// 5. Delete plugin folder from disk and scan again - must prune from index
+	if err := os.RemoveAll(manualPluginDir); err != nil {
+		t.Fatalf("failed to remove plugin dir: %v", err)
+	}
+	afterPruneList, err := pm.ScanLocalPlugins()
+	if err != nil {
+		t.Fatalf("ScanLocalPlugins after prune failed: %v", err)
+	}
+	if len(afterPruneList) != 0 {
+		t.Fatalf("expected 0 plugins after pruning deleted directory, got %d", len(afterPruneList))
+	}
+}
+
+func TestAPIServer_PluginScanEndpoint(t *testing.T) {
+	tempDir := t.TempDir()
+	pm := NewPluginManagerWithDir(tempDir)
+	mgr := &LibraryManager{
+		pluginMgr: pm,
+	}
+	server := newAssetServer(mgr)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/plugins/scan", nil)
+	w := httptest.NewRecorder()
+	server.handleAPIPluginsScan(w, req)
+	if w.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d", w.Result().StatusCode)
+	}
+}

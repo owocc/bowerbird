@@ -77,6 +77,7 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
 	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
 	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
+	mux.HandleFunc("/api/plugins/scan", s.handleAPIPluginsScan)
 	mux.HandleFunc("/api/system/paths", s.handleAPISystemPaths)
 	mux.HandleFunc("/api/system/open-user-data", s.handleAPIOpenUserData)
 	mux.HandleFunc("/api/system/open-plugins", s.handleAPIOpenPlugins)
@@ -580,6 +581,24 @@ func (s *AssetServer) handleAPIPluginsList(w http.ResponseWriter, r *http.Reques
 	}
 	if plugins == nil {
 		plugins = []InstalledPlugin{}
+	}
+	writeSuccess(w, plugins)
+}
+
+// handleAPIPluginsScan triggers a local directory scan and returns all discovered plugins.
+func (s *AssetServer) handleAPIPluginsScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+	plugins, err := s.manager.GetPluginManager().ScanLocalPlugins()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
 	}
 	writeSuccess(w, plugins)
 }

@@ -419,6 +419,15 @@ export function SaveItemThumbnail(itemID: string, base64Data: string, videoWidth
     return $Call.ByID(446346362, itemID, base64Data, videoWidth, videoHeight);
 }
 
+/**
+ * ScanLocalPlugins scans the plugins directory for manually placed plugin folders,
+ * validates manifests, registers newly discovered plugins as disabled by default,
+ * and updates installed.json.
+ */
+export function ScanLocalPlugins(): $CancellablePromise<$models.InstalledPlugin[] | null> {
+    return $Call.ByID(164233440);
+}
+
 export function SelectDirectory(): $CancellablePromise<string> {
     return $Call.ByID(3643486703);
 }

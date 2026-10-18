@@ -428,7 +428,10 @@
       "metadataBadge": "元数据扩展",
       "supportedFormats": "支持格式",
       "supportsZoom": "缩放与平移",
-      "title": "已安装插件"
+      "title": "已安装插件",
+      "scanLocal": "扫描本地插件",
+      "scanning": "正在扫描…",
+      "scanSuccess": "插件扫描完成，已同步本地插件目录"
     },
     "subtitle": "偏好设置与个性化配置",
     "title": "偏好设置"

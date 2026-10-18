@@ -509,6 +509,16 @@ func (s *Service) ListInstalledPlugins() ([]InstalledPlugin, error) {
 	return s.mgr.GetPluginManager().ListInstalledPlugins()
 }
 
+// ScanLocalPlugins scans the plugins directory for manually placed plugin folders,
+// validates manifests, registers newly discovered plugins as disabled by default,
+// and updates installed.json.
+func (s *Service) ScanLocalPlugins() ([]InstalledPlugin, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return []InstalledPlugin{}, nil
+	}
+	return s.mgr.GetPluginManager().ScanLocalPlugins()
+}
+
 // GetPendingPluginInstall returns any pending plugin installation request.
 func (s *Service) GetPendingPluginInstall() *PluginInstallRequest {
 	if s.mgr == nil || s.mgr.GetPluginManager() == nil {

@@ -428,7 +428,10 @@
       "metadataBadge": "Metadata Extension",
       "supportedFormats": "Supported formats",
       "supportsZoom": "Zoom & Pan",
-      "title": "Installed plugins"
+      "title": "Installed plugins",
+      "scanLocal": "Scan Local Plugins",
+      "scanning": "Scanning…",
+      "scanSuccess": "Scan completed, synchronized local plugin folder"
     },
     "subtitle": "Application preferences",
     "title": "Settings"
