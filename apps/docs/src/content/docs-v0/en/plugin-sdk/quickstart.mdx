@@ -1,0 +1,71 @@
+---
+title: Building Your First Plugin
+description: Create a custom file preview extension with React and @bowerbird/plugin-sdk.
+sidebar:
+  order: 2
+---
+
+This step-by-step tutorial demonstrates creating a custom format preview plugin.
+
+## Creating the Entrypoint (src/index.tsx)
+
+Import `definePlugin` and types in `src/index.tsx`:
+
+```tsx
+import * as React from "react";
+import {
+  definePlugin,
+  type PreviewViewportProps,
+} from "@bowerbird/plugin-sdk";
+
+function CustomViewport({ item, api }: PreviewViewportProps) {
+  const file = api.getOriginalFile();
+
+  return (
+    <div className="flex flex-col items-center justify-center p-8 text-foreground h-full">
+      <div className="p-6 rounded-2xl bg-card border border-border shadow-md max-w-md w-full space-y-4">
+        <h3 className="font-bold text-xl">{item.name}</h3>
+        <div className="text-xs text-muted-foreground space-y-1 font-mono">
+          <p>Format: .{item.extension}</p>
+          <p>Size: {(file.size / 1024).toFixed(1)} KB</p>
+          <p>Path: {file.filePath}</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => api.openWithDefaultApp()}
+          className="w-full py-2 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:opacity-90 transition cursor-pointer"
+        >
+          Open with Default Application
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default definePlugin({
+  id: "com.example.custom-preview",
+  name: "Custom Preview",
+  version: "1.0.0",
+  description: "Interactive visual preview for .xyz files",
+  author: "Your Name",
+  kind: "preview",
+  priority: 50,
+  extensions: ["xyz", "custom"],
+  mimePrefixes: ["application/x-custom"],
+  supportsZoom: true,
+  Viewport: CustomViewport,
+});
+```
+
+<Steps>
+  <Step title="definePlugin Helper">
+    Provides TypeScript inference and default configurations.
+  </Step>
+  <Step title="PreviewViewportProps">
+    Includes the selected asset metadata (`item`), host APIs (`api`), and active theme mode (`theme`).
+  </Step>
+  <Step title="api.getOriginalFile()">
+    Access binary buffers, text content, and local file paths.
+  </Step>
+</Steps>

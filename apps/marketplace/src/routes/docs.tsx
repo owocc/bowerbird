@@ -37,6 +37,30 @@ function SdkDocsPage() {
           for Bowerbird using the official <code className="text-foreground font-mono font-semibold">@bowerbird/plugin-sdk</code>.
         </p>
       </div>
+      {/* Independent Nimbus Docs Notice Banner */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-5 rounded-2xl bg-gradient-to-r from-primary/10 via-card to-card border border-primary/30 shadow-xs">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Sparkles className="size-4 text-primary shrink-0" />
+            <span className="font-bold text-sm text-foreground">
+              全新独立文档站点已上线 (Cloudflare Nimbus)
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            支持多版本切换 (v1/v0)、中英双语检索与 AI Agent 读取优化。
+          </p>
+        </div>
+        <a
+          href="https://docs.bowerbird.app"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary-hover transition shrink-0"
+        >
+          <span>前往新文档站点</span>
+          <ExternalLink className="size-3.5" />
+        </a>
+      </div>
+
 
       {/* Table of Contents & Quick Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">

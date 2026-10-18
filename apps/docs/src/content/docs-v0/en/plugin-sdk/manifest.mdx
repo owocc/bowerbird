@@ -1,0 +1,44 @@
+---
+title: Manifest Specification (manifest.json)
+description: Detailed reference for plugin manifest schema and evaluation priority rules.
+sidebar:
+  order: 3
+---
+
+Every Bowerbird plugin must provide a root `manifest.json`.
+
+## Example Manifest
+
+```json
+{
+  "id": "official.markdown-preview",
+  "name": "Markdown Preview",
+  "version": "1.0.0",
+  "description": "Rich Markdown preview with syntax highlighting and outline navigation",
+  "author": "Bowerbird Team",
+  "kind": "preview",
+  "priority": 50,
+  "extensions": ["md", "markdown", "mdown", "mkd", "mdwn"],
+  "mimePrefixes": ["text/markdown", "text/x-markdown"],
+  "supportsZoom": false,
+  "main": "index.js",
+  "license": "MIT"
+}
+```
+
+## Schema Reference
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `string` | Yes | Unique reverse-domain identifier (e.g. `com.example.my-plugin`) |
+| `name` | `string` | Yes | Display name of the plugin |
+| `version` | `string` | Yes | Semantic version string (SemVer, e.g. `1.0.0`) |
+| `description` | `string` | Yes | Concise capability summary |
+| `author` | `string` | Yes | Author or publisher name |
+| `kind` | `"preview"` \| `"metadata"` | Yes | Capability category: `preview` for main viewport, `metadata` for inspector extension |
+| `priority` | `number` | Yes | Matching priority (1~85, higher takes precedence) |
+| `extensions` | `string[]` | Yes | Supported lowercase file extensions without leading dot |
+| `mimePrefixes` | `string[]` | No | Matching MIME prefixes (e.g. `["audio/", "image/"]`) |
+| `supportsZoom` | `boolean` | No | Whether the main header renders standard zoom controls |
+| `main` | `string` | No | Entrypoint JavaScript bundle path (default: `"index.js"`) |
+| `license` | `string` | No | Software license (e.g. `"MIT"`, `"Apache-2.0"`) |

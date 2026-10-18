@@ -1,0 +1,77 @@
+---
+title: 开发第一个预览插件
+description: 使用 React 与 @bowerbird/plugin-sdk 编写自定义文件预览扩展。
+sidebar:
+  order: 2
+---
+
+本章将手把手带领你编写一个自定义文件格式预览组件。
+
+## 编写插件入口 (src/index.tsx)
+
+在 `src/index.tsx` 中导入 `definePlugin` 及类型定义：
+
+```tsx
+import * as React from "react";
+import {
+  definePlugin,
+  type PreviewPlugin,
+  type PreviewViewportProps,
+  type PreviewInspectorProps,
+} from "@bowerbird/plugin-sdk";
+
+// 主视口视窗组件：当用户双击或在主区域预览时呈现
+function CustomViewport({ item, api }: PreviewViewportProps) {
+  const file = api.getOriginalFile();
+
+  return (
+    <div className="flex flex-col items-center justify-center p-8 text-foreground h-full">
+      <div className="p-6 rounded-2xl bg-card border border-border shadow-md max-w-md w-full space-y-4">
+        <h3 className="font-bold text-xl">{item.name}</h3>
+        <div className="text-xs text-muted-foreground space-y-1 font-mono">
+          <p>格式: .{item.extension}</p>
+          <p>大小: {(file.size / 1024).toFixed(1)} KB</p>
+          <p>路径: {file.filePath}</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => api.openWithDefaultApp()}
+          className="w-full py-2 px-4 rounded-xl bg-primary text-primary-foreground font-semibold text-xs hover:opacity-90 transition cursor-pointer"
+        >
+          使用系统默认应用打开
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// 导出标准插件定义对象
+export default definePlugin({
+  id: "com.example.custom-preview",
+  name: "Custom Preview",
+  version: "1.0.0",
+  description: "为自定义 .xyz 格式提供专属的可视化交互式预览",
+  author: "Your Name",
+  kind: "preview",
+  priority: 50,
+  extensions: ["xyz", "custom"],
+  mimePrefixes: ["application/x-custom"],
+  supportsZoom: true,
+  Viewport: CustomViewport,
+});
+```
+
+## 核心概念解析
+
+<Steps>
+  <Step title="definePlugin 工厂函数">
+    提供完备的 TypeScript 类型推导与默认参数补全，确保导出的插件契合宿主容器规范。
+  </Step>
+  <Step title="PreviewViewportProps 属性">
+    包含当前选中的素材 `item`（元数据对象）、`api`（宿主交互上下文）、`theme`（当前跟随的主题模式）以及缩放控制器。
+  </Step>
+  <Step title="api.getOriginalFile()">
+    获得结构化的原始文件句柄，支持通过 `fetchBlob()`、`fetchArrayBuffer()` 或 `fetchText()` 读取文件二进制或文本数据流。
+  </Step>
+</Steps>

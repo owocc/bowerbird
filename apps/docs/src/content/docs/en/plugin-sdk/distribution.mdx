@@ -1,0 +1,46 @@
+---
+title: Building & 1-Click Installation
+description: Package your plugin with Vite and distribute via bowerbird:// protocol.
+sidebar:
+  order: 5
+---
+
+Bowerbird plugins compile as standalone ES Modules dynamically loaded by the host runtime.
+
+## 1. Vite Configuration (vite.config.ts)
+
+```ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: "src/index.tsx",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
+    rollupOptions: {
+      external: [
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        "@bowerbird/plugin-sdk",
+      ],
+    },
+  },
+});
+```
+
+Compile with:
+
+```bash
+pnpm build
+```
+
+## 2. 1-Click Protocol (bowerbird://)
+
+Distribute your plugin with a 1-click install URL:
+
+```text
+bowerbird://plugin/install?manifest=https://your-domain.com/manifest.json&id=your.plugin.id&version=1.0.0
+```

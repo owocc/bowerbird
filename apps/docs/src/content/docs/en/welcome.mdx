@@ -1,0 +1,33 @@
+---
+title: Welcome to Bowerbird Developer Docs
+description: Learn how to build high-performance rich media preview plugins and metadata extensions for Bowerbird.
+sidebar:
+  order: 0
+  badge:
+    text: Official
+    variant: default
+---
+
+**Bowerbird** is a modern media asset library workstation crafted for digital creators and engineers. With its native plugin extension system, developers can build interactive file previews and inspector extensions for any file format.
+
+<CardGrid>
+  <Card title="Getting Started" icon="ph:rocket-launch" href="/en/getting-started">
+    Set up your plugin development environment and run your first plugin in under 5 minutes.
+  </Card>
+  <Card title="Plugin SDK Core" icon="ph:code" href="/en/plugin-sdk/quickstart">
+    Explore the `@bowerbird/plugin-sdk` type definitions and host capabilities.
+  </Card>
+  <Card title="Manifest Specification" icon="ph:file-text" href="/en/plugin-sdk/manifest">
+    Learn how to configure `manifest.json` with file extensions and priority rules.
+  </Card>
+  <Card title="1-Click Installation" icon="ph:download-simple" href="/en/plugin-sdk/distribution">
+    Use the `bowerbird://` custom protocol to support 1-click remote installs from the marketplace.
+  </Card>
+</CardGrid>
+
+## Why Build Bowerbird Plugins?
+
+- **Sandboxed ES Modules**: Packaged as clean modern ES Modules; the host injects secure host APIs and theme contexts at runtime.
+- **Multi-Viewport Presentation**: Supports both full-window interactive Viewports and compact right Inspector extensions.
+- **Format Preemption Matching**: Fine-grained priority numbers (1~85) match file extensions, enabling seamless community extensions.
+- **1-Click System Protocol**: `bowerbird://plugin/install` protocol allows users to install plugins directly from browsers or terminal scripts.

@@ -1,0 +1,42 @@
+---
+title: 快速起步 (Getting Started)
+description: 准备开发环境并安装官方 Bowerbird Plugin SDK。
+sidebar:
+  order: 1
+---
+
+本教程将引导你完成 Bowerbird 插件开发的前提准备，并使用包管理器安装核心依赖。
+
+## 1. 环境准备
+
+在开始编写插件前，请确保本地已具备：
+
+- **Node.js**: v18.0.0 或更高版本 (推荐 Node 20 LTS)
+- **包管理器**: `pnpm` (推荐), `npm`, 或 `yarn`
+- **Bowerbird 桌面客户端**: 已安装并运行于 macOS 或 Windows
+
+## 2. 安装官方 SDK
+
+在你的插件项目根目录下，将 `@bowerbird/plugin-sdk` 添加为开发依赖：
+
+<PackageManagers pkg="@bowerbird/plugin-sdk" />
+
+<Aside type="note">
+  由于宿主桌面应用运行时已内置了 `react`, `react-dom` 与 `@bowerbird/plugin-sdk`，在打包配置中需要将它们列入外部依赖（external），以保证插件产物极致精简（通常小于 20KB）。
+</Aside>
+
+## 3. 项目基本结构
+
+标准的 Bowerbird 插件工程遵循以下目录结构：
+
+```text
+my-custom-preview/
+├── manifest.json        # 核心插件元数据声明
+├── package.json         # 项目依赖与构建脚本
+├── tsconfig.json        # TypeScript 编译配置
+├── vite.config.ts       # ESM 格式打包配置
+└── src/
+    └── index.tsx        # 插件入口代码与组件
+```
+
+接下来，请前往 [开发第一个插件](/plugin-sdk/quickstart) 开始编写组件代码。
