@@ -1,5 +1,5 @@
 {
-  "name": "@bowerbird/web",
+  "name": "bowerbird-marketplace",
   "private": true,
   "version": "1.0.0-alpha",
   "type": "module",
@@ -7,13 +7,15 @@
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "cf-typegen": "wrangler types",
     "check": "tsc --noEmit"
   },
   "dependencies": {
     "@bowerbird/plugin-sdk": "workspace:*",
-    "@workspace/ui": "workspace:*",
     "@tanstack/react-router": "^1.170.44",
     "@tanstack/react-start": "^1.169.3",
+    "@workspace/ui": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^1.52.0",
     "react": "19.3.0",
@@ -21,6 +23,7 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.64.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.4",
     "@types/react": "19.3.0",
@@ -28,6 +31,7 @@
     "@vitejs/plugin-react": "^6.0.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.2.2",
-    "vite": "^8.0.5"
+    "vite": "^8.0.5",
+    "wrangler": "^4.151.1"
   }
 }

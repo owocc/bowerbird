@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "pnpm --filter bowerbird dev",
     "dev:extension": "pnpm --filter bowerbird-web-extension dev",
-    "dev:web": "pnpm --filter @bowerbird/web dev",
+    "dev:marketplace": "pnpm --filter bowerbird-marketplace dev",
+    "dev:web": "pnpm --filter bowerbird-marketplace dev",
     "build": "pnpm -r run build",
     "build:frontend": "pnpm --filter bowerbird build",
     "build:extension": "pnpm --filter bowerbird-web-extension build",
-    "build:web": "pnpm --filter @bowerbird/web build",
+    "build:marketplace": "pnpm --filter bowerbird-marketplace build",
+    "build:web": "pnpm --filter bowerbird-marketplace build",
     "build:plugins": "node scripts/build-plugins.mjs"
   },
   "devDependencies": {
