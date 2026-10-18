@@ -7,74 +7,55 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function compareSemVer(v1: string, v2: string): number {
-  const p1 = (v1 || "0").replace(/^v/, "").split(".").map(Number);
-  const p2 = (v2 || "0").replace(/^v/, "").split(".").map(Number);
-  const max = Math.max(p1.length, p2.length);
-  for (let i = 0; i < max; i++) {
-    const n1 = p1[i] || 0;
-    const n2 = p2[i] || 0;
-    if (n1 > n2) return 1;
-    if (n1 < n2) return -1;
-  }
-  return 0;
-}
-
 function marketplaceApiPlugin() {
   return {
     name: "marketplace-api-middleware",
     configureServer(server: any) {
-      server.middlewares.use("/api/plugins/check-updates", async (req: any, res: any) => {
-        res.setHeader("Content-Type", "application/json");
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-        if (req.method === "OPTIONS") {
-          res.statusCode = 204;
-          res.end();
-          return;
+      server.middlewares.use(async (req: any, res: any, next: any) => {
+        const reqUrl = req.url || "";
+        if (!reqUrl.startsWith("/api/plugins")) {
+          return next();
         }
 
-        let body = "";
-        for await (const chunk of req) {
-          body += chunk;
-        }
-
-        let queryPlugins: Array<{ id: string; version: string }> = [];
-        try {
-          const parsed = JSON.parse(body || "{}");
-          queryPlugins = parsed.plugins || [];
-        } catch {
-          queryPlugins = [];
-        }
-
-        try {
-          const { OFFICIAL_PLUGINS } = await server.ssrLoadModule("./src/data/plugins.ts");
-          const updates: any[] = [];
-          for (const q of queryPlugins) {
-            const found = (OFFICIAL_PLUGINS as any[]).find((p: any) => p.id === q.id);
-            if (found) {
-              const hasUpdate = compareSemVer(found.version, q.version) > 0;
-              if (hasUpdate) {
-                updates.push({
-                  id: found.id,
-                  name: found.name,
-                  currentVersion: q.version,
-                  latestVersion: found.version,
-                  hasUpdate: true,
-                  manifestUrl: found.manifestUrl,
-                  downloadUrl: found.downloadUrl,
-                  changelog: found.changelog?.[0]?.notes || [],
-                });
-              }
-            }
+        const fullUrl = `http://${req.headers.host || "localhost:3000"}${reqUrl}`;
+        const headers = new Headers();
+        for (const [key, val] of Object.entries(req.headers)) {
+          if (Array.isArray(val)) {
+            val.forEach((v) => headers.append(key, v));
+          } else if (val) {
+            headers.set(key, val as string);
           }
-          res.statusCode = 200;
-          res.end(JSON.stringify({ updates }));
+        }
+        let body: Uint8Array | null = null;
+        if (req.method !== "GET" && req.method !== "HEAD") {
+          const chunks: any[] = [];
+          for await (const chunk of req) {
+            chunks.push(chunk);
+          }
+          body = new Uint8Array(Buffer.concat(chunks));
+        }
+
+        const webRequest = new Request(fullUrl, {
+          method: req.method,
+          headers,
+          body: body ? (body as unknown as BodyInit) : undefined,
+        });
+
+        try {
+          const { handlePluginApiRequest } = await server.ssrLoadModule("./src/lib/server-api.ts");
+          const webResponse = await handlePluginApiRequest(webRequest);
+
+          res.statusCode = webResponse.status;
+          webResponse.headers.forEach((val: string, key: string) => {
+            res.setHeader(key, val);
+          });
+
+          const buf = Buffer.from(await webResponse.arrayBuffer());
+          res.end(buf);
         } catch (err: any) {
+          console.error("Vite API middleware error:", err);
           res.statusCode = 500;
-          res.end(JSON.stringify({ error: err?.message || "Internal error" }));
+          res.end(JSON.stringify({ error: err?.message || "Internal server error" }));
         }
       });
     },

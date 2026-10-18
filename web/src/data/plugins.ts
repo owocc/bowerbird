@@ -1,4 +1,5 @@
 import type { PluginManifest } from "@bowerbird/plugin-sdk";
+import * as React from "react";
 
 export interface PluginVersionHistory {
   version: string;
@@ -16,9 +17,12 @@ export interface MarketplacePlugin extends PluginManifest {
   featured?: boolean;
   downloadsCount: number;
   rating: number;
+  assetFileName?: string;
+  updatedAt?: string;
 }
 
-export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
+// Fallback initial catalogue for SSR and offline resilience
+export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
   {
     id: "official.markdown-preview",
     name: "Markdown Preview",
@@ -37,8 +41,8 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     featured: true,
     downloadsCount: 1420,
     rating: 4.9,
-    manifestUrl: "/plugins-dist/official.markdown-preview/manifest.json",
-    downloadUrl: "/plugins-dist/official.markdown-preview/index.js",
+    manifestUrl: "/api/plugins/official.markdown-preview/manifest.json",
+    downloadUrl: "/api/plugins/official.markdown-preview/download",
     longDescription: `### Key Features
 - **GitHub Flavored Markdown (GFM)**: Render tables, task lists, strikethrough, blockquotes, and code blocks with syntax highlighting.
 - **YAML Frontmatter Extraction**: Automatically parses header frontmatter (title, date, author, tags) and displays structured badge attributes.
@@ -75,8 +79,8 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     featured: true,
     downloadsCount: 980,
     rating: 4.8,
-    manifestUrl: "/plugins-dist/official.audio-player/manifest.json",
-    downloadUrl: "/plugins-dist/official.audio-player/index.js",
+    manifestUrl: "/api/plugins/official.audio-player/manifest.json",
+    downloadUrl: "/api/plugins/official.audio-player/download",
     longDescription: `### Key Features
 - **Multi-Format Playback**: Native audio playback for MP3, WAV, FLAC, OGG, M4A, AAC, and WebM streams.
 - **Interactive Scrubber**: Seamless scrubbing with live timestamp, duration formatting, and keyboard shortcuts (Space to play/pause, Left/Right arrows for seek).
@@ -98,7 +102,7 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     id: "official.prompt-metadata",
     name: "AI Prompt Metadata",
     version: "1.0.0",
-    description: "Extends asset metadata with a dedicated Prompt section for recording, managing, and searching AI generation prompts.",
+    description: "Extends asset metadata with a dedicated Prompt field for recording and searching AI generation prompts.",
     author: "Bowerbird Team",
     kind: "metadata",
     category: "metadata",
@@ -111,8 +115,8 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     featured: true,
     downloadsCount: 2310,
     rating: 4.95,
-    manifestUrl: "/plugins-dist/official.prompt-metadata/manifest.json",
-    downloadUrl: "/plugins-dist/official.prompt-metadata/index.js",
+    manifestUrl: "/api/plugins/official.prompt-metadata/manifest.json",
+    downloadUrl: "/api/plugins/official.prompt-metadata/download",
     longDescription: `### Key Features
 - **Dedicated AI Prompt Field**: Easily record Midjourney, Stable Diffusion, DALL-E, ComfyUI, or custom LLM generation prompts for any image or asset.
 - **One-Click Clipboard Copy**: Instantly copy full generation prompts with length statistics.
@@ -131,3 +135,38 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     ],
   },
 ];
+
+// Re-export for backward compatibility
+export const OFFICIAL_PLUGINS = INITIAL_OFFICIAL_PLUGINS;
+
+export function usePluginsCatalog(): {
+  plugins: MarketplacePlugin[];
+  loading: boolean;
+  refresh: () => Promise<void>;
+} {
+  const [plugins, setPlugins] = React.useState<MarketplacePlugin[]>(INITIAL_OFFICIAL_PLUGINS);
+  const [loading, setLoading] = React.useState<boolean>(false);
+
+  const fetchPlugins = React.useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/plugins");
+      if (res.ok) {
+        const data = (await res.json()) as { plugins: MarketplacePlugin[] };
+        if (Array.isArray(data.plugins) && data.plugins.length > 0) {
+          setPlugins(data.plugins);
+        }
+      }
+    } catch {
+      // Keep initial plugins fallback on network failure
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void fetchPlugins();
+  }, [fetchPlugins]);
+
+  return { plugins, loading, refresh: fetchPlugins };
+}

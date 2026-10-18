@@ -18,7 +18,7 @@ import {
   Info,
   Laptop,
 } from "lucide-react";
-import { OFFICIAL_PLUGINS, type MarketplacePlugin } from "../data/plugins";
+import { usePluginsCatalog, type MarketplacePlugin } from "../data/plugins";
 import { I18nContext } from "../lib/i18n";
 import { DesktopContext } from "../lib/desktop-context";
 
@@ -48,6 +48,7 @@ function MarketplaceCatalog() {
   const { connected, installedPlugins, installingId, installViaAPI, installViaProtocol } =
     React.useContext(DesktopContext);
 
+  const { plugins: allPluginsList } = usePluginsCatalog();
   const [searchQuery, setSearchQuery] = React.useState<string>("");
   const [selectedCategory, setSelectedCategory] = React.useState<"all" | "preview" | "metadata">("all");
   const [selectedFormat, setSelectedFormat] = React.useState<string>("all");
@@ -55,16 +56,16 @@ function MarketplaceCatalog() {
   // Collect all available format extensions across plugins
   const allFormats = React.useMemo(() => {
     const set = new Set<string>();
-    for (const p of OFFICIAL_PLUGINS) {
+    for (const p of allPluginsList) {
       for (const ext of p.extensions) {
         set.add(ext.toLowerCase().replace(/^\./, ""));
       }
     }
     return Array.from(set).sort();
-  }, []);
+  }, [allPluginsList]);
 
   const filteredPlugins = React.useMemo(() => {
-    return OFFICIAL_PLUGINS.filter((plugin) => {
+    return allPluginsList.filter((plugin) => {
       // Category filter
       if (selectedCategory !== "all" && plugin.category !== selectedCategory) {
         return false;
