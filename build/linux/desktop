@@ -9,5 +9,6 @@ Type=Application
 Icon=bowerbird
 Categories=Utility;
 StartupWMClass=bowerbird
+MimeType=x-scheme-handler/bowerbird;
 
  

@@ -1,0 +1,23 @@
+{
+  "id": "official.audio-player",
+  "name": "Audio Player",
+  "version": "1.0.0",
+  "description": "Audio player with waveform/progress scrubber, volume control, loop, and playback rate",
+  "author": "Bowerbird Team",
+  "kind": "preview",
+  "priority": 60,
+  "extensions": [
+    "mp3",
+    "wav",
+    "ogg",
+    "flac",
+    "m4a",
+    "aac",
+    "webm"
+  ],
+  "mimePrefixes": [
+    "audio/"
+  ],
+  "supportsZoom": false,
+  "main": "index.js"
+}

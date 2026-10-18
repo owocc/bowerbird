@@ -1,0 +1,6 @@
+@import "@workspace/ui/globals.css";
+
+/* Additional marketplace specific styles */
+:root {
+  color-scheme: light dark;
+}

@@ -23,6 +23,12 @@ import {
   Keyboard,
   Crop,
   AppWindow,
+  Trash2,
+  Store,
+  RefreshCw,
+  Download,
+  ArrowUpCircle,
+  Loader2,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
@@ -30,14 +36,24 @@ import { useTheme, type Theme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { GetAssetServerPort } from "../../bindings/bowerbird/core/service";
+import {
+  GetAssetServerPort,
+  OpenExternalURL,
+  CheckPluginUpdates,
+  UpgradePlugin,
+  GetPendingPluginInstall,
+} from "../../bindings/bowerbird/core/service";
+import type { PluginUpdateInfo } from "../../bindings/bowerbird/core/models";
+import { loadRemotePlugin } from "@/plugins/preview/remote-loader";
+import { PluginInstallDialog } from "@/components/PluginInstallDialog";
+import { Events } from "@wailsio/runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   getLanguagePreference,
   setLanguagePreference,
   type LanguagePreference,
 } from "@/i18n";
-import { notifySuccess } from "@/lib/notify";
+import { notifySuccess, notifyError } from "@/lib/notify";
 import { SuccessCodes } from "@/lib/error-codes";
 import {
   previewRegistry,
@@ -117,16 +133,39 @@ function PluginIcon({ pluginId, className }: { pluginId: string; className?: str
   }
 }
 
-function PluginCard({ item }: { item: PreviewPluginStatus }) {
+function PluginCard({
+  item,
+  updateInfo,
+  onUpgrade,
+  isUpgrading,
+}: {
+  item: PreviewPluginStatus;
+  updateInfo?: PluginUpdateInfo;
+  onUpgrade?: (pluginId: string) => Promise<void>;
+  isUpgrading?: boolean;
+}) {
   const { t } = useTranslation();
   const { plugin, enabled, canDisable } = item;
-
   const displayName = plugin.nameKey ? t(plugin.nameKey) : plugin.name;
   const displayDescription = plugin.descriptionKey
     ? t(plugin.descriptionKey)
     : plugin.description;
 
   const extensions = plugin.extensions ?? [];
+
+  const handleUninstall = async () => {
+    try {
+      await fetch("http://127.0.0.1:41595/api/plugin/uninstall", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: plugin.id }),
+      });
+    } catch (err) {
+      console.warn("Uninstall error:", err);
+    }
+    previewRegistry.unregister(plugin.id);
+    notifySuccess(t("settings.plugins.uninstalledSuccess", { defaultValue: `Uninstalled ${displayName}` }));
+  };
 
   return (
     <div
@@ -165,12 +204,28 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
                   v{plugin.version}
                 </Badge>
               )}
-              {plugin.builtin && (
+              {plugin.builtin ? (
                 <Badge
                   variant="outline"
                   className="h-4 px-1.5 text-[10px] border-primary/30 bg-primary/5 text-primary"
                 >
                   {t("settings.plugins.builtinBadge")}
+                </Badge>
+              ) : (
+                <Badge
+                  variant="secondary"
+                  className="h-4 px-1.5 text-[10px] bg-primary/10 text-primary border border-primary/20"
+                >
+                  Remote
+                </Badge>
+              )}
+              {updateInfo && (
+                <Badge
+                  variant="default"
+                  className="h-4 px-1.5 text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 gap-1 font-mono"
+                >
+                  <ArrowUpCircle className="size-2.5" />
+                  v{updateInfo.latestVersion} Available
                 </Badge>
               )}
               {plugin.kind === "metadata" && (
@@ -202,7 +257,35 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
         </div>
 
         {/* Enable / Disable Switch Control (Built-in core plugins are locked on) */}
-        <div className="shrink-0 flex items-center gap-2.5 pt-0.5">
+        <div className="shrink-0 flex items-center gap-2 pt-0.5">
+          {updateInfo && (
+            <Button
+              variant="default"
+              size="xs"
+              disabled={isUpgrading}
+              onClick={() => onUpgrade?.(plugin.id)}
+              className="h-6 px-2 text-[10px] gap-1 bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer"
+              title={`Upgrade to v${updateInfo.latestVersion}`}
+            >
+              {isUpgrading ? (
+                <Loader2 className="size-2.5 animate-spin" />
+              ) : (
+                <Download className="size-2.5" />
+              )}
+              <span>{isUpgrading ? "Updating..." : "Update"}</span>
+            </Button>
+          )}
+          {!plugin.builtin && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleUninstall}
+              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+              title={t("settings.plugins.uninstall", { defaultValue: "Uninstall Plugin" })}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
           {!canDisable ? (
             <div
               title={t("settings.plugins.cannotDisableHint")}
@@ -272,7 +355,89 @@ export function SettingsPage() {
   const [serverPort, setServerPort] = useState<number>(41595);
   const [copied, setCopied] = useState<boolean>(false);
   const installedPlugins = usePreviewPlugins();
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [availableUpdates, setAvailableUpdates] = useState<Map<string, PluginUpdateInfo>>(new Map());
+  const [upgradingId, setUpgradingId] = useState<string | null>(null);
+  useEffect(() => {
+    // If there is a pending install request, switch automatically to the plugins tab
+    GetPendingPluginInstall().then((pending) => {
+      if (pending && pending.manifestUrl) {
+        setActiveSection("plugins");
+      }
+    }).catch(() => {});
 
+    const unsub = Events.On("plugin:install-requested", () => {
+      setActiveSection("plugins");
+    });
+    return () => unsub();
+  }, []);
+
+  const handleCheckUpdates = async () => {
+    try {
+      let updates: PluginUpdateInfo[] = [];
+      try {
+        const res = await CheckPluginUpdates();
+        if (res) updates = res;
+      } catch {
+        const res = await fetch("http://127.0.0.1:41595/api/plugins/check-updates");
+        if (res.ok) {
+          const json = await res.json();
+          updates = json.data || [];
+        }
+      }
+
+      const map = new Map<string, PluginUpdateInfo>();
+      for (const u of updates) {
+        if (u.hasUpdate) {
+          map.set(u.id, u);
+        }
+      }
+      setAvailableUpdates(map);
+
+      if (map.size > 0) {
+        notifySuccess(`Found ${map.size} plugin update${map.size > 1 ? "s" : ""}!`);
+      } else {
+        notifySuccess(t("settings.plugins.allUpToDate", { defaultValue: "All plugins are up to date." }));
+      }
+    } catch (err) {
+      console.error("Check updates failed:", err);
+      notifyError(err);
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleUpgrade = async (pluginId: string) => {
+    setUpgradingId(pluginId);
+    try {
+      try {
+        await UpgradePlugin(pluginId);
+      } catch {
+        const res = await fetch("http://127.0.0.1:41595/api/plugins/upgrade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: pluginId }),
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Upgrade failed with HTTP ${res.status}`);
+        }
+      }
+
+      await loadRemotePlugin(pluginId);
+      setAvailableUpdates((prev) => {
+        const next = new Map(prev);
+        next.delete(pluginId);
+        return next;
+      });
+      notifySuccess(`Plugin "${pluginId}" updated successfully!`);
+    } catch (err) {
+      console.error("Upgrade failed:", err);
+      notifyError(err);
+    } finally {
+      setUpgradingId(null);
+    }
+  };
   useEffect(() => {
     GetAssetServerPort().then((p) => {
       if (p && p > 0) {
@@ -571,16 +736,43 @@ export function SettingsPage() {
                     {t("settings.plugins.description")}
                   </p>
                 </div>
-                <Badge variant="secondary" className="text-[11px] font-mono">
-                  {t("settings.plugins.installedCount", {
-                    count: installedPlugins.length,
-                  })}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCheckUpdates}
+                    disabled={checkingUpdates}
+                    className="h-8 gap-1.5 text-xs cursor-pointer"
+                  >
+                    <RefreshCw className={cn("size-3.5", checkingUpdates && "animate-spin text-primary")} />
+                    <span>{checkingUpdates ? "Checking..." : t("settings.plugins.checkUpdates", { defaultValue: "Check Updates" })}</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => OpenExternalURL("http://localhost:3000")}
+                    className="h-8 gap-1.5 text-xs cursor-pointer"
+                  >
+                    <Store className="size-3.5 text-primary" />
+                    <span>{t("settings.plugins.visitMarketplace", { defaultValue: "Visit Marketplace" })}</span>
+                  </Button>
+                  <Badge variant="secondary" className="text-[11px] font-mono">
+                    {t("settings.plugins.installedCount", {
+                      count: installedPlugins.length,
+                    })}
+                  </Badge>
+                </div>
               </div>
 
               <div className="space-y-3">
                 {installedPlugins.map((item) => (
-                  <PluginCard key={item.plugin.id} item={item} />
+                  <PluginCard
+                    key={item.plugin.id}
+                    item={item}
+                    updateInfo={availableUpdates.get(item.plugin.id)}
+                    onUpgrade={handleUpgrade}
+                    isUpgrading={upgradingId === item.plugin.id}
+                  />
                 ))}
               </div>
             </div>
@@ -710,6 +902,7 @@ export function SettingsPage() {
           )}
         </div>
       </main>
+      <PluginInstallDialog />
     </div>
   );
 }

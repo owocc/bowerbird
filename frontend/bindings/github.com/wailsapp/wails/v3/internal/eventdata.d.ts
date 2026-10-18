@@ -16,6 +16,8 @@ declare module "@wailsio/runtime" {
             "app-logs-cleared": string;
             "library-closed": string;
             "library-opened": core$0.LibraryInfo | null;
+            "plugin:changed": { [_ in string]?: any } | null;
+            "plugin:install-requested": { [_ in string]?: any } | null;
             "theme-changed": string;
             "time": string;
         }

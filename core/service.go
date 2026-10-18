@@ -1,6 +1,7 @@
 package core
 
 import (
+	"os"
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -489,4 +490,84 @@ func (s *Service) UpdateItemDetails(id string, note string, rawURL string, ratin
 
 func (s *Service) OpenExternalURL(rawURL string) error {
 	return OpenExternalURL(rawURL)
+}
+
+// Plugin Management RPC Methods
+
+// ListInstalledPlugins returns all plugins installed in the user data directory.
+func (s *Service) ListInstalledPlugins() ([]InstalledPlugin, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return []InstalledPlugin{}, nil
+	}
+	return s.mgr.GetPluginManager().ListInstalledPlugins()
+}
+
+// GetPendingPluginInstall returns any pending plugin installation request.
+func (s *Service) GetPendingPluginInstall() *PluginInstallRequest {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil
+	}
+	return s.mgr.GetPluginManager().GetPendingInstall()
+}
+
+// ClearPendingPluginInstall clears the current pending installation request.
+func (s *Service) ClearPendingPluginInstall() error {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil
+	}
+	s.mgr.GetPluginManager().ClearPendingInstall()
+	return nil
+}
+
+// InstallPluginFromURL downloads, extracts, and installs a plugin from a manifest or zip bundle URL.
+func (s *Service) InstallPluginFromURL(pluginURL string) (*InstalledPlugin, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil, ErrCoreNotInitialized
+	}
+	return s.mgr.GetPluginManager().InstallPluginFromURL(pluginURL)
+}
+
+// InstallPlugin is an alias for InstallPluginFromURL.
+func (s *Service) InstallPlugin(manifestURL string) (*InstalledPlugin, error) {
+	return s.InstallPluginFromURL(manifestURL)
+}
+
+// UninstallPlugin removes the specified plugin directory and unregisters it.
+func (s *Service) UninstallPlugin(id string) error {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return ErrCoreNotInitialized
+	}
+	return s.mgr.GetPluginManager().UninstallPlugin(id)
+}
+
+// SetPluginEnabled enables or disables the specified plugin.
+func (s *Service) SetPluginEnabled(id string, enabled bool) error {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return ErrCoreNotInitialized
+	}
+	return s.mgr.GetPluginManager().SetPluginEnabled(id, enabled)
+}
+// CheckPluginUpdates groups installed plugins by marketplace origin, queries in batch, and returns available updates.
+func (s *Service) CheckPluginUpdates() ([]PluginUpdateInfo, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return []PluginUpdateInfo{}, nil
+	}
+	return s.mgr.GetPluginManager().CheckPluginUpdates()
+}
+
+// UpgradePlugin upgrades the specified plugin from its remembered update/source URL.
+func (s *Service) UpgradePlugin(id string) (*InstalledPlugin, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil, ErrCoreNotInitialized
+	}
+	return s.mgr.GetPluginManager().UpgradePlugin(id)
+}
+
+// OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
+func (s *Service) OpenMarketplace() error {
+	targetURL := os.Getenv("BOWERBIRD_MARKETPLACE_URL")
+	if targetURL == "" {
+		targetURL = "http://localhost:3000"
+	}
+	return OpenExternalURL(targetURL)
 }

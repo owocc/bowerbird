@@ -1,6 +1,11 @@
 import { useSyncExternalStore } from "react";
 import type { Item } from "../../../bindings/bowerbird/core/models";
-import type { PreviewPlugin } from "./types";
+import type {
+  PreviewPlugin,
+  ContextMenuTarget,
+  PluginContextMenuContext,
+  PluginContextMenuItem,
+} from "./types";
 import { ImagePreviewPlugin } from "./builtin/image-plugin";
 import { VideoPreviewPlugin } from "./builtin/video-plugin";
 import { FallbackPreviewPlugin } from "./builtin/fallback-plugin";
@@ -252,6 +257,80 @@ export class PreviewPluginRegistry {
 
     return matched;
   }
+
+  /**
+   * Resolves all enabled context menu items matching the given target and context.
+   */
+  resolveContextMenuItems(
+    target: ContextMenuTarget,
+    context: PluginContextMenuContext<Item>
+  ): PluginContextMenuItem<Item>[] {
+    const matched: PluginContextMenuItem<Item>[] = [];
+
+    for (const plugin of this.plugins) {
+      if (!this.isEnabled(plugin.id)) continue;
+
+      let items: PluginContextMenuItem<Item>[] = [];
+      if (plugin.contextMenus && Array.isArray(plugin.contextMenus)) {
+        items = plugin.contextMenus.filter((m) => m.target === target);
+      }
+      if (plugin.getContextMenuItems) {
+        try {
+          const dynamicItems = plugin.getContextMenuItems(target, context);
+          if (Array.isArray(dynamicItems)) {
+            items = [...items, ...dynamicItems];
+          }
+        } catch (err) {
+          console.error(`[PluginRegistry] Error resolving dynamic context menus for ${plugin.id}:`, err);
+        }
+      }
+
+      for (const item of items) {
+        if (typeof item.hidden === "function") {
+          try {
+            if (item.hidden(context)) continue;
+          } catch {
+            continue;
+          }
+        } else if (item.hidden === true) {
+          continue;
+        }
+
+        if (target === "file" && item.extensions && item.extensions.length > 0) {
+          const targetItems = context.items || [];
+          const anyMatches = targetItems.some((it) => {
+            const ext = (it.extension || "").toLowerCase();
+            return item.extensions!.some((e) => e.toLowerCase() === ext);
+          });
+          if (!anyMatches && targetItems.length > 0) {
+            continue;
+          }
+        }
+
+        matched.push(item);
+      }
+    }
+
+    return matched;
+  }
+
+  /**
+   * Dynamically loads and registers a remote plugin from an ES module URL.
+   */
+  async loadPluginFromUrl(moduleUrl: string): Promise<PreviewPlugin | null> {
+    try {
+      const mod = await import(/* @vite-ignore */ moduleUrl);
+      const plugin: PreviewPlugin = mod.default || mod.plugin || mod;
+      if (plugin && plugin.id && plugin.name) {
+        this.register(plugin);
+        return plugin;
+      }
+      return null;
+    } catch (err) {
+      console.error(`Failed to load plugin from ${moduleUrl}:`, err);
+      return null;
+    }
+  }
 }
 
 /**
@@ -260,7 +339,6 @@ export class PreviewPluginRegistry {
 export const previewRegistry = new PreviewPluginRegistry([
   ImagePreviewPlugin,
   VideoPreviewPlugin,
-  PromptMetadataPlugin,
   FallbackPreviewPlugin,
 ]);
 

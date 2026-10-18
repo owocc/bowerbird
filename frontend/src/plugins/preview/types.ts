@@ -8,142 +8,50 @@ import {
   OpenExternalURL,
 } from "../../../bindings/bowerbird/core/service";
 
-export interface ItemDetailsPatch {
-  note?: string;
-  url?: string;
-  rating?: number;
-  prompt?: string;
-}
+import type {
+  OriginalFileHandle,
+  ItemDetailsPatch,
+  PreviewZoomController,
+  PreviewPluginHostAPI as BasePreviewPluginHostAPI,
+  PreviewViewportProps as BasePreviewViewportProps,
+  PreviewInspectorProps as BasePreviewInspectorProps,
+  InspectorExtensionProps as BaseInspectorExtensionProps,
+  PreviewPlugin as BasePreviewPlugin,
+  PluginKind,
+  PluginManifest,
+  PluginItem,
+  ContextMenuTarget,
+  PluginContextMenuContext,
+  PluginContextMenuItem,
+  PluginContextMenuFolder,
+} from "@bowerbird/plugin-sdk";
 
-export interface PreviewZoomController {
-  scale: number;
-  setScale: (newScale: number) => void;
-  actualSize: () => void;
-  zoomToFit: () => void;
-}
+export type {
+  OriginalFileHandle,
+  ItemDetailsPatch,
+  PreviewZoomController,
+  PluginKind,
+  PluginManifest,
+  PluginItem,
+  ContextMenuTarget,
+  PluginContextMenuContext,
+  PluginContextMenuItem,
+  PluginContextMenuFolder,
+};
+export type PreviewPluginHostAPI = BasePreviewPluginHostAPI<Item>;
 
-export interface OriginalFileHandle {
-  /** HTTP streaming URL for Range/MSE/fetch requests */
-  url: string;
-  /** Physical local filesystem path */
-  filePath: string;
-  /** RFC file:// URI */
-  fileUrl: string;
-  /** HTTP attachment download URL */
-  downloadUrl: string;
-  /** Detected MIME type */
-  mimeType: string;
-  /** Lowercase file extension without dot */
-  extension: string;
-  /** File size in bytes */
-  size: number;
-  /** Fetches the original file (or byte range) as a Blob */
-  fetchBlob: (rangeHeader?: string) => Promise<Blob>;
-  /** Fetches the original file (or byte range) as an ArrayBuffer */
-  fetchArrayBuffer: (rangeHeader?: string) => Promise<ArrayBuffer>;
-}
-
-/**
- * Host capabilities exposed to every PreviewPlugin in both Viewport and InspectorPreview.
- */
-export interface PreviewPluginHostAPI {
-  /** Returns structured access to the original physical file and HTTP stream */
-  getOriginalFile: () => OriginalFileHandle;
-  /** Returns the current cover/thumbnail URL if available (cache-busted when updated) */
-  getCoverUrl: () => string | undefined;
-  /**
-   * Saves a base64-encoded image (data URL or raw base64) as the item's cover `thumbnail.jpg`
-   * and triggers backend perceptual color palette + dominant color + metadata extraction
-   * so the item becomes searchable by color filter.
-   *
-   * @param base64Image PNG or JPEG base64 string
-   * @param options.width Optional intrinsic media width
-   * @param options.height Optional intrinsic media height
-   * @param options.force If false (default), preserves existing cover if `item.hasThumbnail` is already true
-   */
-  saveCoverThumbnail: (
-    base64Image: string,
-    options?: { width?: number; height?: number; force?: boolean }
-  ) => Promise<Item | null>;
-  /** Opens the original file with the OS default application */
-  openWithDefaultApp: () => Promise<void>;
-  /** Reveals the original file in macOS Finder / Windows Explorer */
-  revealInFinder: () => Promise<void>;
-  /** Opens an external HTTP/HTTPS URL in the OS default browser */
-  openExternalURL: (url: string) => Promise<void>;
-  /** Persists user-editable metadata fields (note, url, rating, prompt) and updates updatedAt */
-  updateItemDetails: (patch: ItemDetailsPatch) => Promise<Item | null>;
-  /** Notifies the host workspace to refresh item state */
-  onItemUpdated?: (updated: Item) => void;
-}
-
-export interface PreviewViewportProps {
-  item: Item;
-  mode: "inline" | "full-window";
-  scale: number;
-  onScaleChange: (scale: number) => void;
+export interface PreviewViewportProps extends Omit<BasePreviewViewportProps<Item>, "controllerRef"> {
   controllerRef: React.MutableRefObject<PreviewZoomController | null>;
-  api: PreviewPluginHostAPI;
 }
 
-export interface PreviewInspectorProps {
-  item: Item;
-  onOpenPreview?: () => void;
-  onDragStart?: (e: React.DragEvent) => void;
-  api: PreviewPluginHostAPI;
-}
-export interface InspectorExtensionProps {
-  item: Item;
-  isTrashView?: boolean;
-  api: PreviewPluginHostAPI;
-}
+export type PreviewInspectorProps = BasePreviewInspectorProps<Item>;
+export type InspectorExtensionProps = BaseInspectorExtensionProps<Item>;
 
-export type PluginKind = "preview" | "metadata";
-
-export interface PreviewPlugin {
-  /** Unique identifier of the built-in or custom plugin */
-  id: string;
-  /** Plugin capability kind: "preview" (default) or "metadata" (inspector extension) */
-  kind?: PluginKind;
-  /** Human-readable name */
-  name: string;
-  /** Optional i18n translation key for the plugin name */
-  nameKey?: string;
-  /** Optional human-readable description of the plugin's capabilities */
-  description?: string;
-  /** Optional i18n translation key for the plugin description */
-  descriptionKey?: string;
-  /** Semantic version of the plugin */
-  version?: string;
-  /** Plugin author or provider */
-  author?: string;
-  /** Whether this is a built-in core plugin */
-  builtin?: boolean;
-  /**
-   * Whether this plugin can be disabled by the user.
-   * Defaults to false for built-in core preview plugins (Image & Video).
-   */
-  canDisable?: boolean;
-  /** Whether this plugin should be hidden from the user-facing plugin management list (e.g. system fallback) */
-  internal?: boolean;
-  /** Higher priority plugins are evaluated first (fallback = 0) */
-  priority: number;
-  /** Supported lowercase file extensions without leading dot */
-  extensions?: string[];
-  /** Supported MIME type prefixes (e.g. "image/", "video/") */
-  mimePrefixes?: string[];
-  /** Optional custom predicate for matching an item */
-  match?: (item: Item) => boolean;
-  /** Whether the main header should render ZoomControls for this plugin */
-  supportsZoom?: boolean;
-  /** Main viewport renderer (used by both inline and full-window QuickLook preview) */
+export interface PreviewPlugin extends BasePreviewPlugin<Item> {
   Viewport?: React.ComponentType<PreviewViewportProps>;
-  /** Borderless adaptive inspector preview renderer for the right detail panel */
-  InspectorPreview?: React.ComponentType<PreviewInspectorProps>;
-  /** Optional inspector metadata extension panel rendered inside ItemDetailPanel when enabled */
-  InspectorExtension?: React.ComponentType<InspectorExtensionProps>;
 }
 
+export { definePlugin } from "@bowerbird/plugin-sdk";
 /**
  * Creates a bound PreviewPluginHostAPI instance for a given `Item`.
  */
@@ -254,6 +162,24 @@ export function createPreviewPluginHostAPI(
       } catch {
         return null;
       }
+    },
+    getTheme: () => {
+      if (typeof document !== "undefined") {
+        return document.documentElement.classList.contains("dark") ? "dark" : "light";
+      }
+      return "dark";
+    },
+    subscribeTheme: (cb) => {
+      if (typeof window === "undefined" || typeof document === "undefined") {
+        return () => {};
+      }
+      const notify = () => {
+        const mode = document.documentElement.classList.contains("dark") ? "dark" : "light";
+        cb(mode);
+      };
+      const observer = new MutationObserver(() => notify());
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+      return () => observer.disconnect();
     },
     onItemUpdated,
   };

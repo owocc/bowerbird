@@ -66,6 +66,13 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/items", s.handleAPIItemList)
 	mux.HandleFunc("/api/item/list", s.handleAPIItemList)
+
+	mux.HandleFunc("/api/plugins", s.handleAPIPluginsList)
+	mux.HandleFunc("/api/plugins/check-updates", s.handleAPIPluginsCheckUpdates)
+	mux.HandleFunc("/api/plugins/upgrade", s.handleAPIPluginUpgrade)
+	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
+	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
+	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
 }
 
 // handleAPIPing provides a lightweight check to determine if the desktop application is running.
@@ -544,4 +551,227 @@ func (s *AssetServer) handleAPIItemList(w http.ResponseWriter, r *http.Request) 
 		items = []Item{}
 	}
 	writeSuccess(w, items)
+}
+
+// handleAPIPluginsList returns the list of installed plugins and their enabled status.
+func (s *AssetServer) handleAPIPluginsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var plugins []InstalledPlugin
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		var err error
+		plugins, err = s.manager.GetPluginManager().ListInstalledPlugins()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+	}
+	if plugins == nil {
+		plugins = []InstalledPlugin{}
+	}
+	writeSuccess(w, plugins)
+}
+
+// APIPluginInstallRequest represents payload requesting plugin installation.
+type APIPluginInstallRequest struct {
+	ManifestURL string `json:"manifestUrl"`
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	Name        string `json:"name"`
+}
+
+// handleAPIPluginInstall only emits an install request event to the desktop application
+// to show the manual confirmation dialog. Auto-installation is strictly disallowed.
+func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req APIPluginInstallRequest
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ManifestURL == "" {
+		req.ManifestURL = r.URL.Query().Get("manifestUrl")
+		if req.ManifestURL == "" {
+			req.ManifestURL = r.URL.Query().Get("manifest")
+		}
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.Version == "" {
+		req.Version = r.URL.Query().Get("version")
+	}
+	if req.Name == "" {
+		req.Name = r.URL.Query().Get("name")
+	}
+
+	if req.ManifestURL == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "manifestUrl is required")
+		return
+	}
+
+	// Emit event and open Settings window for explicit manual user confirmation
+	if s.manager != nil {
+		if pm := s.manager.GetPluginManager(); pm != nil {
+			pm.SetPendingInstall(&PluginInstallRequest{
+				ManifestURL: req.ManifestURL,
+				ID:          req.ID,
+				Version:     req.Version,
+				Name:        req.Name,
+			})
+		}
+		if app := s.manager.GetApp(); app != nil {
+			_ = OpenSettingsWindowWithApp(app)
+			app.Event.Emit("plugin:install-requested", map[string]any{
+				"manifestUrl": req.ManifestURL,
+				"id":          req.ID,
+				"version":     req.Version,
+				"name":        req.Name,
+			})
+		}
+	}
+
+	// Auto-installation is strictly disallowed; always respond with requested: true
+	writeSuccess(w, map[string]any{
+		"requested":   true,
+		"manifestUrl": req.ManifestURL,
+		"id":          req.ID,
+		"version":     req.Version,
+		"name":        req.Name,
+	})
+}
+
+// handleAPIPluginConfirmInstall executes plugin download and installation only after
+// the user has explicitly confirmed the installation in the desktop application.
+func (s *AssetServer) handleAPIPluginConfirmInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ManifestURL string `json:"manifestUrl"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ManifestURL == "" {
+		req.ManifestURL = r.URL.Query().Get("manifestUrl")
+		if req.ManifestURL == "" {
+			req.ManifestURL = r.URL.Query().Get("manifest")
+		}
+	}
+
+	if req.ManifestURL == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "manifestUrl is required")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+
+	installed, err := s.manager.GetPluginManager().InstallPluginFromURL(req.ManifestURL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodePluginInstallFailed, err.Error())
+		return
+	}
+
+	writeSuccess(w, installed)
+}
+
+// handleAPIPluginUninstall handles plugin uninstallation request.
+func (s *AssetServer) handleAPIPluginUninstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "id is required")
+		return
+	}
+
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		if err := s.manager.GetPluginManager().UninstallPlugin(req.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+	}
+
+	writeSuccess(w, map[string]any{"uninstalled": true, "id": req.ID})
+}
+
+// handleAPIPluginsCheckUpdates triggers grouped batch update check across marketplaces.
+func (s *AssetServer) handleAPIPluginsCheckUpdates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeSuccess(w, []PluginUpdateInfo{})
+		return
+	}
+
+	updates, err := s.manager.GetPluginManager().CheckPluginUpdates()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	if updates == nil {
+		updates = []PluginUpdateInfo{}
+	}
+	writeSuccess(w, updates)
+}
+
+// handleAPIPluginUpgrade upgrades an installed plugin to its latest available version.
+func (s *AssetServer) handleAPIPluginUpgrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "id is required")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+
+	updated, err := s.manager.GetPluginManager().UpgradePlugin(req.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodePluginInstallFailed, err.Error())
+		return
+	}
+
+	writeSuccess(w, updated)
 }

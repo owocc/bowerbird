@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Eye,
@@ -20,6 +20,7 @@ import {
   LayoutList,
   Columns3,
   Rows3,
+  Puzzle,
 } from "lucide-react";
 import {
   Command,
@@ -31,7 +32,13 @@ import {
   CommandShortcut,
   CommandSeparator,
 } from "@/components/ui/command";
-import type { Item } from "../../bindings/bowerbird/core/models";
+import type { Item, Folder } from "../../bindings/bowerbird/core/models";
+import {
+  previewRegistry,
+  createPreviewPluginHostAPI,
+  type PluginContextMenuContext,
+  type ContextMenuTarget,
+} from "@/plugins/preview/registry";
 import { cn } from "cn";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { isMacOS } from "@/lib/macos";
@@ -45,14 +52,24 @@ export interface ContextMenuPosition {
 export interface ContextMenuProps {
   position: ContextMenuPosition | null;
   onClose: () => void;
-  // Selection context
-  selectedCount: number;
-  isItemContext: boolean;
-  activeFolderId: string | null;
+  // Target mode: "file" | "folder" | "general"
+  targetType?: ContextMenuTarget;
+  // Selection context (file)
+  selectedCount?: number;
+  isItemContext?: boolean;
+  activeFolderId?: string | null;
   targetItem?: Item | null;
+  selectedItems?: Item[];
+  // Folder context
+  targetFolder?: Folder | null;
+  isTrashFolder?: boolean;
+  onCreateSubfolder?: (parentId: string) => void;
+  onRenameFolder?: (folder: Folder) => void;
+  onDeleteFolder?: (folderId: string, folderName: string) => Promise<void> | void;
+  onExportFolder?: (folder: Folder) => void;
+  // General / layout
   layoutMode?: GalleryLayoutMode;
   onLayoutModeChange?: (mode: GalleryLayoutMode) => void;
-  // Actions
   onPreview?: () => void;
   onRename?: () => void;
   onReveal?: () => void;
@@ -74,10 +91,18 @@ export interface ContextMenuProps {
 export function CustomContextMenu({
   position,
   onClose,
+  targetType,
   selectedCount = 0,
-  isItemContext,
+  isItemContext = false,
   activeFolderId,
   targetItem,
+  selectedItems = [],
+  targetFolder,
+  isTrashFolder = false,
+  onCreateSubfolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onExportFolder,
   layoutMode = "justified",
   onLayoutModeChange,
   onPreview,
@@ -101,6 +126,69 @@ export function CustomContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [measuredHeight, setMeasuredHeight] = useState<number>(320);
+
+  const effectiveTarget: ContextMenuTarget =
+    targetType || (targetFolder ? "folder" : isItemContext ? "file" : "general");
+
+  const pluginMenuItems = useMemo(() => {
+    const ctx: PluginContextMenuContext<Item> = {
+      target: effectiveTarget,
+      items: selectedItems.length > 0 ? selectedItems : targetItem ? [targetItem] : [],
+      folder: targetFolder
+        ? {
+            id: targetFolder.id,
+            name: targetFolder.name,
+            itemCount: targetFolder.itemCount,
+            parentId: targetFolder.parentId,
+          }
+        : null,
+      position: position || undefined,
+      api: targetItem
+        ? createPreviewPluginHostAPI(targetItem)
+        : ({} as any),
+    };
+    return previewRegistry.resolveContextMenuItems(effectiveTarget, ctx);
+  }, [effectiveTarget, selectedItems, targetItem, targetFolder, position]);
+
+  const renderPluginItems = () => {
+    if (pluginMenuItems.length === 0) return null;
+    return (
+      <>
+        <CommandSeparator className="my-1" />
+        <CommandGroup heading={t("settings.plugins.title", { defaultValue: "Plugin Actions" })}>
+          {pluginMenuItems.map((pItem) => (
+            <CommandItem
+              key={pItem.id}
+              onSelect={() => {
+                onClose();
+                const ctx: PluginContextMenuContext<Item> = {
+                  target: effectiveTarget,
+                  items: selectedItems.length > 0 ? selectedItems : targetItem ? [targetItem] : [],
+                  folder: targetFolder
+                    ? {
+                        id: targetFolder.id,
+                        name: targetFolder.name,
+                        itemCount: targetFolder.itemCount,
+                        parentId: targetFolder.parentId,
+                      }
+                    : null,
+                  position: position || undefined,
+                  api: targetItem
+                    ? createPreviewPluginHostAPI(targetItem)
+                    : ({} as any),
+                };
+                pItem.onClick(ctx);
+              }}
+              className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+            >
+              <Puzzle className="size-3.5 text-primary shrink-0" />
+              <span>{pItem.label}</span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </>
+    );
+  };
 
   useEffect(() => {
     if (menuRef.current) {
@@ -221,8 +309,82 @@ export function CustomContextMenu({
             {t("contextMenu.noResults")}
           </CommandEmpty>
 
-          {/* ================= TRASH CONTEXT ================= */}
-          {isTrashView ? (
+          {/* ================= FOLDER CONTEXT ================= */}
+          {effectiveTarget === "folder" ? (
+            <>
+              <CommandGroup heading={targetFolder?.name || t("sidebar.folders")}>
+                {isTrashFolder ? (
+                  onEmptyTrash && (
+                    <CommandItem
+                      onSelect={() => {
+                        onEmptyTrash();
+                        onClose();
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-3.5 shrink-0" />
+                      <span>{t("workspace.emptyTrash")}</span>
+                    </CommandItem>
+                  )
+                ) : (
+                  <>
+                    {onCreateSubfolder && targetFolder && (
+                      <CommandItem
+                        onSelect={() => {
+                          onCreateSubfolder(targetFolder.id);
+                          onClose();
+                        }}
+                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                      >
+                        <FolderPlus className="size-3.5 text-muted-foreground shrink-0" />
+                        <span>{t("sidebar.newSubfolderMenu", { defaultValue: "New Subfolder" })}</span>
+                      </CommandItem>
+                    )}
+                    {onRenameFolder && targetFolder && (
+                      <CommandItem
+                        onSelect={() => {
+                          onRenameFolder(targetFolder);
+                          onClose();
+                        }}
+                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                      >
+                        <Edit2 className="size-3.5 text-muted-foreground shrink-0" />
+                        <span>{t("sidebar.renameMenu", { defaultValue: "Rename" })}</span>
+                      </CommandItem>
+                    )}
+                    {onExportFolder && targetFolder && (
+                      <CommandItem
+                        onSelect={() => {
+                          onExportFolder(targetFolder);
+                          onClose();
+                        }}
+                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                      >
+                        <Upload className="size-3.5 text-muted-foreground shrink-0" />
+                        <span>{t("sidebar.exportFolder", { defaultValue: "Export Folder" })}</span>
+                      </CommandItem>
+                    )}
+                    {onDeleteFolder && targetFolder && (
+                      <>
+                        <CommandSeparator className="my-1" />
+                        <CommandItem
+                          onSelect={() => {
+                            onDeleteFolder(targetFolder.id, targetFolder.name);
+                            onClose();
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="size-3.5 shrink-0" />
+                          <span>{t("sidebar.deleteMenu", { defaultValue: "Delete Folder" })}</span>
+                        </CommandItem>
+                      </>
+                    )}
+                  </>
+                )}
+              </CommandGroup>
+              {renderPluginItems()}
+            </>
+          ) : isTrashView ? (
             isItemContext ? (
               <CommandGroup>
                 {onRestore && (
@@ -512,6 +674,7 @@ export function CustomContextMenu({
                   </CommandItem>
                 </CommandGroup>
               )}
+              {renderPluginItems()}
             </>
           ) : (
             /* ================= CANVAS / BACKGROUND CONTEXT ================= */
@@ -603,6 +766,7 @@ export function CustomContextMenu({
                   </CommandGroup>
                 </>
               )}
+              {renderPluginItems()}
             </>
           )}
         </CommandList>

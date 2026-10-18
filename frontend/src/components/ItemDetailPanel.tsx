@@ -40,6 +40,8 @@ import {
   usePreviewPlugins,
   createPreviewPluginHostAPI,
 } from "@/plugins/preview/registry";
+import { PluginErrorBoundary } from "@/components/PluginErrorBoundary";
+import { useTheme } from "@/components/theme-provider";
 import type {
   Item,
   Folder,
@@ -100,6 +102,13 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
   usePreviewPlugins();
+  const { theme } = useTheme();
+  const isDark =
+    theme === "dark" ||
+    (theme === "system" &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const resolvedTheme = isDark ? "dark" : "light";
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -313,7 +322,14 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}
         <div className="w-full flex items-center justify-center">
           {PluginInspectorPreview && (
-            <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
+            <PluginErrorBoundary pluginId={plugin.id} pluginName={plugin.name}>
+              <PluginInspectorPreview
+                item={item}
+                onOpenPreview={onPreview}
+                api={hostApi}
+                theme={resolvedTheme}
+              />
+            </PluginErrorBoundary>
           )}
         </div>
 
@@ -714,12 +730,17 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
           {inspectorExtensions.map((extPlugin) => {
             const ExtComp = extPlugin.InspectorExtension!;
             return (
-              <ExtComp
+              <PluginErrorBoundary
                 key={extPlugin.id}
-                item={item}
-                isTrashView={isTrashView}
-                api={hostApi}
-              />
+                pluginId={extPlugin.id}
+                pluginName={extPlugin.name}
+              >
+                <ExtComp
+                  item={item}
+                  isTrashView={isTrashView}
+                  api={hostApi}
+                />
+              </PluginErrorBoundary>
             );
           })}
 

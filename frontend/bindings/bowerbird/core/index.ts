@@ -11,9 +11,12 @@ export type {
     Folder,
     ImageMeta,
     ImportItemOptions,
+    InstalledPlugin,
     Item,
     LibraryInfo,
     LibraryManager,
     LogEntry,
+    PluginInstallRequest,
+    PluginUpdateInfo,
     Tag
 } from "./models.js";

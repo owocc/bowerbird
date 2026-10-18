@@ -52,6 +52,10 @@ const (
 
 	ErrCodeInvalidTheme               = "ERR_INVALID_THEME"
 	ErrCodeInvalidLanguage            = "ERR_INVALID_LANGUAGE"
+
+	ErrCodePluginNotFound             = "ERR_PLUGIN_NOT_FOUND"
+	ErrCodeInvalidManifest            = "ERR_INVALID_MANIFEST"
+	ErrCodePluginInstallFailed        = "ERR_PLUGIN_INSTALL_FAILED"
 )
 
 // Standard Success Codes agreed between Go backend and frontend

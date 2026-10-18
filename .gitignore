@@ -1,6 +1,7 @@
 .task
 bin
-frontend/dist
+dist/
+**/dist/
 node_modules/
 **/node_modules/
 build/linux/appimage/build

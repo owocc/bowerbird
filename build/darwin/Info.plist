@@ -25,5 +25,16 @@
             <string>true</string>
         <key>NSHumanReadableCopyright</key>
             <string>© 2026, owocc</string>
+        <key>CFBundleURLTypes</key>
+        <array>
+            <dict>
+                <key>CFBundleURLName</key>
+                <string>io.github.owocc.bowerbird</string>
+                <key>CFBundleURLSchemes</key>
+                <array>
+                    <string>bowerbird</string>
+                </array>
+            </dict>
+        </array>
     </dict>
 </plist>

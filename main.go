@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -36,6 +37,9 @@ func init() {
 	// Broadcast structured diagnostic log events
 	application.RegisterEvent[core.LogEntry](core.LogEntryEvent)
 	application.RegisterEvent[string](core.LogsClearedEvent)
+	// Broadcast plugin install request & lifecycle events
+	application.RegisterEvent[map[string]any]("plugin:install-requested")
+	application.RegisterEvent[map[string]any]("plugin:changed")
 }
 
 func extractInternalItemID(filePath string) string {
@@ -47,6 +51,57 @@ func extractInternalItemID(filePath string) string {
 		}
 	}
 	return ""
+}
+
+func parseProtocolURL(rawURL string) (manifestURL, id, version, name string, ok bool) {
+	if !strings.HasPrefix(rawURL, "bowerbird://") {
+		return "", "", "", "", false
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", "", "", "", false
+	}
+	combined := strings.Trim(u.Host+u.Path, "/")
+	if combined != "plugin/install" && !strings.HasPrefix(combined, "plugin/install") {
+		return "", "", "", "", false
+	}
+	q := u.Query()
+	manifestURL = q.Get("manifest")
+	if manifestURL == "" {
+		manifestURL = q.Get("manifestUrl")
+	}
+	if manifestURL == "" {
+		manifestURL = q.Get("url")
+	}
+	id = q.Get("id")
+	version = q.Get("version")
+	name = q.Get("name")
+	return manifestURL, id, version, name, true
+}
+
+func handleProtocolURL(rawURL string, app *application.App, coreMgr *core.LibraryManager) {
+	manifestURL, id, version, name, ok := parseProtocolURL(rawURL)
+	if !ok {
+		return
+	}
+	log.Printf("[Protocol] plugin install requested: id=%s version=%s manifest=%s", id, version, manifestURL)
+	if coreMgr != nil && coreMgr.GetPluginManager() != nil {
+		coreMgr.GetPluginManager().SetPendingInstall(&core.PluginInstallRequest{
+			ManifestURL: manifestURL,
+			ID:          id,
+			Version:     version,
+			Name:        name,
+		})
+	}
+	if app != nil {
+		_ = core.OpenSettingsWindowWithApp(app)
+		app.Event.Emit("plugin:install-requested", map[string]any{
+			"manifestUrl": manifestURL,
+			"id":          id,
+			"version":     version,
+			"name":        name,
+		})
+	}
 }
 
 func main() {
@@ -173,6 +228,21 @@ func main() {
 	}); err != nil {
 		log.Printf("[GlobalShortcut] OptionOrAlt+W registration error: %v", err)
 	}
+
+	// Handle protocol URLs from command-line arguments (Windows/Linux or initial launch)
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "bowerbird://") {
+			handleProtocolURL(arg, app, coreMgr)
+		}
+	}
+
+	// Handle protocol URLs dispatched via OS URL scheme (macOS Apple Events / Common URL launch)
+	app.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(event *application.ApplicationEvent) {
+		urlStr := event.Context().URL()
+		if urlStr != "" {
+			handleProtocolURL(urlStr, app, coreMgr)
+		}
+	})
 
 	// Listen for native OS file drops (macOS Finder / Windows Explorer)
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
