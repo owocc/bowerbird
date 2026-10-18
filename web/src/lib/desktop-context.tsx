@@ -94,7 +94,8 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
         const manifestUrl = plugin.manifestUrl.startsWith("http")
           ? plugin.manifestUrl
           : `${origin}${plugin.manifestUrl}`;
-        const res = await fetch(`${DESKTOP_API_BASE}/api/plugin/install?auto=true`, {
+        // Request desktop app to open confirmation dialog - manual user confirmation required
+        const res = await fetch(`${DESKTOP_API_BASE}/api/plugin/install`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -102,7 +103,6 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
             id: plugin.id,
             version: plugin.version,
             name: plugin.name,
-            autoInstall: true,
           }),
         });
         if (res.ok) {

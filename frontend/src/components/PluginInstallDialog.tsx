@@ -13,7 +13,7 @@ import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
 import { notifySuccess, notifyError } from "@/lib/notify";
 import { loadRemotePlugin } from "@/plugins/preview/remote-loader";
-
+import { InstallPluginFromURL } from "../../bindings/bowerbird/core/service";
 export interface PluginInstallRequest {
   manifestUrl: string;
   id: string;
@@ -58,24 +58,31 @@ export function PluginInstallDialog() {
     setInstalling(true);
 
     try {
-      // 1. Call backend to download and install files to UserDataDir/plugins/<id>
-      const res = await fetch("http://127.0.0.1:41595/api/plugin/install?auto=true", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          manifestUrl: request.manifestUrl,
-          id: request.id,
-          version: request.version || "1.0.0",
-          name: request.name || request.id,
-          autoInstall: true,
-        }),
-      });
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `Installation failed with HTTP ${res.status}`);
+      // 1. Download and install files only upon explicit manual confirmation
+      let installed = false;
+      try {
+        const result = await InstallPluginFromURL(request.manifestUrl);
+        if (result && result.id) {
+          installed = true;
+        }
+      } catch (rpcErr) {
+        console.warn("[PluginInstallDialog] Wails RPC failed, falling back to confirm-install endpoint:", rpcErr);
       }
 
+      if (!installed) {
+        const res = await fetch("http://127.0.0.1:41595/api/plugin/confirm-install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            manifestUrl: request.manifestUrl,
+          }),
+        });
+
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Installation failed with HTTP ${res.status}`);
+        }
+      }
       // 2. Load the newly installed plugin into previewRegistry
       await loadRemotePlugin(request.id);
 

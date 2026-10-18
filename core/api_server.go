@@ -69,6 +69,7 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/plugins", s.handleAPIPluginsList)
 	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
+	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
 	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
 }
 
@@ -572,16 +573,16 @@ func (s *AssetServer) handleAPIPluginsList(w http.ResponseWriter, r *http.Reques
 	writeSuccess(w, plugins)
 }
 
-// APIPluginInstallRequest represents payload to install a plugin.
+// APIPluginInstallRequest represents payload requesting plugin installation.
 type APIPluginInstallRequest struct {
 	ManifestURL string `json:"manifestUrl"`
 	ID          string `json:"id"`
 	Version     string `json:"version"`
 	Name        string `json:"name"`
-	AutoInstall bool   `json:"autoInstall"`
 }
 
-// handleAPIPluginInstall handles plugin installation request or emits event for user confirmation.
+// handleAPIPluginInstall only emits an install request event to the desktop application
+// to show the manual confirmation dialog. Auto-installation is strictly disallowed.
 func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
@@ -613,7 +614,7 @@ func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Emit event to desktop application
+	// Emit event to desktop application for explicit manual user confirmation
 	if s.manager != nil {
 		if app := s.manager.GetApp(); app != nil {
 			app.Event.Emit("plugin:install-requested", map[string]any{
@@ -629,18 +630,7 @@ func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// If auto-install is explicitly specified or requested
-	auto := req.AutoInstall || r.URL.Query().Get("auto") == "true"
-	if auto && s.manager != nil && s.manager.GetPluginManager() != nil {
-		installed, err := s.manager.GetPluginManager().InstallPluginFromURL(req.ManifestURL)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, ErrCodePluginInstallFailed, err.Error())
-			return
-		}
-		writeSuccess(w, installed)
-		return
-	}
-
+	// Auto-installation is strictly disallowed; always respond with requested: true
 	writeSuccess(w, map[string]any{
 		"requested":   true,
 		"manifestUrl": req.ManifestURL,
@@ -648,6 +638,46 @@ func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Requ
 		"version":     req.Version,
 		"name":        req.Name,
 	})
+}
+
+// handleAPIPluginConfirmInstall executes plugin download and installation only after
+// the user has explicitly confirmed the installation in the desktop application.
+func (s *AssetServer) handleAPIPluginConfirmInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ManifestURL string `json:"manifestUrl"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ManifestURL == "" {
+		req.ManifestURL = r.URL.Query().Get("manifestUrl")
+		if req.ManifestURL == "" {
+			req.ManifestURL = r.URL.Query().Get("manifest")
+		}
+	}
+
+	if req.ManifestURL == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "manifestUrl is required")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+
+	installed, err := s.manager.GetPluginManager().InstallPluginFromURL(req.ManifestURL)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodePluginInstallFailed, err.Error())
+		return
+	}
+
+	writeSuccess(w, installed)
 }
 
 // handleAPIPluginUninstall handles plugin uninstallation request.

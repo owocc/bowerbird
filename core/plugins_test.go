@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -372,13 +373,56 @@ func TestAPIServer_PluginEndpoints(t *testing.T) {
 		t.Fatalf("unexpected API data: %+v", apiResp)
 	}
 
-	// POST /api/plugin/install
-	body := bytes.NewBufferString(`{"manifestUrl":"http://example.com/manifest.json","id":"demo.plugin","version":"1.0.0"}`)
+	// POST /api/plugin/install - MUST NOT install automatically, only request confirmation
+	body := bytes.NewBufferString(`{"manifestUrl":"http://example.com/manifest.json","id":"demo.plugin2","version":"1.0.0"}`)
 	reqInstall := httptest.NewRequest(http.MethodPost, "/api/plugin/install", body)
 	reqInstall.Header.Set("Content-Type", "application/json")
 	wInstall := httptest.NewRecorder()
 	server.handleAPIPluginInstall(wInstall, reqInstall)
 	if wInstall.Result().StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", wInstall.Result().StatusCode)
+	}
+
+	// Verify demo.plugin2 was NOT installed into manager!
+	if _, err := pm.GetInstalledPlugin("demo.plugin2"); err == nil {
+		t.Fatalf("expected demo.plugin2 to NOT be installed by handleAPIPluginInstall")
+	}
+	if list, _ := pm.ListInstalledPlugins(); len(list) != 1 {
+		t.Fatalf("expected installed plugin count to remain 1, got %d", len(list))
+	}
+
+	// POST /api/plugin/confirm-install - only manual confirmation triggers actual installation
+	confirmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/plugin/manifest.json":
+			_ = json.NewEncoder(w).Encode(PluginManifest{
+				ID:       "confirmed.plugin",
+				Name:     "Confirmed Plugin",
+				Version:  "1.0.0",
+				Author:   "Test Author",
+				Kind:     "preview",
+				Priority: 50,
+				Main:     "index.js",
+			})
+		case "/plugin/index.js":
+			_, _ = w.Write([]byte("console.log('confirmed');"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer confirmSrv.Close()
+
+	confirmBody := bytes.NewBufferString(fmt.Sprintf(`{"manifestUrl":"%s/plugin/manifest.json"}`, confirmSrv.URL))
+	reqConfirm := httptest.NewRequest(http.MethodPost, "/api/plugin/confirm-install", confirmBody)
+	reqConfirm.Header.Set("Content-Type", "application/json")
+	wConfirm := httptest.NewRecorder()
+	server.handleAPIPluginConfirmInstall(wConfirm, reqConfirm)
+	if wConfirm.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d (%s)", wConfirm.Result().StatusCode, wConfirm.Body.String())
+	}
+
+	// Verify confirmed.plugin is now installed
+	if p, err := pm.GetInstalledPlugin("confirmed.plugin"); err != nil || p == nil {
+		t.Fatalf("expected confirmed.plugin to be installed after explicit confirmation: %v", err)
 	}
 }
