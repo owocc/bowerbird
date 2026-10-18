@@ -2,6 +2,10 @@ import path from "node:path";
 import fs from "node:fs";
 import { INITIAL_OFFICIAL_PLUGINS } from "../data/plugins";
 
+export const DEFAULT_REPO_INDEX_URL =
+  "https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/index.min.json";
+export const DEFAULT_RELEASE_BASE_URL =
+  "https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest";
 export interface PluginIndexItem {
   id: string;
   name: string;
@@ -56,9 +60,10 @@ export function getDirectDownloadUrl(
   releaseBaseUrl?: string,
   origin?: string
 ): string {
+  const effectiveReleaseBase = releaseBaseUrl || DEFAULT_RELEASE_BASE_URL;
   const assetName = plugin.assetFileName || `${plugin.id}-v${plugin.version}.zip`;
-  if (releaseBaseUrl && releaseBaseUrl.startsWith("http")) {
-    return `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
+  if (effectiveReleaseBase && effectiveReleaseBase.startsWith("http")) {
+    return `${effectiveReleaseBase.replace(/\/$/, "")}/${assetName}`;
   }
   return `${origin || ""}/api/plugins/${plugin.id}/download`;
 }
@@ -71,9 +76,11 @@ export async function fetchPluginRegistry(env?: Record<string, string | undefine
     return cachedIndex.data;
   }
 
-  const indexUrl = env?.PLUGIN_REPO_INDEX_URL || process.env.PLUGIN_REPO_INDEX_URL;
+  const indexUrl =
+    env?.PLUGIN_REPO_INDEX_URL ||
+    process.env.PLUGIN_REPO_INDEX_URL ||
+    DEFAULT_REPO_INDEX_URL;
   const token = env?.GITHUB_TOKEN || process.env.GITHUB_TOKEN;
-
   if (indexUrl && indexUrl.startsWith("http")) {
     try {
       const headers: Record<string, string> = {
@@ -138,8 +145,14 @@ export async function handlePluginApiRequest(
   }
 
   const origin = url.origin;
-  const releaseBaseUrl = env?.PLUGIN_RELEASE_BASE_URL || process.env.PLUGIN_RELEASE_BASE_URL;
-  const indexUrl = env?.PLUGIN_REPO_INDEX_URL || process.env.PLUGIN_REPO_INDEX_URL;
+  const releaseBaseUrl =
+    env?.PLUGIN_RELEASE_BASE_URL ||
+    process.env.PLUGIN_RELEASE_BASE_URL ||
+    DEFAULT_RELEASE_BASE_URL;
+  const indexUrl =
+    env?.PLUGIN_REPO_INDEX_URL ||
+    process.env.PLUGIN_REPO_INDEX_URL ||
+    DEFAULT_REPO_INDEX_URL;
 
   // 1. GET /api/plugins - List all plugins
   if (pathname === "/api/plugins" || pathname === "/api/plugins/") {

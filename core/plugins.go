@@ -44,6 +44,7 @@ type PluginManifest struct {
 	Homepage     string   `json:"homepage,omitempty"`
 	Repository   string   `json:"repository,omitempty"`
 	License      string   `json:"license,omitempty"`
+	DownloadURL  string   `json:"downloadUrl,omitempty"`
 }
 
 // InstalledPlugin represents an installed plugin persisted in installed.json.
@@ -406,6 +407,25 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 	RecordLog("info", "plugin", fmt.Sprintf("[Phase 2/5] Downloading plugin from %s (proxy: %s)", pluginURL, proxyDesc), "", 0)
 	manifest, err := pm.downloadAndExtract(pluginURL, stagingDir)
 	if err != nil {
+		// Fallback for official plugins: if marketplace worker endpoint fails, try official GitHub releases
+		if pID := extractPluginIDFromURL(pluginURL); pID != "" {
+			RecordLog("info", "plugin", fmt.Sprintf("Primary download failed for %s (%v), attempting fallback from official GitHub releases...", pID, err), "", 0)
+			fallbackCandidates := []string{
+				fmt.Sprintf("https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest/%s-v1.0.0.zip", pID),
+				fmt.Sprintf("https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest/%s-v1.0.0-alpha.zip", pID),
+				fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/manifest.json", pID),
+			}
+			for _, candURL := range fallbackCandidates {
+				if fbManifest, fbErr := pm.downloadAndExtract(candURL, stagingDir); fbErr == nil {
+					manifest = fbManifest
+					err = nil
+					RecordLog("info", "plugin", fmt.Sprintf("Fallback installation succeeded via %s", candURL), "", 0)
+					break
+				}
+			}
+		}
+	}
+	if err != nil {
 		elapsed := time.Since(startTotal).Milliseconds()
 		RecordLog("error", "plugin", fmt.Sprintf("[Phase 2/5] Plugin download/extraction failed: %v", err),
 			fmt.Sprintf("url=%s, proxy=%s, elapsed=%dms", pluginURL, proxyDesc, elapsed), elapsed)
@@ -610,28 +630,28 @@ func (pm *PluginManager) downloadAndExtract(rawURL string, stagingDir string) (*
 
 	// Download main JS
 	if m.Main != "" {
-		if err := pm.downloadAssetToStaging(&baseURL, m.Main, stagingDir); err != nil {
+		if err := pm.downloadAssetToStaging(&baseURL, m.Main, stagingDir, m.ID); err != nil {
 			return nil, fmt.Errorf("failed to download main file %q: %w", m.Main, err)
 		}
 	}
 
 	// Download style CSS if specified
 	if m.Style != "" {
-		if err := pm.downloadAssetToStaging(&baseURL, m.Style, stagingDir); err != nil {
+		if err := pm.downloadAssetToStaging(&baseURL, m.Style, stagingDir, m.ID); err != nil {
 			return nil, fmt.Errorf("failed to download style file %q: %w", m.Style, err)
 		}
 	}
 
 	// Download icon if relative
 	if m.Icon != "" && !strings.HasPrefix(m.Icon, "data:") && !strings.Contains(m.Icon, "://") {
-		_ = pm.downloadAssetToStaging(&baseURL, m.Icon, stagingDir)
+		_ = pm.downloadAssetToStaging(&baseURL, m.Icon, stagingDir, m.ID)
 	}
 
 	return &m, nil
 }
 
 // downloadAssetToStaging downloads a relative asset referenced by the manifest into stagingDir.
-func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath string, stagingDir string) error {
+func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath string, stagingDir string, pluginID string) error {
 	destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
@@ -665,6 +685,14 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 	resp, err := pm.httpClient.Do(req)
 	dlDuration := time.Since(dlStart).Milliseconds()
 	if err != nil {
+		if strings.HasPrefix(pluginID, "official.") {
+			fallbackURL := fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/%s", pluginID, relativePath)
+			RecordLog("info", "plugin", fmt.Sprintf("Asset download failed, trying official GitHub fallback: %s", fallbackURL), "", 0)
+			if fbErr := pm.downloadDirectFile(fallbackURL, destPath); fbErr == nil {
+				RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from GitHub fallback", relativePath), "", 0)
+				return nil
+			}
+		}
 		RecordLog("error", "plugin", fmt.Sprintf("Failed downloading plugin asset %s: %v", assetURL.String(), err),
 			fmt.Sprintf("proxy=%s, duration=%dms", proxyDesc, dlDuration), dlDuration)
 		return fmt.Errorf("%w (proxy: %s)", err, proxyDesc)
@@ -672,6 +700,14 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if strings.HasPrefix(pluginID, "official.") {
+			fallbackURL := fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/%s", pluginID, relativePath)
+			RecordLog("info", "plugin", fmt.Sprintf("Asset HTTP %d, trying official GitHub fallback: %s", resp.StatusCode, fallbackURL), "", 0)
+			if fbErr := pm.downloadDirectFile(fallbackURL, destPath); fbErr == nil {
+				RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from GitHub fallback", relativePath), "", 0)
+				return nil
+			}
+		}
 		RecordLog("error", "plugin", fmt.Sprintf("HTTP %d error downloading plugin asset %s", resp.StatusCode, assetURL.String()),
 			fmt.Sprintf("status=%s, proxy=%s, duration=%dms", resp.Status, proxyDesc, dlDuration), dlDuration)
 		return fmt.Errorf("HTTP error %d downloading %s", resp.StatusCode, assetURL.String())
@@ -688,6 +724,49 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 		RecordLog("info", "plugin", fmt.Sprintf("Downloaded plugin asset %s (%d bytes in %dms)", relativePath, n, dlDuration), "", dlDuration)
 	}
 	return err
+}
+
+func (pm *PluginManager) downloadDirectFile(rawURL string, destPath string) error {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "Bowerbird-Plugin-Installer/1.0")
+
+	resp, err := pm.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP error %d from %s", resp.StatusCode, rawURL)
+	}
+
+	outFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	_, err = io.Copy(outFile, resp.Body)
+	return err
+}
+
+func extractPluginIDFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(parsed.Path, "/")
+	for _, p := range parts {
+		if strings.HasPrefix(p, "official.") {
+			name := strings.TrimSuffix(p, ".zip")
+			name = strings.TrimSuffix(name, ".json")
+			return name
+		}
+	}
+	return ""
 }
 
 // extractZipSafely unpacks all entries from a zip reader while preventing Zip Slip attacks.
