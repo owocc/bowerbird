@@ -50,6 +50,18 @@ function compareSemVer(v1: string, v2: string): number {
   return 0;
 }
 
+export function getDirectDownloadUrl(
+  plugin: PluginIndexItem,
+  releaseBaseUrl?: string,
+  origin?: string
+): string {
+  const assetName = plugin.assetFileName || `${plugin.id}-v${plugin.version}.zip`;
+  if (releaseBaseUrl && releaseBaseUrl.startsWith("http")) {
+    return `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
+  }
+  return `${origin || ""}/api/plugins/${plugin.id}/download`;
+}
+
 export async function fetchPluginRegistry(env?: Record<string, string | undefined>): Promise<PluginRegistryIndex> {
   const ttl = Number(env?.PLUGIN_CACHE_TTL || process.env.PLUGIN_CACHE_TTL || "300") * 1000;
   const now = Date.now();
@@ -125,6 +137,7 @@ export async function handlePluginApiRequest(
   }
 
   const origin = url.origin;
+  const releaseBaseUrl = env?.PLUGIN_RELEASE_BASE_URL || process.env.PLUGIN_RELEASE_BASE_URL;
 
   // 1. GET /api/plugins - List all plugins
   if (pathname === "/api/plugins" || pathname === "/api/plugins/") {
@@ -136,7 +149,7 @@ export async function handlePluginApiRequest(
       return {
         ...p,
         manifestUrl: `${origin}/api/plugins/${p.id}/manifest.json`,
-        downloadUrl: `${origin}/api/plugins/${p.id}/download`,
+        downloadUrl: getDirectDownloadUrl(p, releaseBaseUrl, origin),
       };
     });
 
@@ -179,7 +192,7 @@ export async function handlePluginApiRequest(
             latestVersion: found.version,
             hasUpdate: true,
             manifestUrl: `${origin}/api/plugins/${found.id}/manifest.json`,
-            downloadUrl: `${origin}/api/plugins/${found.id}/download`,
+            downloadUrl: getDirectDownloadUrl(found, releaseBaseUrl, origin),
             changelog: found.changelog?.[0]?.notes || [],
           });
         }
@@ -224,6 +237,7 @@ export async function handlePluginApiRequest(
       style: plugin.style,
       icon: plugin.icon,
       license: plugin.license,
+      downloadUrl: getDirectDownloadUrl(plugin, releaseBaseUrl, origin),
     };
 
     return new Response(JSON.stringify(manifestData, null, 2), {
@@ -251,7 +265,15 @@ export async function handlePluginApiRequest(
       });
     }
 
-    // Try serving single index.js locally if requested
+    const assetName = plugin.assetFileName || `${plugin.id}-v${plugin.version}.zip`;
+
+    // When configured with remote release base, redirect directly without intercepting file stream
+    if (releaseBaseUrl && releaseBaseUrl.startsWith("http")) {
+      const remoteDownloadUrl = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
+      return Response.redirect(remoteDownloadUrl, 302);
+    }
+
+    // Local fallback only when running purely offline without release base
     if (mode === "index.js") {
       const localJsCandidates = [
         path.resolve(process.cwd(), `../dist/plugins/${pluginId}/index.js`),
@@ -272,39 +294,6 @@ export async function handlePluginApiRequest(
       }
     }
 
-    // Serve zip bundle: remote release download or local fallback
-    const releaseBaseUrl = env?.PLUGIN_RELEASE_BASE_URL || process.env.PLUGIN_RELEASE_BASE_URL;
-    const assetName = plugin.assetFileName || `${plugin.id}-v${plugin.version}.zip`;
-
-    if (releaseBaseUrl && releaseBaseUrl.startsWith("http")) {
-      const remoteDownloadUrl = `${releaseBaseUrl.replace(/\/$/, "")}/${assetName}`;
-      try {
-        const token = env?.GITHUB_TOKEN || process.env.GITHUB_TOKEN;
-        const fetchHeaders: Record<string, string> = {
-          "User-Agent": "Bowerbird-Plugin-Store/1.0",
-        };
-        if (token) fetchHeaders["Authorization"] = `Bearer ${token}`;
-
-        const remoteRes = await fetch(remoteDownloadUrl, {
-          headers: fetchHeaders,
-          redirect: "follow",
-        });
-
-        if (remoteRes.ok && remoteRes.body) {
-          const responseHeaders = new Headers(corsHeaders);
-          responseHeaders.set("Content-Type", mode === "index.js" ? "application/javascript" : "application/zip");
-          responseHeaders.set("Content-Disposition", `attachment; filename="${assetName}"`);
-          return new Response(remoteRes.body, {
-            status: 200,
-            headers: responseHeaders,
-          });
-        }
-      } catch (err) {
-        console.warn(`[PluginAPI] Remote download error for ${remoteDownloadUrl}:`, err);
-      }
-    }
-
-    // Local fallback: read from ../dist/plugins/releases/ or ../dist/plugins/
     const localZipCandidates = [
       path.resolve(process.cwd(), `../dist/plugins/releases/${assetName}`),
       path.resolve(process.cwd(), `dist/plugins/releases/${assetName}`),

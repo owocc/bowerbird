@@ -254,12 +254,11 @@ function PluginDetailsPage() {
               </a>
               <a
                 href={absoluteDownloadUrl}
-                download="index.js"
                 target="_blank"
                 rel="noreferrer"
                 className="w-full px-3 py-2 rounded-xl border border-border hover:bg-muted/70 text-xs font-medium text-foreground flex items-center justify-between transition-colors"
               >
-                <span>{t("downloadBundle")}</span>
+                <span>{absoluteDownloadUrl.endsWith(".zip") ? "Download Release ZIP" : t("downloadBundle")}</span>
                 <ExternalLink className="size-3 text-muted-foreground" />
               </a>
             </div>
