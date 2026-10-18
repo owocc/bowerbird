@@ -2,29 +2,35 @@ import * as React from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   AppWindow,
-  Gamepad2,
   LayoutGrid,
   Search,
   Sparkles,
-  Wrench,
-  Globe,
+  FileText,
+  Music,
+  Code2,
+  Table,
+  BookOpen,
   Menu,
   X,
-  PlusCircle,
+  Download,
 } from "lucide-react";
 import { Logo } from "./logo";
 import { useI18n } from "../lib/i18n";
+import { DesktopContext } from "../lib/desktop-context";
 
 const PRIMARY_NAV_CONFIG = [
-  { key: "sidebar.apps", to: "/", icon: AppWindow },
-  { key: "sidebar.games", to: "/category/$name", params: { name: "games" }, icon: Gamepad2 },
-  { key: "sidebar.web", to: "/category/$name", params: { name: "web" }, icon: Globe },
+  { key: "sidebar.apps", to: "/", icon: LayoutGrid },
+  { key: "sidebar.preview", to: "/category/$name", params: { name: "preview" }, icon: AppWindow },
+  { key: "sidebar.metadata", to: "/category/$name", params: { name: "metadata" }, icon: Sparkles },
+  { key: "sidebar.docs", to: "/docs", icon: BookOpen },
 ] as const;
 
 const CATEGORIES_NAV_CONFIG = [
   { key: "sidebar.all", to: "/category/$name", params: { name: "all" }, id: "all", icon: LayoutGrid },
-  { key: "sidebar.tools", to: "/category/$name", params: { name: "tools" }, id: "tools", icon: Wrench },
-  { key: "sidebar.ai", to: "/category/$name", params: { name: "ai" }, id: "ai", icon: Sparkles },
+  { key: "sidebar.document", to: "/category/$name", params: { name: "document" }, id: "document", icon: FileText },
+  { key: "sidebar.media", to: "/category/$name", params: { name: "media" }, id: "media", icon: Music },
+  { key: "sidebar.code", to: "/category/$name", params: { name: "code" }, id: "code", icon: Code2 },
+  { key: "sidebar.data", to: "/category/$name", params: { name: "data" }, id: "data", icon: Table },
 ] as const;
 
 export function Sidebar() {
@@ -34,6 +40,7 @@ export function Sidebar() {
   const [searchTerm, setSearchTerm] = React.useState("");
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const { t } = useI18n();
+  const { connected } = React.useContext(DesktopContext);
 
   // Close drawer on route navigation
   React.useEffect(() => {
@@ -80,16 +87,13 @@ export function Sidebar() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              navigate({ to: "/search", search: { q: "" } });
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover active:scale-95 transition shadow-2xs cursor-pointer"
+          <Link
+            to="/docs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover active:scale-95 transition shadow-2xs"
           >
-            <PlusCircle className="w-3.5 h-3.5" />
-            <span>{t("submit")}</span>
-          </button>
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>{t("docs")}</span>
+          </Link>
         </div>
       </header>
 
@@ -134,9 +138,10 @@ export function Sidebar() {
             <nav className="mt-4 space-y-1">
               {PRIMARY_NAV_CONFIG.map((item) => {
                 const Icon = item.icon;
-                const isApps = item.to === "/" && (pathname === "/" || pathname === "/apps");
+                const isApps = item.to === "/" && pathname === "/";
+                const isDocs = item.to === "/docs" && pathname === "/docs";
                 const isSub = "params" in item && pathname === `/category/${item.params.name}`;
-                const isActive = isApps || isSub;
+                const isActive = isApps || isDocs || isSub;
                 const label = t(item.key);
                 return (
                   <Link
@@ -157,7 +162,7 @@ export function Sidebar() {
               })}
             </nav>
 
-            {/* Fixed Categories Navigation */}
+            {/* Categories Navigation */}
             <div className="pt-4 mt-2 border-t border-border">
               <div className="flex items-center justify-between px-3 mb-2 text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">
                 <span className="flex items-center gap-1.5">
@@ -191,19 +196,14 @@ export function Sidebar() {
               </nav>
             </div>
 
-            {/* Bottom Submit Action */}
-            <div className="mt-auto pt-6 border-t border-border">
-              <button
-                type="button"
-                onClick={() => {
-                  setMobileOpen(false);
-                  navigate({ to: "/search", search: { q: "" } });
-                }}
-                className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary-hover transition shadow-xs cursor-pointer"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>{t("submit")}</span>
-              </button>
+            {/* Desktop Connection Status */}
+            <div className="mt-auto pt-6 border-t border-border space-y-2">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card border border-border text-xs text-muted-foreground">
+                <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`} />
+                <span className="font-medium text-foreground">
+                  {connected ? "Bowerbird 客户端已连接" : "客户端未运行 (使用协议唤起)"}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -211,67 +211,37 @@ export function Sidebar() {
 
       {/* Desktop Sidebar (hidden on < md, sticky on >= md) */}
       <aside className="hidden md:flex w-64 min-w-[16rem] h-screen sticky top-0 bg-background border-r border-border flex-col select-none z-30 self-start transition-colors duration-200">
-        <div className="p-4 space-y-4 overflow-y-auto h-full">
-          <Logo variant="sidebar" href="/" />
+        <div className="p-4 space-y-4 overflow-y-auto h-full flex flex-col justify-between">
+          <div className="space-y-4">
+            <Logo variant="sidebar" href="/" />
 
-          {/* Search Input with Lucide Search Icon */}
-          <form onSubmit={handleSearchSubmit} className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder={t("sidebar.searchPlaceholder")}
-              className="w-full pl-8 pr-3 py-1.5 bg-card border border-input rounded-lg text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
-            />
-          </form>
+            {/* Search Input */}
+            <form onSubmit={handleSearchSubmit} className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder={t("sidebar.searchPlaceholder")}
+                className="w-full pl-8 pr-3 py-1.5 bg-card border border-input rounded-lg text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+              />
+            </form>
 
-          {/* Primary Navigation */}
-          <nav className="space-y-1">
-            {PRIMARY_NAV_CONFIG.map((item) => {
-              const Icon = item.icon;
-              const isApps = item.to === "/" && (pathname === "/" || pathname === "/apps");
-              const isSub = "params" in item && pathname === `/category/${item.params.name}`;
-              const isActive = isApps || isSub;
-              const label = t(item.key);
-              return (
-                <Link
-                  key={item.key}
-                  to={item.to}
-                  params={"params" in item ? item.params : undefined}
-                  className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? "bg-surface-active text-foreground font-semibold"
-                      : "text-foreground hover:bg-secondary-hover/70"
-                  }`}
-                >
-                  <Icon className="w-4 h-4 text-foreground" />
-                  <span>{label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-
-          {/* Fixed Categories Navigation */}
-          <div className="pt-2">
-            <div className="flex items-center justify-between px-3 mb-1 text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">
-              <span className="flex items-center gap-1.5">
-                <LayoutGrid className="w-3 h-3 text-foreground" />
-                {t("sidebar.categoriesHeader")}
-              </span>
-            </div>
-
-            <nav className="space-y-0.5">
-              {CATEGORIES_NAV_CONFIG.map((cat) => {
-                const Icon = cat.icon;
-                const isActive = pathname === `/category/${cat.id}`;
-                const label = t(cat.key);
+            {/* Primary Navigation */}
+            <nav className="space-y-1">
+              {PRIMARY_NAV_CONFIG.map((item) => {
+                const Icon = item.icon;
+                const isApps = item.to === "/" && pathname === "/";
+                const isDocs = item.to === "/docs" && pathname === "/docs";
+                const isSub = "params" in item && pathname === `/category/${item.params.name}`;
+                const isActive = isApps || isDocs || isSub;
+                const label = t(item.key);
                 return (
                   <Link
-                    key={cat.key}
-                    to={cat.to}
-                    params={cat.params}
-                    className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-[13px] font-normal transition-colors ${
+                    key={item.key}
+                    to={item.to}
+                    params={"params" in item ? item.params : undefined}
+                    className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                       isActive
                         ? "bg-surface-active text-foreground font-semibold"
                         : "text-foreground hover:bg-secondary-hover/70"
@@ -283,6 +253,54 @@ export function Sidebar() {
                 );
               })}
             </nav>
+
+            {/* Categories Navigation */}
+            <div className="pt-2">
+              <div className="flex items-center justify-between px-3 mb-1 text-[11px] font-semibold text-muted-foreground tracking-wider uppercase">
+                <span className="flex items-center gap-1.5">
+                  <LayoutGrid className="w-3 h-3 text-foreground" />
+                  {t("sidebar.categoriesHeader")}
+                </span>
+              </div>
+
+              <nav className="space-y-0.5">
+                {CATEGORIES_NAV_CONFIG.map((cat) => {
+                  const Icon = cat.icon;
+                  const isActive = pathname === `/category/${cat.id}`;
+                  const label = t(cat.key);
+                  return (
+                    <Link
+                      key={cat.key}
+                      to={cat.to}
+                      params={cat.params}
+                      className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-[13px] font-normal transition-colors ${
+                        isActive
+                          ? "bg-surface-active text-foreground font-semibold"
+                          : "text-foreground hover:bg-secondary-hover/70"
+                      }`}
+                    >
+                      <Icon className="w-4 h-4 text-foreground" />
+                      <span>{label}</span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
+
+          {/* Bottom Desktop Connection Status */}
+          <div className="pt-4 border-t border-border">
+            <div className="p-3 rounded-xl bg-card border border-border text-xs space-y-1">
+              <div className="flex items-center gap-2">
+                <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`} />
+                <span className="font-semibold text-foreground">
+                  {connected ? "Bowerbird 已连接" : "Bowerbird 客户端离线"}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                {connected ? "已启用一键安装与实时状态同步" : "启动桌面应用可启用一键安装"}
+              </p>
+            </div>
           </div>
         </div>
       </aside>

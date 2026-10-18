@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
+import { Sparkles } from "lucide-react";
 
 export interface LogoProps {
   variant?: "hero" | "header" | "sidebar" | "footer" | "icon-only";
@@ -27,16 +28,21 @@ export function AppIconMark({
 
   return (
     <div
-      className={`relative flex items-center justify-center shrink-0 select-none overflow-hidden bg-black border border-white/15 shadow-xs transition-transform duration-200 group-hover:scale-105 ${sizeClasses} ${className}`}
+      className={`relative flex items-center justify-center shrink-0 select-none overflow-hidden bg-gradient-to-br from-primary to-primary/80 text-primary-foreground border border-white/15 shadow-xs transition-transform duration-200 group-hover:scale-105 ${sizeClasses} ${className}`}
     >
       <img
         src="/logo.jpeg"
-        alt="Hyakume Logo"
+        alt="Bowerbird Logo"
         width={128}
         height={128}
         className="w-full h-full object-cover select-none pointer-events-none"
         loading="eager"
+        onError={(e) => {
+          // Fallback to stylized SVG icon if image not present
+          (e.currentTarget as HTMLElement).style.display = "none";
+        }}
       />
+      <Sparkles className="w-4 h-4 text-white absolute inset-0 m-auto pointer-events-none opacity-0 only:opacity-100" />
     </div>
   );
 }
@@ -46,8 +52,8 @@ export const PixelMark = AppIconMark;
 export function Logo({
   variant = "header",
   size = "md",
-  text = "Hyakume",
-  subtitle = "",
+  text = "Bowerbird 插件",
+  subtitle = "Marketplace",
   href,
   className = "",
 }: LogoProps) {
@@ -82,9 +88,14 @@ export function Logo({
       <div className={`flex items-center w-full select-none ${className}`}>
         <div className="flex items-center gap-2.5">
           <AppIconMark size="sm" />
-          <span className="font-semibold text-sm tracking-tight text-foreground">
-            {text}
-          </span>
+          <div className="flex flex-col">
+            <span className="font-bold text-sm tracking-tight text-foreground leading-none">
+              Bowerbird
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium mt-0.5 leading-none">
+              插件市场
+            </span>
+          </div>
         </div>
       </div>
     );
@@ -112,9 +123,16 @@ export function Logo({
   const content = (
     <div className={`flex items-center gap-2.5 sm:gap-3 select-none ${className}`}>
       <AppIconMark size={size} />
-      <span className={`font-extrabold tracking-tight text-foreground ${textSizes}`}>
-        {text}
-      </span>
+      <div className="flex flex-col">
+        <span className={`font-extrabold tracking-tight text-foreground leading-none ${textSizes}`}>
+          {text}
+        </span>
+        {subtitle && (
+          <span className="text-[11px] text-muted-foreground font-medium mt-0.5 leading-none">
+            {subtitle}
+          </span>
+        )}
+      </div>
     </div>
   );
 

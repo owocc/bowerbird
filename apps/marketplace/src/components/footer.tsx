@@ -21,10 +21,10 @@ export function Footer() {
               {t("footer.subTagline")}
             </p>
 
-            <div className="hidden sm:block min-h-[120px] w-full" aria-hidden="true" />
+            <div className="hidden sm:block min-h-[80px] w-full" aria-hidden="true" />
           </div>
 
-          {/* Right: 3 Navigation Columns matching hyakume layout */}
+          {/* Right: 3 Navigation Columns */}
           <div className="lg:col-span-7 grid grid-cols-2 sm:grid-cols-3 gap-6 sm:gap-10">
             {/* Column 1 */}
             <div className="space-y-4">
@@ -49,16 +49,7 @@ export function Footer() {
                 <li>
                   <Link
                     to="/category/$name"
-                    params={{ name: "games" }}
-                    className="hover:text-primary transition-colors"
-                  >
-                    {t("footer.games")}
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    to="/category/$name"
-                    params={{ name: "web" }}
+                    params={{ name: "preview" }}
                     className="hover:text-primary transition-colors"
                   >
                     {t("footer.web")}
@@ -67,7 +58,7 @@ export function Footer() {
                 <li>
                   <Link
                     to="/category/$name"
-                    params={{ name: "tools" }}
+                    params={{ name: "metadata" }}
                     className="hover:text-primary transition-colors"
                   >
                     {t("footer.tools")}
@@ -76,10 +67,19 @@ export function Footer() {
                 <li>
                   <Link
                     to="/category/$name"
-                    params={{ name: "ai" }}
+                    params={{ name: "document" }}
                     className="hover:text-primary transition-colors"
                   >
-                    {t("footer.ai")}
+                    文档与文本
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    to="/category/$name"
+                    params={{ name: "media" }}
+                    className="hover:text-primary transition-colors"
+                  >
+                    音视频媒体
                   </Link>
                 </li>
               </ul>
@@ -93,27 +93,30 @@ export function Footer() {
               <ul className="space-y-2.5 text-xs sm:text-sm text-muted-foreground">
                 <li>
                   <Link
-                    to="/search"
-                    search={{ q: "" }}
+                    to="/docs"
                     className="hover:text-primary font-semibold transition-colors"
                   >
-                    {t("footer.submitApp")}
+                    {t("footer.snapshotPipeline")}
                   </Link>
                 </li>
                 <li>
-                  <span className="cursor-default text-muted-foreground/70">
-                    {t("footer.snapshotPipeline")}
-                  </span>
-                </li>
-                <li>
-                  <span className="cursor-default text-muted-foreground/70">
-                    {t("footer.guidelines")}
-                  </span>
-                </li>
-                <li>
-                  <span className="cursor-default text-muted-foreground/70">
+                  <a
+                    href="https://github.com/owocc/bowerbird"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-primary transition-colors"
+                  >
                     {t("footer.developerCollab")}
-                  </span>
+                  </a>
+                </li>
+                <li>
+                  <Link
+                    to="/search"
+                    search={{ q: "" }}
+                    className="hover:text-primary transition-colors"
+                  >
+                    搜索全部插件
+                  </Link>
                 </li>
               </ul>
             </div>
@@ -140,16 +143,21 @@ export function Footer() {
                   </span>
                 </li>
                 <li>
-                  <span className="cursor-default text-muted-foreground/70">
+                  <a
+                    href="https://github.com/owocc/bowerbird/issues"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-primary transition-colors"
+                  >
                     {t("footer.contact")}
-                  </span>
+                  </a>
                 </li>
               </ul>
             </div>
           </div>
         </div>
 
-        {/* Bottom Row: Copyright on left, Theme & Language on right */}
+        {/* Bottom Row */}
         <div className="border-t border-border pt-6 sm:pt-8 mt-8 sm:mt-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-muted-foreground text-center sm:text-left">
           <p>{t("footer.copyright")}</p>
 

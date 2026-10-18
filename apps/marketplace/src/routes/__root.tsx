@@ -18,10 +18,10 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Apps - Hyakume" },
+      { title: "Bowerbird 插件市场 - 官方与社区插件生态" },
       {
         name: "description",
-        content: "现代化 Web App 精选收录平台。致力于发现优质在线工具与应用。",
+        content: "Bowerbird 官方与社区插件生态。支持富媒体深度预览、元数据透视扩展与一键客户端安装。",
       },
     ],
     links: [
@@ -39,14 +39,14 @@ function RootComponent() {
 
   React.useEffect(() => {
     if (typeof window !== "undefined") {
-      const storedTheme = (localStorage.getItem("hyakume-theme") ||
-        localStorage.getItem("bowerbird-web-theme")) as Theme | null;
+      const storedTheme = (localStorage.getItem("bowerbird-web-theme") ||
+        localStorage.getItem("hyakume-theme")) as Theme | null;
       if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
         setThemeState(storedTheme);
       }
 
-      const storedLocale = (localStorage.getItem("hyakume-locale") ||
-        localStorage.getItem("bowerbird-web-locale")) as Locale | null;
+      const storedLocale = (localStorage.getItem("bowerbird-web-locale") ||
+        localStorage.getItem("hyakume-locale")) as Locale | null;
       if (storedLocale === "zh" || storedLocale === "en") {
         setLocaleState(storedLocale);
       }
@@ -75,14 +75,14 @@ function RootComponent() {
   const setTheme = (next: Theme) => {
     setThemeState(next);
     if (typeof window !== "undefined") {
-      localStorage.setItem("hyakume-theme", next);
+      localStorage.setItem("bowerbird-web-theme", next);
     }
   };
 
   const setLocale = (next: Locale) => {
     setLocaleState(next);
     if (typeof window !== "undefined") {
-      localStorage.setItem("hyakume-locale", next);
+      localStorage.setItem("bowerbird-web-locale", next);
     }
   };
 

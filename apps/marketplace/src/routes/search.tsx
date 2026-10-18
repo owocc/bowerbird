@@ -1,7 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { Sparkles, Search as SearchIcon, X } from "lucide-react";
-import { searchApps } from "../data/apps";
+import { Sparkles, Search as SearchIcon, X, BookOpen } from "lucide-react";
+import { searchPlugins } from "../data/plugins";
 import { SearchCard } from "../components/search-card";
 import { useI18n } from "../lib/i18n";
 
@@ -30,8 +30,8 @@ export function SearchPage() {
   }, [q]);
 
   const query = (q || "").trim();
-  const apps = React.useMemo(() => {
-    return searchApps(query);
+  const plugins = React.useMemo(() => {
+    return searchPlugins(query);
   }, [query]);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -71,18 +71,18 @@ export function SearchPage() {
       {/* Search Header */}
       <div className="border-b border-border pb-4">
         <h1 className="text-2xl sm:text-3xl font-extrabold text-foreground tracking-tight">
-          {query ? t("searchPage.resultsFor", { query }) : t("allApps")}
+          {query ? t("searchPage.resultsFor", { query }) : t("all")}
         </h1>
         <p className="text-xs text-muted-foreground mt-1 font-medium">
-          {t("searchPage.foundCount", { count: apps.length })}
+          {t("searchPage.foundCount", { count: plugins.length })}
         </p>
       </div>
 
       {/* 3-Column Grid */}
-      {apps.length > 0 ? (
+      {plugins.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          {apps.map((app) => (
-            <SearchCard key={app.id} app={app} />
+          {plugins.map((plugin) => (
+            <SearchCard key={plugin.id} plugin={plugin} />
           ))}
         </div>
       ) : (
@@ -94,17 +94,25 @@ export function SearchPage() {
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
             {t("searchPage.noResultsDesc", { query })}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setInputVal("");
-              navigate({ to: "/search", search: { q: "" } });
-            }}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md transition cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>{t("allApps")}</span>
-          </button>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setInputVal("");
+                navigate({ to: "/search", search: { q: "" } });
+              }}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-full bg-primary hover:bg-primary-hover text-primary-foreground font-bold text-xs shadow-md transition cursor-pointer"
+            >
+              <span>查看全部插件</span>
+            </button>
+            <Link
+              to="/docs"
+              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-secondary hover:bg-surface text-foreground font-bold text-xs border border-border transition"
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span>开发此类插件</span>
+            </Link>
+          </div>
         </div>
       )}
     </div>
