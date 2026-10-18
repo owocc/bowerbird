@@ -18,7 +18,6 @@ import { LogsPage } from "@/components/LogsPage";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
-import { PluginInstallDialog } from "@/components/PluginInstallDialog";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { AppMenuButton } from "@/components/AppMenuButton";
 import { usesInAppMenuBar } from "@/lib/platform";
@@ -52,7 +51,6 @@ function RootLayout() {
           <Outlet />
         </div>
         <Toaster position="bottom-right" richColors />
-        <PluginInstallDialog />
       </LibraryProvider>
     </ThemeProvider>
   );

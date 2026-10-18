@@ -80,6 +80,13 @@ export function ClearLogs(): $CancellablePromise<void> {
     return $Call.ByID(188629114);
 }
 
+/**
+ * ClearPendingPluginInstall clears the current pending installation request.
+ */
+export function ClearPendingPluginInstall(): $CancellablePromise<void> {
+    return $Call.ByID(3224158186);
+}
+
 export function CloseLibrary(): $CancellablePromise<void> {
     return $Call.ByID(3049267163);
 }
@@ -180,6 +187,13 @@ export function GetLogFilePath(): $CancellablePromise<string> {
  */
 export function GetLogs(): $CancellablePromise<$models.LogEntry[] | null> {
     return $Call.ByID(2491119371);
+}
+
+/**
+ * GetPendingPluginInstall returns any pending plugin installation request.
+ */
+export function GetPendingPluginInstall(): $CancellablePromise<$models.PluginInstallRequest | null> {
+    return $Call.ByID(2733326603);
 }
 
 export function GetRecentLibraries(): $CancellablePromise<string[] | null> {

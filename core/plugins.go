@@ -67,6 +67,14 @@ type InstalledPlugin struct {
 	UpdateURL      string   `json:"updateUrl,omitempty"`
 }
 
+// PluginInstallRequest represents a requested plugin installation.
+type PluginInstallRequest struct {
+	ManifestURL string `json:"manifestUrl"`
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	Name        string `json:"name"`
+}
+
 // PluginUpdateInfo represents available update details for an installed plugin.
 type PluginUpdateInfo struct {
 	ID             string   `json:"id"`
@@ -100,10 +108,11 @@ type BatchCheckUpdateResponse struct {
 type PluginManager struct {
 	mu         sync.RWMutex
 	baseDir    string // <UserDataDir>/plugins
-	indexPath  string // <UserDataDir>/plugins/installed.json
-	plugins    map[string]*InstalledPlugin
-	httpClient *http.Client
-	app        *application.App
+	indexPath      string // <UserDataDir>/plugins/installed.json
+	plugins        map[string]*InstalledPlugin
+	pendingInstall *PluginInstallRequest
+	httpClient     *http.Client
+	app            *application.App
 }
 
 // NewPluginManager creates a PluginManager with default path in UserDataDir()/plugins.
@@ -131,6 +140,31 @@ func (pm *PluginManager) SetApp(app *application.App) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.app = app
+}
+
+// SetPendingInstall records a pending installation request for the Settings window to consume.
+func (pm *PluginManager) SetPendingInstall(req *PluginInstallRequest) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.pendingInstall = req
+}
+
+// GetPendingInstall returns the current pending installation request.
+func (pm *PluginManager) GetPendingInstall() *PluginInstallRequest {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	if pm.pendingInstall == nil {
+		return nil
+	}
+	copyReq := *pm.pendingInstall
+	return &copyReq
+}
+
+// ClearPendingInstall clears the pending installation request.
+func (pm *PluginManager) ClearPendingInstall() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.pendingInstall = nil
 }
 
 // GetBaseDir returns the base plugins directory.

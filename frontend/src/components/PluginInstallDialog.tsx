@@ -13,7 +13,12 @@ import { Button } from "@workspace/ui/components/button";
 import { Badge } from "@workspace/ui/components/badge";
 import { notifySuccess, notifyError } from "@/lib/notify";
 import { loadRemotePlugin } from "@/plugins/preview/remote-loader";
-import { InstallPluginFromURL } from "../../bindings/bowerbird/core/service";
+import {
+  InstallPluginFromURL,
+  GetPendingPluginInstall,
+  ClearPendingPluginInstall,
+} from "../../bindings/bowerbird/core/service";
+
 export interface PluginInstallRequest {
   manifestUrl: string;
   id: string;
@@ -27,6 +32,21 @@ export function PluginInstallDialog() {
   const [installing, setInstalling] = React.useState<boolean>(false);
 
   React.useEffect(() => {
+    // Check if there is a pending install request on mount (e.g. Settings window just launched)
+    GetPendingPluginInstall()
+      .then((pending) => {
+        if (pending && pending.manifestUrl && pending.id) {
+          setRequest({
+            manifestUrl: pending.manifestUrl,
+            id: pending.id,
+            version: pending.version || "1.0.0",
+            name: pending.name || pending.id,
+          });
+          setOpen(true);
+        }
+      })
+      .catch(() => {});
+
     const unsubscribe = Events.On("plugin:install-requested", (event: unknown) => {
       if (!event || typeof event !== "object" || !("data" in event)) return;
       const data = event.data;
@@ -86,6 +106,7 @@ export function PluginInstallDialog() {
       // 2. Load the newly installed plugin into previewRegistry
       await loadRemotePlugin(request.id);
 
+      await ClearPendingPluginInstall().catch(() => {});
       notifySuccess(
         `Plugin "${request.name || request.id}" installed successfully!`
       );
@@ -101,6 +122,7 @@ export function PluginInstallDialog() {
 
   const handleCancel = () => {
     if (installing) return;
+    ClearPendingPluginInstall().catch(() => {});
     setOpen(false);
     setRequest(null);
   };

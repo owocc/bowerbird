@@ -16,6 +16,7 @@ export type {
     LibraryInfo,
     LibraryManager,
     LogEntry,
+    PluginInstallRequest,
     PluginUpdateInfo,
     Tag
 } from "./models.js";

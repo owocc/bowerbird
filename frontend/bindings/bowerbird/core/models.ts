@@ -225,6 +225,16 @@ export interface LogEntry {
 }
 
 /**
+ * PluginInstallRequest represents a requested plugin installation.
+ */
+export interface PluginInstallRequest {
+    "manifestUrl": string;
+    "id": string;
+    "version": string;
+    "name": string;
+}
+
+/**
  * PluginUpdateInfo represents available update details for an installed plugin.
  */
 export interface PluginUpdateInfo {

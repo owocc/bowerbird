@@ -616,19 +616,24 @@ func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Emit event to desktop application for explicit manual user confirmation
+	// Emit event and open Settings window for explicit manual user confirmation
 	if s.manager != nil {
+		if pm := s.manager.GetPluginManager(); pm != nil {
+			pm.SetPendingInstall(&PluginInstallRequest{
+				ManifestURL: req.ManifestURL,
+				ID:          req.ID,
+				Version:     req.Version,
+				Name:        req.Name,
+			})
+		}
 		if app := s.manager.GetApp(); app != nil {
+			_ = OpenSettingsWindowWithApp(app)
 			app.Event.Emit("plugin:install-requested", map[string]any{
 				"manifestUrl": req.ManifestURL,
 				"id":          req.ID,
 				"version":     req.Version,
 				"name":        req.Name,
 			})
-		}
-		if win := s.manager.GetWindow(); win != nil {
-			win.Show()
-			win.Focus()
 		}
 	}
 

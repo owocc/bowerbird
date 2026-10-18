@@ -502,6 +502,23 @@ func (s *Service) ListInstalledPlugins() ([]InstalledPlugin, error) {
 	return s.mgr.GetPluginManager().ListInstalledPlugins()
 }
 
+// GetPendingPluginInstall returns any pending plugin installation request.
+func (s *Service) GetPendingPluginInstall() *PluginInstallRequest {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil
+	}
+	return s.mgr.GetPluginManager().GetPendingInstall()
+}
+
+// ClearPendingPluginInstall clears the current pending installation request.
+func (s *Service) ClearPendingPluginInstall() error {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil
+	}
+	s.mgr.GetPluginManager().ClearPendingInstall()
+	return nil
+}
+
 // InstallPluginFromURL downloads, extracts, and installs a plugin from a manifest or zip bundle URL.
 func (s *Service) InstallPluginFromURL(pluginURL string) (*InstalledPlugin, error) {
 	if s.mgr == nil || s.mgr.GetPluginManager() == nil {

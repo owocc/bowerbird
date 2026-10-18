@@ -118,6 +118,14 @@ func (s *Service) OpenSettingsWindow() error {
 
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
+	return OpenSettingsWindowWithApp(app)
+}
+
+// OpenSettingsWindowWithApp opens or focuses the settings window given an application instance.
+func OpenSettingsWindowWithApp(app *application.App) error {
+	if app == nil {
+		return ErrAppNotInitialized
+	}
 
 	if existing, ok := app.Window.GetByName(settingsWindowName); ok {
 		existing.Show()

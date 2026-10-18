@@ -41,9 +41,12 @@ import {
   OpenExternalURL,
   CheckPluginUpdates,
   UpgradePlugin,
+  GetPendingPluginInstall,
 } from "../../bindings/bowerbird/core/service";
 import type { PluginUpdateInfo } from "../../bindings/bowerbird/core/models";
 import { loadRemotePlugin } from "@/plugins/preview/remote-loader";
+import { PluginInstallDialog } from "@/components/PluginInstallDialog";
+import { Events } from "@wailsio/runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   getLanguagePreference,
@@ -355,9 +358,21 @@ export function SettingsPage() {
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [availableUpdates, setAvailableUpdates] = useState<Map<string, PluginUpdateInfo>>(new Map());
   const [upgradingId, setUpgradingId] = useState<string | null>(null);
+  useEffect(() => {
+    // If there is a pending install request, switch automatically to the plugins tab
+    GetPendingPluginInstall().then((pending) => {
+      if (pending && pending.manifestUrl) {
+        setActiveSection("plugins");
+      }
+    }).catch(() => {});
+
+    const unsub = Events.On("plugin:install-requested", () => {
+      setActiveSection("plugins");
+    });
+    return () => unsub();
+  }, []);
 
   const handleCheckUpdates = async () => {
-    setCheckingUpdates(true);
     try {
       let updates: PluginUpdateInfo[] = [];
       try {
@@ -887,6 +902,7 @@ export function SettingsPage() {
           )}
         </div>
       </main>
+      <PluginInstallDialog />
     </div>
   );
 }

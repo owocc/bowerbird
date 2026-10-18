@@ -79,22 +79,28 @@ func parseProtocolURL(rawURL string) (manifestURL, id, version, name string, ok 
 	return manifestURL, id, version, name, true
 }
 
-func handleProtocolURL(rawURL string, app *application.App, window application.Window) {
+func handleProtocolURL(rawURL string, app *application.App, coreMgr *core.LibraryManager) {
 	manifestURL, id, version, name, ok := parseProtocolURL(rawURL)
 	if !ok {
 		return
 	}
 	log.Printf("[Protocol] plugin install requested: id=%s version=%s manifest=%s", id, version, manifestURL)
+	if coreMgr != nil && coreMgr.GetPluginManager() != nil {
+		coreMgr.GetPluginManager().SetPendingInstall(&core.PluginInstallRequest{
+			ManifestURL: manifestURL,
+			ID:          id,
+			Version:     version,
+			Name:        name,
+		})
+	}
 	if app != nil {
+		_ = core.OpenSettingsWindowWithApp(app)
 		app.Event.Emit("plugin:install-requested", map[string]any{
 			"manifestUrl": manifestURL,
 			"id":          id,
 			"version":     version,
 			"name":        name,
 		})
-	}
-	if window != nil {
-		window.Show().Focus()
 	}
 }
 
@@ -226,7 +232,7 @@ func main() {
 	// Handle protocol URLs from command-line arguments (Windows/Linux or initial launch)
 	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "bowerbird://") {
-			handleProtocolURL(arg, app, window)
+			handleProtocolURL(arg, app, coreMgr)
 		}
 	}
 
@@ -234,7 +240,7 @@ func main() {
 	app.Event.OnApplicationEvent(events.Common.ApplicationLaunchedWithUrl, func(event *application.ApplicationEvent) {
 		urlStr := event.Context().URL()
 		if urlStr != "" {
-			handleProtocolURL(urlStr, app, window)
+			handleProtocolURL(urlStr, app, coreMgr)
 		}
 	})
 
