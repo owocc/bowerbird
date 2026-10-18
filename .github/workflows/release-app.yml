@@ -49,24 +49,33 @@ jobs:
       - name: Build Plugins
         run: node scripts/build-plugins.mjs
 
-      - name: Build and Package macOS Universal DMG
+      - name: Build and Package macOS ARM64 (Apple Silicon)
         run: |
-          wails3 task darwin:package:universal
+          wails3 task darwin:package ARCH=arm64
           wails3 task darwin:create:dmg
-
-      - name: Archive .app bundle
-        run: |
           cd bin
-          tar -czf bowerbird-macos-universal.app.tar.gz bowerbird.app
-          mv bowerbird.dmg bowerbird-macos-universal.dmg
+          tar -czf bowerbird-macos-arm64.app.tar.gz bowerbird.app
+          mv bowerbird.dmg bowerbird-macos-arm64.dmg
+          rm -rf bowerbird.app
+
+      - name: Build and Package macOS AMD64 (Intel x86_64)
+        run: |
+          wails3 task darwin:package ARCH=amd64
+          wails3 task darwin:create:dmg
+          cd bin
+          tar -czf bowerbird-macos-x64.app.tar.gz bowerbird.app
+          mv bowerbird.dmg bowerbird-macos-x64.dmg
+          rm -rf bowerbird.app
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-artifacts
           path: |
-            bin/bowerbird-macos-universal.dmg
-            bin/bowerbird-macos-universal.app.tar.gz
+            bin/bowerbird-macos-arm64.dmg
+            bin/bowerbird-macos-arm64.app.tar.gz
+            bin/bowerbird-macos-x64.dmg
+            bin/bowerbird-macos-x64.app.tar.gz
 
   build-windows:
     runs-on: windows-latest
@@ -91,8 +100,11 @@ jobs:
           version: 9
 
       - name: Install NSIS
-        run: choco install nsis -y
-
+        shell: pwsh
+        run: |
+          choco install nsis -y
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Program Files\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install Tools
         shell: pwsh
         run: |
@@ -110,6 +122,7 @@ jobs:
       - name: Build and Package Windows Installer
         shell: pwsh
         run: |
+          $env:PATH = "C:\Program Files (x86)\NSIS;C:\Program Files\NSIS;$env:PATH"
           wails3 task windows:package ARCH=amd64
 
       - name: Prepare Windows Artifacts
@@ -157,7 +170,9 @@ jobs:
           sudo apt-get install -y \
             libgtk-3-dev \
             libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
+            libgtk-4-dev \
+            libwebkitgtk-6.0-dev \
+            libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf \
             file
@@ -165,10 +180,9 @@ jobs:
       - name: Install Tools
         run: |
           go install github.com/go-task/task/v3/cmd/task@latest
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install -tags exp github.com/wailsapp/wails/v3/cmd/wails3@latest || go install github.com/wailsapp/wails/v3/cmd/wails3@latest
           go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
           echo "$HOME/go/bin" >> $GITHUB_PATH
-
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
