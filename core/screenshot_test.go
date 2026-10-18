@@ -29,6 +29,7 @@ func createTestPNG(t *testing.T, targetPath string) {
 
 func TestCaptureScreenNoActiveLibrary(t *testing.T) {
 	mgr := NewLibraryManager()
+	_ = mgr.CloseLibrary()
 	svc := NewService(mgr)
 
 	item, err := svc.CaptureScreen("area")

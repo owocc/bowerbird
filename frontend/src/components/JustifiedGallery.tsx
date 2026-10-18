@@ -1,12 +1,24 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { ImageThumbnailCard } from "./ImageThumbnailCard";
 import { getFileCategory } from "@/lib/formatters";
+import { logDiagnostic } from "@/lib/logger";
+import type { GalleryLayoutMode } from "@/lib/workspace-search";
+export interface GalleryItemsSource {
+  items: Item[];
+  version: number;
+}
 
 export interface JustifiedGalleryProps {
-  items: Item[];
+  /** Wrapped or direct items source — wrapping in { items, version } prevents React 19 DEV Profiler from O(N) diffing 37k+ array elements on prop change! */
+  items: Item[] | GalleryItemsSource;
   /** Ordered list of selected item IDs (earliest selected first, most recently selected last) */
   selectedOrder: string[];
+  /** Active gallery layout mode: justified | waterfall | grid | list */
+  layoutMode?: GalleryLayoutMode;
+  /** Scroll container element ref from parent workspace */
+  scrollElementRef?: React.RefObject<HTMLDivElement | null>;
   /** Whether keyboard arrow navigation is active (disabled when a preview modal or menu is open) */
   keyboardNavEnabled?: boolean;
   targetRowHeight?: number;
@@ -18,20 +30,6 @@ export interface JustifiedGalleryProps {
   onCanvasContextMenu: (e: React.MouseEvent) => void;
 }
 
-interface LayoutItem {
-  item: Item;
-  width: number;
-  height: number;
-}
-
-interface LayoutRow {
-  items: LayoutItem[];
-  height: number;
-  rowTotalHeight: number;
-  top: number;
-  bottom: number;
-}
-
 interface MarqueeBox {
   startX: number;
   startY: number;
@@ -39,9 +37,39 @@ interface MarqueeBox {
   currentY: number;
 }
 
-export function JustifiedGallery({
-  items,
+/**
+ * Contiguous TypedArray layout buffer for 30,000 to 500,000+ items.
+ * Zero per-item JS object allocations during layout calculation!
+ */
+interface TypedLayoutData {
+  count: number;
+  unitCount: number;
+  totalHeight: number;
+  cardLeft: Float32Array;
+  cardTop: Float32Array;
+  cardWidth: Float32Array;
+  cardHeight: Float32Array;
+  cardThumbHeight: Float32Array;
+  /** For row-based layouts (justified/grid/list), unitStart[u]..unitStart[u]+unitCardCount[u] is the contiguous item index slice */
+  unitStart: Int32Array;
+  unitCardCount: Int32Array;
+  unitTop: Float32Array;
+  unitSize: Float32Array;
+  /** Only populated in waterfall mode where cards in a Y-band are non-contiguous */
+  waterfallBands: number[][] | null;
+  /** Lazy ID -> flat index map built only on demand */
+  idToIndexRef: { map: Map<string, number> | null };
+}
+
+const LABEL_HEIGHT = 28;
+const ROW_GAP = 16;
+const WATERFALL_BAND_HEIGHT = 320;
+
+export const JustifiedGallery = React.memo(function JustifiedGallery({
+  items: rawItemsProp,
   selectedOrder,
+  layoutMode = "justified",
+  scrollElementRef,
   keyboardNavEnabled = true,
   targetRowHeight = 80,
   gap = 12,
@@ -51,27 +79,16 @@ export function JustifiedGallery({
   onItemContextMenu,
   onCanvasContextMenu,
 }: JustifiedGalleryProps) {
+  const items = Array.isArray(rawItemsProp) ? rawItemsProp : rawItemsProp.items;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
+  const [scrollMargin, setScrollMargin] = useState<number>(0);
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null);
   const [lastClickedItemId, setLastClickedItemId] = useState<string | null>(null);
-  const [scrollState, setScrollState] = useState<{
-    scrollTop: number;
-    viewportHeight: number;
-    offsetTop: number;
-  }>({
-    scrollTop: 0,
-    viewportHeight: 900,
-    offsetTop: 0,
-  });
   const selectedSet = useMemo(() => new Set(selectedOrder), [selectedOrder]);
 
   // Marquee selection state in refs so listeners stay stable across frames
   const marqueeRef = useRef<MarqueeBox | null>(null);
-  // Card boxes in content-relative coordinates (relative to containerRef top-left)
-  const cardBoxesRef = useRef<
-    { id: string; left: number; right: number; top: number; bottom: number }[]
-  >([]);
   const pendingClientRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const frameRef = useRef<number | null>(null);
   const selectionKeyRef = useRef("");
@@ -84,6 +101,9 @@ export function JustifiedGallery({
   const suppressClickRef = useRef(false);
   const activePointerIdRef = useRef<number | null>(null);
   const onSelectionChangeRef = useRef(onSelectionChange);
+  const onDoubleClickRef = useRef(onDoubleClickItem);
+  const onDragStartRef = useRef(onDragStartItem);
+  const onItemContextMenuRef = useRef(onItemContextMenu);
 
   useEffect(() => {
     currentOrderRef.current = selectedOrder;
@@ -91,16 +111,24 @@ export function JustifiedGallery({
 
   useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange;
-  }, [onSelectionChange]);
+    onDoubleClickRef.current = onDoubleClickItem;
+    onDragStartRef.current = onDragStartItem;
+    onItemContextMenuRef.current = onItemContextMenu;
+  }, [onSelectionChange, onDoubleClickItem, onDragStartItem, onItemContextMenu]);
+
+  // Resolve scroll host element (either passed via scrollElementRef or parentElement)
+  const getScrollHost = useCallback((): HTMLElement | null => {
+    return scrollElementRef?.current ?? containerRef.current?.parentElement ?? null;
+  }, [scrollElementRef]);
 
   // Track previous width & scroll metrics in refs to prevent ResizeObserver feedback loops
-  // (e.g. vertical scrollbar toggling between W and W-scrollbarWidth when content height crosses viewportHeight)
-  const prevWidthRef = useRef<number>(800);
-  const prevWidthBeforeRef = useRef<number>(800);
-  const lastOscillationTsRef = useRef<number>(0);
+  const prevWidthRef = useRef<number>(0);
+  const prevWidthBeforeRef = useRef<number>(0);
+  const bounceCountRef = useRef<number>(0);
+  const lastWidthChangeTsRef = useRef<number>(0);
   const lockedScrollbarPairRef = useRef<{ narrow: number; wide: number } | null>(null);
 
-  // Measure container width responsively with scrollbar-oscillation damping
+  // Measure container width and offsetTop responsively with scrollbar-oscillation damping
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -111,72 +139,66 @@ export function JustifiedGallery({
       rafId = null;
       const el = containerRef.current;
       if (!el) return;
-      const host = el.parentElement;
 
-      // Prefer clientWidth on container; floor to integer to avoid subpixel jitter
       const rawWidth = Math.floor(el.clientWidth || el.getBoundingClientRect().width);
       if (rawWidth > 0) {
-        const locked = lockedScrollbarPairRef.current;
-        if (
-          locked &&
-          rawWidth !== locked.narrow &&
-          rawWidth !== locked.wide
-        ) {
-          // Genuine container resize (window or panel drag): clear scrollbar bounce lock
-          lockedScrollbarPairRef.current = null;
-        }
-
-        if (lockedScrollbarPairRef.current) {
-          const stableWidth = lockedScrollbarPairRef.current.narrow;
-          if (prevWidthRef.current !== stableWidth) {
-            prevWidthRef.current = stableWidth;
-            setContainerWidth(stableWidth);
-          }
-        } else if (rawWidth !== prevWidthRef.current) {
-          const now = performance.now();
-          const delta = Math.abs(rawWidth - prevWidthRef.current);
-          const isScrollbarBounce =
-            rawWidth === prevWidthBeforeRef.current &&
-            delta > 0 &&
-            delta <= 20 &&
-            now - lastOscillationTsRef.current < 400;
-
-          if (isScrollbarBounce) {
-            // Break the ResizeObserver <-> scrollbar cycle by locking to the narrower (scrollbar-present) width
-            const narrow = Math.min(rawWidth, prevWidthRef.current);
-            const wide = Math.max(rawWidth, prevWidthRef.current);
-            lockedScrollbarPairRef.current = { narrow, wide };
-            prevWidthBeforeRef.current = prevWidthRef.current;
-            prevWidthRef.current = narrow;
-            setContainerWidth(narrow);
-          } else {
-            lastOscillationTsRef.current = now;
-            prevWidthBeforeRef.current = prevWidthRef.current;
-            prevWidthRef.current = rawWidth;
-            setContainerWidth(rawWidth);
-          }
-        }
-      }
-
-      if (host) {
-        const nextScrollTop = host.scrollTop;
-        const nextViewportHeight = host.clientHeight || 900;
-        const nextOffsetTop = el.offsetTop || 0;
-        setScrollState((prev) => {
+        if (prevWidthRef.current === 0) {
+          prevWidthRef.current = rawWidth;
+          prevWidthBeforeRef.current = rawWidth;
+          setContainerWidth(rawWidth);
+        } else {
+          const locked = lockedScrollbarPairRef.current;
           if (
-            prev.scrollTop === nextScrollTop &&
-            prev.viewportHeight === nextViewportHeight &&
-            prev.offsetTop === nextOffsetTop
+            locked &&
+            rawWidth !== locked.narrow &&
+            rawWidth !== locked.wide
           ) {
-            return prev;
+            lockedScrollbarPairRef.current = null;
+            bounceCountRef.current = 0;
           }
-          return {
-            scrollTop: nextScrollTop,
-            viewportHeight: nextViewportHeight,
-            offsetTop: nextOffsetTop,
-          };
-        });
+
+          if (lockedScrollbarPairRef.current) {
+            const stableWidth = lockedScrollbarPairRef.current.narrow;
+            if (prevWidthRef.current !== stableWidth) {
+              prevWidthRef.current = stableWidth;
+              setContainerWidth(stableWidth);
+            }
+          } else if (rawWidth !== prevWidthRef.current) {
+            const now = performance.now();
+            const delta = Math.abs(rawWidth - prevWidthRef.current);
+            const isStepBounce =
+              prevWidthBeforeRef.current > 0 &&
+              rawWidth === prevWidthBeforeRef.current &&
+              delta > 0 &&
+              delta <= 18 &&
+              now - lastWidthChangeTsRef.current < 120;
+
+            if (isStepBounce) {
+              bounceCountRef.current += 1;
+            } else {
+              bounceCountRef.current = 0;
+            }
+
+            lastWidthChangeTsRef.current = now;
+
+            if (bounceCountRef.current >= 2) {
+              const narrow = Math.min(rawWidth, prevWidthRef.current);
+              const wide = Math.max(rawWidth, prevWidthRef.current);
+              lockedScrollbarPairRef.current = { narrow, wide };
+              prevWidthBeforeRef.current = prevWidthRef.current;
+              prevWidthRef.current = narrow;
+              setContainerWidth(narrow);
+            } else {
+              prevWidthBeforeRef.current = prevWidthRef.current;
+              prevWidthRef.current = rawWidth;
+              setContainerWidth(rawWidth);
+            }
+          }
+        }
       }
+
+      const nextOffsetTop = el.offsetTop || 0;
+      setScrollMargin((prev) => (prev === nextOffsetTop ? prev : nextOffsetTop));
     };
 
     syncLayoutMetrics();
@@ -185,292 +207,529 @@ export function JustifiedGallery({
       rafId = requestAnimationFrame(syncLayoutMetrics);
     });
     observer.observe(container);
-    const host = container.parentElement;
+    const host = getScrollHost();
     if (host) observer.observe(host);
     return () => {
       observer.disconnect();
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [getScrollHost]);
 
-  // Track scroll position on scroll host for row virtualization (rAF throttled)
-  useEffect(() => {
-    const host = containerRef.current?.parentElement;
-    if (!host) return;
-    let scrollRaf: number | null = null;
-    const syncScroll = () => {
-      scrollRaf = null;
-      if (!containerRef.current) return;
-      const nextScrollTop = host.scrollTop;
-      const nextViewportHeight = host.clientHeight || 900;
-      const nextOffsetTop = containerRef.current.offsetTop || 0;
-      setScrollState((prev) => {
-        if (
-          prev.scrollTop === nextScrollTop &&
-          prev.viewportHeight === nextViewportHeight &&
-          prev.offsetTop === nextOffsetTop
-        ) {
-          return prev;
-        }
-        return {
-          scrollTop: nextScrollTop,
-          viewportHeight: nextViewportHeight,
-          offsetTop: nextOffsetTop,
-        };
-      });
-    };
-    const onScroll = () => {
-      if (scrollRaf !== null) return;
-      scrollRaf = requestAnimationFrame(syncScroll);
-    };
-    syncScroll();
-    host.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      host.removeEventListener("scroll", onScroll);
-      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
-    };
-  }, []);
-
-  // Clear scrollbar bounce lock when items or targetRowHeight change so fresh layouts can use full width if appropriate
+  // Clear scrollbar bounce lock when items, layoutMode, or targetRowHeight change
   useEffect(() => {
     lockedScrollbarPairRef.current = null;
-  }, [items.length, targetRowHeight]);
+    bounceCountRef.current = 0;
+  }, [items.length, targetRowHeight, layoutMode]);
 
-  // Compute justified rows layout with pixel-perfect row filling
-  const rows = useMemo(() => {
-    if (!items || items.length === 0) return [];
+  // Zero-allocation TypedArray 2D spatial layout engine
+  const layoutData = useMemo<TypedLayoutData>(() => {
+    const tLayout0 = performance.now();
+    const n = items ? items.length : 0;
+    if (n === 0) {
+      return {
+        count: 0,
+        unitCount: 0,
+        totalHeight: 0,
+        cardLeft: new Float32Array(0),
+        cardTop: new Float32Array(0),
+        cardWidth: new Float32Array(0),
+        cardHeight: new Float32Array(0),
+        cardThumbHeight: new Float32Array(0),
+        unitStart: new Int32Array(0),
+        unitCardCount: new Int32Array(0),
+        unitTop: new Float32Array(0),
+        unitSize: new Float32Array(0),
+        waterfallBands: null,
+        idToIndexRef: { map: null },
+      };
+    }
 
-    const safeContainerWidth = Math.max(100, Math.floor(containerWidth));
+    const safeContainerWidth = Math.max(120, Math.floor(containerWidth));
     const safeTargetHeight = Math.max(40, Math.round(targetRowHeight));
-    const computedRows: LayoutRow[] = [];
-    let currentRow: { item: Item; ratio: number }[] = [];
-    let currentRatiosSum = 0;
+
+    const cardLeft = new Float32Array(n);
+    const cardTop = new Float32Array(n);
+    const cardWidth = new Float32Array(n);
+    const cardHeight = new Float32Array(n);
+    const cardThumbHeight = new Float32Array(n);
 
     const MIN_RATIO = 0.45;
     const MAX_RATIO = 3.5;
 
     const getItemRatio = (item: Item): number => {
+      const w = item.width;
+      const h = item.height;
+      if (!w || !h || w <= 0 || h <= 0) return 1.0;
       const category = getFileCategory(item.extension, item.mimeType);
-      const hasVisualRatio =
-        category === "image" || (category === "video" && item.hasThumbnail);
-
-      if (
-        !hasVisualRatio ||
-        !item.width ||
-        !item.height ||
-        item.width <= 0 ||
-        item.height <= 0
-      ) {
+      if (category !== "image" && !(category === "video" && item.hasThumbnail)) {
         return 1.0;
       }
-
-      const rawRatio = item.width / item.height;
-      return Math.max(MIN_RATIO, Math.min(MAX_RATIO, rawRatio));
+      const rawRatio = w / h;
+      return rawRatio < MIN_RATIO ? MIN_RATIO : rawRatio > MAX_RATIO ? MAX_RATIO : rawRatio;
     };
 
-    const buildFilledRow = (
-      rowEntries: { item: Item; ratio: number }[],
+    if (layoutMode === "list") {
+      // ================= 1. LIST VIEW =================
+      const rowHeight = Math.max(44, Math.min(84, Math.round(safeTargetHeight * 0.56)));
+      const listGap = 4;
+      const unitStart = new Int32Array(n);
+      const unitCardCount = new Int32Array(n);
+      const unitTop = new Float32Array(n);
+      const unitSize = new Float32Array(n);
+
+      let yCursor = 0;
+      for (let i = 0; i < n; i++) {
+        const isLast = i === n - 1;
+        const uSize = isLast ? rowHeight : rowHeight + listGap;
+        cardLeft[i] = 0;
+        cardTop[i] = yCursor;
+        cardWidth[i] = safeContainerWidth;
+        cardHeight[i] = rowHeight;
+        cardThumbHeight[i] = rowHeight;
+
+        unitStart[i] = i;
+        unitCardCount[i] = 1;
+        unitTop[i] = yCursor;
+        unitSize[i] = uSize;
+        yCursor += uSize;
+      }
+
+      return {
+        count: n,
+        unitCount: n,
+        totalHeight: yCursor,
+        cardLeft,
+        cardTop,
+        cardWidth,
+        cardHeight,
+        cardThumbHeight,
+        unitStart,
+        unitCardCount,
+        unitTop,
+        unitSize,
+        waterfallBands: null,
+        idToIndexRef: { map: null },
+      };
+    }
+
+    if (layoutMode === "grid") {
+      // ================= 2. UNIFORM GRID VIEW =================
+      const targetColWidth = Math.max(90, Math.round(safeTargetHeight * 1.45));
+      const numCols = Math.max(
+        1,
+        Math.floor((safeContainerWidth + gap) / (targetColWidth + gap))
+      );
+      const totalGaps = (numCols - 1) * gap;
+      const baseColWidth = Math.max(48, Math.floor((safeContainerWidth - totalGaps) / numCols));
+      const remainder = Math.max(0, safeContainerWidth - totalGaps - baseColWidth * numCols);
+
+      const colWidths = new Float32Array(numCols);
+      const colLefts = new Float32Array(numCols);
+      let xAcc = 0;
+      for (let c = 0; c < numCols; c++) {
+        const w = c < remainder ? baseColWidth + 1 : baseColWidth;
+        colWidths[c] = w;
+        colLefts[c] = xAcc;
+        xAcc += w + gap;
+      }
+
+      const thumbH = baseColWidth;
+      const cHeight = thumbH + LABEL_HEIGHT;
+      const totalRows = Math.ceil(n / numCols);
+
+      const unitStart = new Int32Array(totalRows);
+      const unitCardCount = new Int32Array(totalRows);
+      const unitTop = new Float32Array(totalRows);
+      const unitSize = new Float32Array(totalRows);
+
+      let yCursor = 0;
+      for (let r = 0; r < totalRows; r++) {
+        const isLast = r === totalRows - 1;
+        const uSize = isLast ? cHeight : cHeight + ROW_GAP;
+        const startI = r * numCols;
+        const endI = Math.min(n, startI + numCols);
+        const rowLen = endI - startI;
+
+        unitStart[r] = startI;
+        unitCardCount[r] = rowLen;
+        unitTop[r] = yCursor;
+        unitSize[r] = uSize;
+
+        for (let i = startI; i < endI; i++) {
+          const c = i - startI;
+          cardLeft[i] = colLefts[c];
+          cardTop[i] = yCursor;
+          cardWidth[i] = colWidths[c];
+          cardHeight[i] = cHeight;
+          cardThumbHeight[i] = thumbH;
+        }
+        yCursor += uSize;
+      }
+
+      return {
+        count: n,
+        unitCount: totalRows,
+        totalHeight: yCursor,
+        cardLeft,
+        cardTop,
+        cardWidth,
+        cardHeight,
+        cardThumbHeight,
+        unitStart,
+        unitCardCount,
+        unitTop,
+        unitSize,
+        waterfallBands: null,
+        idToIndexRef: { map: null },
+      };
+    }
+
+    if (layoutMode === "waterfall") {
+      // ================= 3. WATERFALL / MASONRY VIEW =================
+      const targetColWidth = Math.max(100, Math.round(safeTargetHeight * 1.55));
+      const numCols = Math.max(
+        1,
+        Math.floor((safeContainerWidth + gap) / (targetColWidth + gap))
+      );
+      const totalGaps = (numCols - 1) * gap;
+      const baseColWidth = Math.max(48, Math.floor((safeContainerWidth - totalGaps) / numCols));
+      const remainder = Math.max(0, safeContainerWidth - totalGaps - baseColWidth * numCols);
+
+      const colWidths = new Float32Array(numCols);
+      const colLefts = new Float32Array(numCols);
+      let xAcc = 0;
+      for (let c = 0; c < numCols; c++) {
+        const w = c < remainder ? baseColWidth + 1 : baseColWidth;
+        colWidths[c] = w;
+        colLefts[c] = xAcc;
+        xAcc += w + gap;
+      }
+
+      const colHeights = new Float32Array(numCols);
+      const waterfallBands: number[][] = [];
+
+      for (let i = 0; i < n; i++) {
+        let minCol = 0;
+        let minH = colHeights[0];
+        for (let c = 1; c < numCols; c++) {
+          if (colHeights[c] < minH) {
+            minH = colHeights[c];
+            minCol = c;
+          }
+        }
+
+        const colW = colWidths[minCol];
+        const ratio = getItemRatio(items[i]);
+        const thumbH = Math.max(48, Math.round(colW / ratio));
+        const cHeight = thumbH + LABEL_HEIGHT;
+        const top = minH;
+
+        cardLeft[i] = colLefts[minCol];
+        cardTop[i] = top;
+        cardWidth[i] = colW;
+        cardHeight[i] = cHeight;
+        cardThumbHeight[i] = thumbH;
+
+        const startBand = Math.max(0, Math.floor(top / WATERFALL_BAND_HEIGHT));
+        const endBand = Math.max(startBand, Math.floor((top + cHeight) / WATERFALL_BAND_HEIGHT));
+        for (let b = startBand; b <= endBand; b++) {
+          let band = waterfallBands[b];
+          if (!band) {
+            band = [];
+            waterfallBands[b] = band;
+          }
+          band.push(i);
+        }
+
+        colHeights[minCol] = top + cHeight + ROW_GAP;
+      }
+
+      let maxColH = 0;
+      for (let c = 0; c < numCols; c++) {
+        if (colHeights[c] > maxColH) maxColH = colHeights[c];
+      }
+      const totalHeight = maxColH > 0 ? maxColH - ROW_GAP : 0;
+      const totalBands = Math.max(1, Math.ceil(totalHeight / WATERFALL_BAND_HEIGHT));
+
+      const unitStart = new Int32Array(totalBands);
+      const unitCardCount = new Int32Array(totalBands);
+      const unitTop = new Float32Array(totalBands);
+      const unitSize = new Float32Array(totalBands);
+
+      for (let b = 0; b < totalBands; b++) {
+        const top = b * WATERFALL_BAND_HEIGHT;
+        const isLast = b === totalBands - 1;
+        const uSize = isLast ? Math.max(1, totalHeight - top) : WATERFALL_BAND_HEIGHT;
+        unitTop[b] = top;
+        unitSize[b] = uSize;
+      }
+
+      return {
+        count: n,
+        unitCount: totalBands,
+        totalHeight,
+        cardLeft,
+        cardTop,
+        cardWidth,
+        cardHeight,
+        cardThumbHeight,
+        unitStart,
+        unitCardCount,
+        unitTop,
+        unitSize,
+        waterfallBands,
+        idToIndexRef: { map: null },
+      };
+    }
+
+    // ================= 4. JUSTIFIED VIEW =================
+    // Single-pass TypedArray row builder without intermediate per-item objects
+    const itemRatios = new Float32Array(n);
+    const unitStartTemp = new Int32Array(n);
+    const unitCountTemp = new Int32Array(n);
+    const unitTopTemp = new Float32Array(n);
+    const unitSizeTemp = new Float32Array(n);
+
+    const maxRowHeightCap = Math.round(safeTargetHeight * 1.35);
+    let rowStartIdx = 0;
+    let currentRatiosSum = 0;
+    let uCount = 0;
+    let yCursor = 0;
+
+    const commitJustifiedRow = (
+      startIdx: number,
+      rowLen: number,
       availableWidth: number,
       projectedHeight: number,
-      maxHeight: number
-    ): LayoutRow => {
-      const finalHeight = Math.max(40, Math.min(maxHeight, Math.round(projectedHeight)));
-      const widths = rowEntries.map((entry) =>
-        Math.max(1, Math.floor(finalHeight * entry.ratio))
-      );
-      const currentTotal = widths.reduce((a, b) => a + b, 0);
-      const diff = availableWidth - currentTotal;
+      fillWidth: boolean,
+      isLastRow: boolean
+    ) => {
+      const finalThumbHeight = fillWidth
+        ? Math.max(40, Math.min(maxRowHeightCap, Math.round(projectedHeight)))
+        : safeTargetHeight;
 
-      // Only distribute positive remainder when row was not capped by maxHeight
-      if (diff > 0 && projectedHeight <= maxHeight && widths.length > 0) {
-        for (let k = 0; k < diff; k++) {
-          widths[k % widths.length] += 1;
-        }
-      } else if (diff < 0 && widths.length > 0) {
-        // Never let a row exceed availableWidth and cause horizontal overflow
-        let excess = -diff;
-        let guard = 0;
-        while (excess > 0 && guard < widths.length * 4) {
-          const idx = guard % widths.length;
-          if (widths[idx] > 24) {
-            widths[idx] -= 1;
-            excess -= 1;
+      let currentTotal = 0;
+      for (let c = 0; c < rowLen; c++) {
+        const idx = startIdx + c;
+        const w = fillWidth
+          ? Math.max(1, Math.floor(finalThumbHeight * itemRatios[idx]))
+          : Math.min(
+              availableWidth,
+              Math.max(1, Math.round(finalThumbHeight * itemRatios[idx]))
+            );
+        cardWidth[idx] = w;
+        currentTotal += w;
+      }
+
+      if (fillWidth && rowLen > 0) {
+        const diff = availableWidth - currentTotal;
+        if (diff > 0 && projectedHeight <= maxRowHeightCap) {
+          for (let k = 0; k < diff; k++) {
+            cardWidth[startIdx + (k % rowLen)] += 1;
           }
-          guard++;
+        } else if (diff < 0) {
+          let excess = -diff;
+          let guard = 0;
+          while (excess > 0 && guard < rowLen * 4) {
+            const targetIdx = startIdx + (guard % rowLen);
+            if (cardWidth[targetIdx] > 24) {
+              cardWidth[targetIdx] -= 1;
+              excess -= 1;
+            }
+            guard++;
+          }
         }
       }
 
-      const layoutItems: LayoutItem[] = rowEntries.map((entry, idx) => ({
-        item: entry.item,
-        width: widths[idx],
-        height: finalHeight,
-      }));
+      const cHeight = finalThumbHeight + LABEL_HEIGHT;
+      const uSize = isLastRow ? cHeight : cHeight + ROW_GAP;
+      let xCursor = 0;
+      for (let c = 0; c < rowLen; c++) {
+        const idx = startIdx + c;
+        cardLeft[idx] = xCursor;
+        cardTop[idx] = yCursor;
+        cardHeight[idx] = cHeight;
+        cardThumbHeight[idx] = finalThumbHeight;
+        xCursor += cardWidth[idx] + gap;
+      }
 
-      return {
-        items: layoutItems,
-        height: finalHeight,
-        rowTotalHeight: 0,
-        top: 0,
-        bottom: 0,
-      };
+      unitStartTemp[uCount] = startIdx;
+      unitCountTemp[uCount] = rowLen;
+      unitTopTemp[uCount] = yCursor;
+      unitSizeTemp[uCount] = uSize;
+      uCount++;
+      yCursor += uSize;
     };
 
-    const maxRowHeightCap = Math.round(safeTargetHeight * 1.35);
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const ratio = getItemRatio(item);
-
-      currentRow.push({ item, ratio });
+    for (let i = 0; i < n; i++) {
+      const ratio = getItemRatio(items[i]);
+      itemRatios[i] = ratio;
       currentRatiosSum += ratio;
 
-      const gapsTotal = (currentRow.length - 1) * gap;
+      const rowLen = i - rowStartIdx + 1;
+      const gapsTotal = (rowLen - 1) * gap;
       const availableWidth = Math.max(100, safeContainerWidth - gapsTotal);
       const projectedHeight = availableWidth / currentRatiosSum;
 
       if (projectedHeight <= safeTargetHeight * 1.25) {
-        computedRows.push(
-          buildFilledRow(currentRow, availableWidth, projectedHeight, maxRowHeightCap)
+        commitJustifiedRow(
+          rowStartIdx,
+          rowLen,
+          availableWidth,
+          projectedHeight,
+          true,
+          i === n - 1
         );
-        currentRow = [];
+        rowStartIdx = i + 1;
         currentRatiosSum = 0;
       }
     }
 
-    if (currentRow.length > 0) {
-      const gapsTotal = (currentRow.length - 1) * gap;
+    if (rowStartIdx < n) {
+      const rowLen = n - rowStartIdx;
+      const gapsTotal = (rowLen - 1) * gap;
       const availableWidth = Math.max(100, safeContainerWidth - gapsTotal);
       const projectedHeight = availableWidth / currentRatiosSum;
-
-      if (projectedHeight <= safeTargetHeight * 1.35) {
-        computedRows.push(
-          buildFilledRow(currentRow, availableWidth, projectedHeight, maxRowHeightCap)
-        );
-      } else {
-        const finalHeight = safeTargetHeight;
-        const layoutItems: LayoutItem[] = currentRow.map((entry) => ({
-          item: entry.item,
-          width: Math.min(availableWidth, Math.max(1, Math.round(finalHeight * entry.ratio))),
-          height: finalHeight,
-        }));
-        computedRows.push({
-          items: layoutItems,
-          height: finalHeight,
-          rowTotalHeight: 0,
-          top: 0,
-          bottom: 0,
-        });
-      }
-    }
-    const LABEL_HEIGHT = 24;
-    const ROW_GAP = 16;
-    let yCursor = 0;
-    for (let r = 0; r < computedRows.length; r++) {
-      const rowTotalHeight = computedRows[r].height + LABEL_HEIGHT;
-      computedRows[r].rowTotalHeight = rowTotalHeight;
-      computedRows[r].top = yCursor;
-      computedRows[r].bottom = yCursor + rowTotalHeight;
-      yCursor += rowTotalHeight + ROW_GAP;
+      const shouldFill = projectedHeight <= safeTargetHeight * 1.35;
+      commitJustifiedRow(
+        rowStartIdx,
+        rowLen,
+        availableWidth,
+        projectedHeight,
+        shouldFill,
+        true
+      );
     }
 
-    return computedRows;
-  }, [items, containerWidth, targetRowHeight, gap]);
-
-  // Handle single / Cmd / Shift card selection preserving FIFO selection order
-  const handleCardClick = (e: React.MouseEvent, item: Item) => {
-    e.stopPropagation();
-
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false;
-      return;
+    const layoutDur = performance.now() - tLayout0;
+    if (layoutDur >= 12) {
+      logDiagnostic(
+        "perf",
+        "perf",
+        "Gallery TypedArray layout computed",
+        `mode=${layoutMode} items=${n} units=${uCount} width=${safeContainerWidth}`,
+        Math.round(layoutDur)
+      );
     }
 
-    if (e.metaKey || e.ctrlKey) {
-      const exists = selectedSet.has(item.id);
-      const nextOrder = exists
-        ? selectedOrder.filter((id) => id !== item.id)
-        : [...selectedOrder, item.id];
-      setLastClickedItemId(item.id);
-      onSelectionChange(nextOrder, exists ? undefined : item);
-    } else if (e.shiftKey && lastClickedItemId) {
-      const fromIdx = items.findIndex((i) => i.id === lastClickedItemId);
-      const toIdx = items.findIndex((i) => i.id === item.id);
-      if (fromIdx !== -1 && toIdx !== -1) {
-        const step = fromIdx <= toIdx ? 1 : -1;
-        const nextOrder = [...selectedOrder];
-        const existing = new Set(nextOrder);
-        for (let i = fromIdx; step > 0 ? i <= toIdx : i >= toIdx; i += step) {
-          const id = items[i].id;
-          if (!existing.has(id)) {
-            existing.add(id);
-            nextOrder.push(id);
-          }
+    return {
+      count: n,
+      unitCount: uCount,
+      totalHeight: yCursor,
+      cardLeft,
+      cardTop,
+      cardWidth,
+      cardHeight,
+      cardThumbHeight,
+      unitStart: unitStartTemp.subarray(0, uCount),
+      unitCardCount: unitCountTemp.subarray(0, uCount),
+      unitTop: unitTopTemp.subarray(0, uCount),
+      unitSize: unitSizeTemp.subarray(0, uCount),
+      waterfallBands: null,
+      idToIndexRef: { map: null },
+    };
+  }, [items, containerWidth, targetRowHeight, gap, layoutMode]);
+
+  // Lazy O(1) lookup from item ID to flat index (only built on demand when user clicks/navigates)
+  const getFlatIndexById = useCallback(
+    (id: string): number => {
+      if (!id || items.length === 0) return -1;
+      let map = layoutData.idToIndexRef.map;
+      if (!map) {
+        map = new Map<string, number>();
+        for (let i = 0; i < items.length; i++) {
+          map.set(items[i].id, i);
         }
-        onSelectionChange(nextOrder, item);
+        layoutData.idToIndexRef.map = map;
       }
-    } else {
-      setLastClickedItemId(item.id);
-      onSelectionChange([item.id], item);
-    }
-  };
+      return map.get(id) ?? -1;
+    },
+    [items, layoutData]
+  );
 
-  // Precompute 2D spatial lookup (row index, item index in row, horizontal center X)
-  // so ArrowUp / ArrowDown can jump to the visually aligned card in the adjacent row,
-  // while ArrowLeft / ArrowRight step sequentially across items.
-  const layoutIndex = useMemo(() => {
-    const byId = new Map<
-      string,
-      { flatIdx: number; rowIdx: number; colIdx: number; centerX: number }
-    >();
-    const rowCenters: { item: Item; flatIdx: number; centerX: number }[][] = [];
-    const boxes: { id: string; left: number; right: number; top: number; bottom: number }[] = [];
-    let flatIdx = 0;
+  // Official @tanstack/react-virtual virtualizer:
+  // Uses numeric index keys (default getItemKey) so prepending/deleting an item NEVER
+  // invalidates 6,000+ keys in Virtualizer's itemSizeCache, and passes `layoutData` in
+  // useMemo deps instead of calling `rowVirtualizer.measure()` in a double-render useEffect!
+  const rowVirtualizer = useVirtualizer({
+    count: layoutData.unitCount,
+    getScrollElement: getScrollHost,
+    estimateSize: useCallback(
+      (index: number) => layoutData.unitSize[index] ?? 120,
+      [layoutData]
+    ),
+    overscan: layoutMode === "list" ? 14 : 5,
+    scrollMargin,
+  });
 
-    for (let r = 0; r < rows.length; r++) {
-      const row = rows[r];
-      let xCursor = 0;
-      const centers: { item: Item; flatIdx: number; centerX: number }[] = [];
-      for (let c = 0; c < row.items.length; c++) {
-        const entry = row.items[c];
-        const centerX = xCursor + entry.width / 2;
-        byId.set(entry.item.id, {
-          flatIdx,
-          rowIdx: r,
-          colIdx: c,
-          centerX,
-        });
-        centers.push({ item: entry.item, flatIdx, centerX });
-        boxes.push({
-          id: entry.item.id,
-          left: xCursor,
-          right: xCursor + entry.width,
-          top: row.top,
-          bottom: row.bottom,
-        });
-        xCursor += entry.width + gap;
-        flatIdx++;
+  // Stable card event handlers so React.memo on ImageThumbnailCard skips re-rendering surviving cards
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent, item: Item) => {
+      e.stopPropagation();
+
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
       }
-      rowCenters.push(centers);
-    }
 
-    return { byId, rowCenters, boxes };
-  }, [rows, gap]);
+      const currentOrder = currentOrderRef.current;
+      if (e.metaKey || e.ctrlKey) {
+        const exists = currentOrder.includes(item.id);
+        const nextOrder = exists
+          ? currentOrder.filter((id) => id !== item.id)
+          : [...currentOrder, item.id];
+        setLastClickedItemId(item.id);
+        onSelectionChangeRef.current(nextOrder, exists ? undefined : item);
+      } else if (e.shiftKey && lastClickedItemId) {
+        const fromIdx = getFlatIndexById(lastClickedItemId);
+        const toIdx = getFlatIndexById(item.id);
+        if (fromIdx !== -1 && toIdx !== -1) {
+          const step = fromIdx <= toIdx ? 1 : -1;
+          const nextOrder = [...currentOrder];
+          const existing = new Set(nextOrder);
+          for (let i = fromIdx; step > 0 ? i <= toIdx : i >= toIdx; i += step) {
+            const id = items[i].id;
+            if (!existing.has(id)) {
+              existing.add(id);
+              nextOrder.push(id);
+            }
+          }
+          onSelectionChangeRef.current(nextOrder, item);
+        }
+      } else {
+        setLastClickedItemId(item.id);
+        onSelectionChangeRef.current([item.id], item);
+      }
+    },
+    [lastClickedItemId, getFlatIndexById, items]
+  );
+
+  const handleCardDoubleClick = useCallback((_e: React.MouseEvent, item: Item) => {
+    onDoubleClickRef.current(item);
+  }, []);
+
+  const handleCardDragStart = useCallback((e: React.DragEvent, item: Item) => {
+    onDragStartRef.current(e, item);
+  }, []);
+
+  const handleCardContextMenu = useCallback((e: React.MouseEvent, item: Item) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onItemContextMenuRef.current(e, item);
+  }, []);
 
   // Remember the horizontal anchor X across consecutive ArrowUp / ArrowDown presses
-  // so navigating through rows with varying card widths doesn't drift horizontally.
   const verticalAnchorXRef = useRef<number | null>(null);
 
-  // Reset vertical anchor X whenever user clicks a card
   useEffect(() => {
     verticalAnchorXRef.current = null;
   }, [lastClickedItemId]);
 
-  // 2D Arrow-key navigation (ArrowLeft, ArrowRight, ArrowUp, ArrowDown)
+  // 2D Arrow-key navigation across all 4 layout modes (Justified, Waterfall, Grid, List)
   useEffect(() => {
     if (!keyboardNavEnabled || items.length === 0) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Do not hijack when modifier keys for browser history (Alt/Cmd/Ctrl + Arrow) are pressed
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       const target = e.target as HTMLElement | null;
@@ -502,68 +761,81 @@ export function JustifiedGallery({
         currentOrder.length > 0
           ? currentOrder[currentOrder.length - 1]
           : lastClickedItemId;
-      const currentPos = activeId ? layoutIndex.byId.get(activeId) : undefined;
+      const currentIdx = activeId ? getFlatIndexById(activeId) : -1;
 
-      let nextItem: Item | undefined;
+      let nextIdx = -1;
 
-      if (!currentPos) {
-        // Nothing currently selected: pick first item (or last item for ArrowLeft/ArrowUp)
-        nextItem =
+      if (currentIdx === -1) {
+        nextIdx =
           code === "ArrowLeft" || code === "ArrowUp"
-            ? items[items.length - 1]
-            : items[0];
+            ? items.length - 1
+            : 0;
         verticalAnchorXRef.current = null;
+      } else if (layoutMode === "list") {
+        verticalAnchorXRef.current = null;
+        const delta = code === "ArrowUp" || code === "ArrowLeft" ? -1 : 1;
+        nextIdx = Math.max(0, Math.min(items.length - 1, currentIdx + delta));
       } else if (code === "ArrowLeft") {
         verticalAnchorXRef.current = null;
-        const nextFlat = Math.max(0, currentPos.flatIdx - 1);
-        nextItem = items[nextFlat];
+        nextIdx = Math.max(0, currentIdx - 1);
       } else if (code === "ArrowRight") {
         verticalAnchorXRef.current = null;
-        const nextFlat = Math.min(items.length - 1, currentPos.flatIdx + 1);
-        nextItem = items[nextFlat];
+        nextIdx = Math.min(items.length - 1, currentIdx + 1);
       } else {
-        // ArrowUp or ArrowDown: find card with closest horizontal centerX in target row
-        const targetRowIdx =
-          code === "ArrowUp" ? currentPos.rowIdx - 1 : currentPos.rowIdx + 1;
-        if (targetRowIdx < 0 || targetRowIdx >= layoutIndex.rowCenters.length) {
-          // Already on top/bottom row: keep current selection and ensure it is scrolled into view
-          nextItem = items[currentPos.flatIdx];
-        } else {
-          const anchorX = verticalAnchorXRef.current ?? currentPos.centerX;
-          verticalAnchorXRef.current = anchorX;
-          const targetRow = layoutIndex.rowCenters[targetRowIdx];
-          let best = targetRow[0];
-          let bestDist = Math.abs(best.centerX - anchorX);
-          for (let i = 1; i < targetRow.length; i++) {
-            const candidate = targetRow[i];
-            const dist = Math.abs(candidate.centerX - anchorX);
-            if (dist < bestDist) {
-              best = candidate;
-              bestDist = dist;
-            }
+        // ArrowUp or ArrowDown: spatial 2D search around currentIdx
+        const curCenterX = layoutData.cardLeft[currentIdx] + layoutData.cardWidth[currentIdx] * 0.5;
+        const curTop = layoutData.cardTop[currentIdx];
+        const curBottom = curTop + layoutData.cardHeight[currentIdx];
+        const curCenterY = curTop + layoutData.cardHeight[currentIdx] * 0.5;
+
+        const anchorX = verticalAnchorXRef.current ?? curCenterX;
+        verticalAnchorXRef.current = anchorX;
+        const isUp = code === "ArrowUp";
+
+        let bestIdx = -1;
+        let bestScore = Infinity;
+
+        // Scan nearby index window (±64 items covers several rows/columns in all layouts)
+        const startScan = isUp ? Math.max(0, currentIdx - 80) : currentIdx + 1;
+        const endScan = isUp ? currentIdx - 1 : Math.min(items.length - 1, currentIdx + 80);
+
+        for (let i = startScan; i <= endScan; i++) {
+          const cTop = layoutData.cardTop[i];
+          const cH = layoutData.cardHeight[i];
+          const cCenterY = cTop + cH * 0.5;
+          if (isUp ? cCenterY >= curTop - 4 : cCenterY <= curBottom + 4) {
+            continue;
           }
-          nextItem = best.item;
+          const cCenterX = layoutData.cardLeft[i] + layoutData.cardWidth[i] * 0.5;
+          const dy = Math.abs(cCenterY - curCenterY);
+          const dx = Math.abs(cCenterX - anchorX);
+          const score = dy * 2.5 + dx;
+          if (score < bestScore) {
+            bestScore = score;
+            bestIdx = i;
+          }
         }
+
+        nextIdx = bestIdx !== -1 ? bestIdx : currentIdx;
       }
 
+      const nextItem = items[nextIdx];
       if (!nextItem) return;
 
       if (e.shiftKey) {
-        // Shift + Arrow: extend or move selection in FIFO order
         const anchorId =
           lastClickedItemId ??
           (currentOrder.length > 0 ? currentOrder[0] : nextItem.id);
         if (!lastClickedItemId) {
           setLastClickedItemId(anchorId);
         }
-        const nextPos = layoutIndex.byId.get(nextItem.id);
-        const anchorPos = layoutIndex.byId.get(anchorId);
-        if (nextPos && anchorPos) {
-          const step = anchorPos.flatIdx <= nextPos.flatIdx ? 1 : -1;
+        const anchorIdx = getFlatIndexById(anchorId);
+        if (nextIdx !== -1 && anchorIdx !== -1) {
+          const step = anchorIdx <= nextIdx ? 1 : -1;
           const rangeOrder: string[] = [];
           for (
-            let i = anchorPos.flatIdx;
-            step > 0 ? i <= nextPos.flatIdx : i >= nextPos.flatIdx;
+            let i = anchorIdx;
+            step > 0 ? i <= nextIdx : i >= nextIdx;
             i += step
           ) {
             rangeOrder.push(items[i].id);
@@ -582,45 +854,46 @@ export function JustifiedGallery({
         onSelectionChangeRef.current(nextOrder, nextItem);
       }
 
-      // Scroll the newly active card smoothly into the visible viewport if needed
-      const container = containerRef.current;
-      const host = container?.parentElement;
-      const nextPos = layoutIndex.byId.get(nextItem.id);
-      if (host && nextPos && rows[nextPos.rowIdx]) {
-        const targetRow = rows[nextPos.rowIdx];
+      // Scroll newly active card into visible viewport
+      const host = getScrollHost();
+      if (host && nextIdx >= 0 && nextIdx < layoutData.count) {
+        const offsetTop = containerRef.current?.offsetTop || 0;
+        const cardAbsTop = offsetTop + layoutData.cardTop[nextIdx];
+        const cardAbsBottom = cardAbsTop + layoutData.cardHeight[nextIdx];
         const viewTop = host.scrollTop;
         const viewBottom = viewTop + host.clientHeight;
-        if (targetRow.top < viewTop) {
-          host.scrollTop = Math.max(0, targetRow.top - 16);
-        } else if (targetRow.bottom > viewBottom) {
-          host.scrollTop = targetRow.bottom - host.clientHeight + 32;
+        if (cardAbsTop < viewTop) {
+          host.scrollTop = Math.max(0, cardAbsTop - 16);
+        } else if (cardAbsBottom > viewBottom) {
+          host.scrollTop = cardAbsBottom - host.clientHeight + 32;
         }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [keyboardNavEnabled, items, layoutIndex, lastClickedItemId]);
+  }, [keyboardNavEnabled, items, layoutData, lastClickedItemId, layoutMode, getFlatIndexById, getScrollHost]);
 
   // Convert viewport client coordinates to containerRef-relative coordinates
-  // so marquee works identically anywhere in the scroll viewport (including padding & blank space below rows)
-  const clientToContainerPoint = useCallback((clientX: number, clientY: number) => {
-    const container = containerRef.current;
-    const host = container?.parentElement;
-    if (!container || !host) return null;
+  const clientToContainerPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const container = containerRef.current;
+      const host = getScrollHost();
+      if (!container || !host) return null;
 
-    const hostRect = host.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
 
-    // Clamp to visible scroll host viewport
-    const clampedClientX = Math.max(hostRect.left, Math.min(hostRect.right, clientX));
-    const clampedClientY = Math.max(hostRect.top, Math.min(hostRect.bottom, clientY));
+      const clampedClientX = Math.max(hostRect.left, Math.min(hostRect.right, clientX));
+      const clampedClientY = Math.max(hostRect.top, Math.min(hostRect.bottom, clientY));
 
-    return {
-      x: clampedClientX - containerRect.left,
-      y: clampedClientY - containerRect.top,
-    };
-  }, []);
+      return {
+        x: clampedClientX - containerRect.left,
+        y: clampedClientY - containerRect.top,
+      };
+    },
+    [getScrollHost]
+  );
 
   const cancelLongPress = useCallback(() => {
     if (longPressTimerRef.current !== null) {
@@ -631,7 +904,7 @@ export function JustifiedGallery({
 
   const endMarquee = useCallback(() => {
     cancelLongPress();
-    const host = containerRef.current?.parentElement;
+    const host = getScrollHost();
     const pointerId = activePointerIdRef.current;
     if (host && pointerId !== null) {
       try {
@@ -652,7 +925,7 @@ export function JustifiedGallery({
     }
     marqueeRef.current = null;
     setMarquee(null);
-  }, [cancelLongPress]);
+  }, [cancelLongPress, getScrollHost]);
 
   const beginMarquee = useCallback(
     (clientX: number, clientY: number) => {
@@ -660,8 +933,6 @@ export function JustifiedGallery({
       const pt = clientToContainerPoint(clientX, clientY);
       if (!container || !pt) return;
 
-      // Use precomputed layout boxes so marquee works across all virtualized rows
-      cardBoxesRef.current = layoutIndex.boxes;
       const box: MarqueeBox = {
         startX: pt.x,
         startY: pt.y,
@@ -670,7 +941,7 @@ export function JustifiedGallery({
       };
 
       const pointerId = activePointerIdRef.current;
-      const host = container.parentElement;
+      const host = getScrollHost();
       if (pointerId !== null && host) {
         try {
           if (!host.hasPointerCapture(pointerId)) host.setPointerCapture(pointerId);
@@ -683,7 +954,7 @@ export function JustifiedGallery({
       marqueeRef.current = box;
       setMarquee(box);
     },
-    [clientToContainerPoint, layoutIndex.boxes]
+    [clientToContainerPoint, getScrollHost]
   );
 
   const queueMarqueeMove = useCallback(
@@ -695,7 +966,7 @@ export function JustifiedGallery({
         frameRef.current = null;
         const rawPt = pendingClientRef.current;
         const current = marqueeRef.current;
-        const host = containerRef.current?.parentElement;
+        const host = getScrollHost();
         if (!rawPt || !current || !host) return;
 
         // Auto-scroll when dragging near the top or bottom edge of the scroll host
@@ -725,21 +996,62 @@ export function JustifiedGallery({
 
         if (boxRight - boxLeft < 4 && boxBottom - boxTop < 4) return;
 
-        // Collect all currently intersected card IDs
         const hitSet = new Set<string>();
-        for (const card of cardBoxesRef.current) {
-          const hit = !(
-            card.right < boxLeft ||
-            card.left > boxRight ||
-            card.bottom < boxTop ||
-            card.top > boxBottom
+        const {
+          count,
+          cardLeft,
+          cardTop,
+          cardWidth,
+          cardHeight,
+          waterfallBands,
+        } = layoutData;
+
+        if (waterfallBands) {
+          const startB = Math.max(0, Math.floor(boxTop / WATERFALL_BAND_HEIGHT));
+          const endB = Math.min(
+            Math.max(0, waterfallBands.length - 1),
+            Math.floor(boxBottom / WATERFALL_BAND_HEIGHT)
           );
-          if (hit) hitSet.add(card.id);
+          for (let b = startB; b <= endB; b++) {
+            const band = waterfallBands[b];
+            if (!band) continue;
+            for (let k = 0; k < band.length; k++) {
+              const i = band[k];
+              const l = cardLeft[i];
+              const t = cardTop[i];
+              const r = l + cardWidth[i];
+              const btm = t + cardHeight[i];
+              if (!(r < boxLeft || l > boxRight || btm < boxTop || t > boxBottom)) {
+                hitSet.add(items[i].id);
+              }
+            }
+          }
+        } else {
+          // Binary search for first card whose bottom >= boxTop (since cardTop is monotonically non-decreasing)
+          let lo = 0;
+          let hi = count - 1;
+          let startIdx = 0;
+          while (lo <= hi) {
+            const mid = (lo + hi) >>> 1;
+            if (cardTop[mid] + cardHeight[mid] < boxTop) {
+              lo = mid + 1;
+            } else {
+              startIdx = mid;
+              hi = mid - 1;
+            }
+          }
+          for (let i = startIdx; i < count; i++) {
+            const t = cardTop[i];
+            if (t > boxBottom) break;
+            const l = cardLeft[i];
+            const r = l + cardWidth[i];
+            const btm = t + cardHeight[i];
+            if (!(r < boxLeft || l > boxRight || btm < boxTop || t > boxBottom)) {
+              hitSet.add(items[i].id);
+            }
+          }
         }
 
-        // Preserve FIFO selection order:
-        // 1. Keep items from baseOrder (if additive) or currentOrder that are still hit, in their existing order
-        // 2. Append newly hit items to the end of the queue
         const prevOrder = currentOrderRef.current;
         const baseSet = new Set(additive ? baseOrderRef.current : []);
         const nextOrder: string[] = [];
@@ -765,13 +1077,12 @@ export function JustifiedGallery({
         onSelectionChangeRef.current(nextOrder);
       });
     },
-    [clientToContainerPoint]
+    [clientToContainerPoint, getScrollHost, layoutData, items]
   );
 
-  // Attach pointer listeners to the scroll host so pressing ANYWHERE in the canvas
-  // (between cards, row-end whitespace, bottom blank space, or padding) triggers marquee selection.
+  // Attach pointer listeners to the scroll host so pressing ANYWHERE in the canvas triggers marquee selection
   useEffect(() => {
-    const host = containerRef.current?.parentElement;
+    const host = getScrollHost();
     if (!host) return;
 
     const handleDown = (e: PointerEvent) => {
@@ -793,7 +1104,6 @@ export function JustifiedGallery({
       suppressClickRef.current = false;
 
       if (target.closest("[data-asset-id]")) {
-        // Pressed on a card: allow native drag, or convert to marquee on 1s long press
         cancelLongPress();
         longPressOriginRef.current = { clientX: e.clientX, clientY: e.clientY };
         longPressTimerRef.current = window.setTimeout(() => {
@@ -806,8 +1116,6 @@ export function JustifiedGallery({
         return;
       }
 
-      // Pressed on any whitespace (padding, row gap, row-end blank, or below last row):
-      // Immediately clear selection (unless additive) and start marquee box!
       if (!additive) {
         currentOrderRef.current = [];
         onSelectionChangeRef.current([]);
@@ -865,7 +1173,7 @@ export function JustifiedGallery({
       window.removeEventListener("blur", handleUp);
       document.removeEventListener("visibilitychange", handleUp);
     };
-  }, [beginMarquee, queueMarqueeMove, cancelLongPress, endMarquee]);
+  }, [beginMarquee, queueMarqueeMove, cancelLongPress, endMarquee, getScrollHost]);
 
   const marqueeStyle = useMemo(() => {
     if (!marquee) return null;
@@ -882,46 +1190,54 @@ export function JustifiedGallery({
     };
   }, [marquee]);
 
-  // Compute virtualized visible row slice with generous overscan
-  const { visibleRows, topSpacerHeight, bottomSpacerHeight } = useMemo(() => {
-    if (rows.length <= 24) {
-      return { visibleRows: rows, topSpacerHeight: 0, bottomSpacerHeight: 0 };
-    }
-    const overscan = 600;
-    const lastRow = rows[rows.length - 1];
-    const totalContentHeight = lastRow ? lastRow.bottom : 0;
-    const effectiveViewportHeight = Math.max(600, scrollState.viewportHeight);
-    const rawRelativeScrollTop = Math.max(0, scrollState.scrollTop - scrollState.offsetTop);
-    // Clamp scrollTop to valid scrollable range so deleting items while scrolled near the bottom
-    // never produces an out-of-bounds slice before the browser clamps host.scrollTop
-    const maxValidScrollTop = Math.max(0, totalContentHeight - effectiveViewportHeight);
-    const relativeScrollTop = Math.min(rawRelativeScrollTop, maxValidScrollTop);
-    const minY = Math.max(0, relativeScrollTop - overscan);
-    const maxY = relativeScrollTop + effectiveViewportHeight + overscan;
-    let startIdx = 0;
-    while (startIdx < rows.length && rows[startIdx].bottom < minY) {
-      startIdx++;
-    }
-    let endIdx = startIdx;
-    while (endIdx < rows.length && rows[endIdx].top <= maxY) {
-      endIdx++;
-    }
-    startIdx = Math.max(0, startIdx - 1);
-    endIdx = Math.min(rows.length, endIdx + 1);
+  const virtualItems = rowVirtualizer.getVirtualItems();
 
-    const topH = startIdx > 0 ? rows[startIdx].top : 0;
-    const endRow = endIdx > 0 ? rows[endIdx - 1] : null;
-    const bottomH = endRow && endIdx < rows.length ? Math.max(0, lastRow.bottom - endRow.bottom) : 0;
+  // Extract visible card indices from the active virtual units (typically 30..120 indices)
+  const visibleCardIndices = useMemo(() => {
+    const out: number[] = [];
+    const { waterfallBands, unitStart, unitCardCount, count } = layoutData;
+    if (count === 0) return out;
 
-    return {
-      visibleRows: rows.slice(startIdx, endIdx),
-      topSpacerHeight: topH,
-      bottomSpacerHeight: bottomH,
-    };
-  }, [rows, scrollState.scrollTop, scrollState.viewportHeight, scrollState.offsetTop]);
+    if (waterfallBands) {
+      const seen = new Set<number>();
+      for (let i = 0; i < virtualItems.length; i++) {
+        const band = waterfallBands[virtualItems[i].index];
+        if (!band) continue;
+        for (let k = 0; k < band.length; k++) {
+          const cardIdx = band[k];
+          if (cardIdx < count && !seen.has(cardIdx)) {
+            seen.add(cardIdx);
+            out.push(cardIdx);
+          }
+        }
+      }
+      return out;
+    }
+
+    for (let i = 0; i < virtualItems.length; i++) {
+      const uIdx = virtualItems[i].index;
+      if (uIdx < 0 || uIdx >= unitStart.length) continue;
+      const start = unitStart[uIdx];
+      const len = unitCardCount[uIdx];
+      const end = Math.min(count, start + len);
+      for (let idx = start; idx < end; idx++) {
+        out.push(idx);
+      }
+    }
+    return out;
+  }, [virtualItems, layoutData]);
+
+  const totalVirtualHeight = Math.max(
+    rowVirtualizer.getTotalSize(),
+    layoutData.totalHeight
+  );
+
   return (
     <div
       ref={containerRef}
+      style={{
+        height: `${Math.max(240, totalVirtualHeight + 24)}px`,
+      }}
       onDragStartCapture={(e) => {
         if (longPressArmedRef.current) {
           e.preventDefault();
@@ -934,7 +1250,7 @@ export function JustifiedGallery({
         e.preventDefault();
         onCanvasContextMenu(e);
       }}
-      className="relative w-full flex-1 flex flex-col gap-4 select-none overflow-x-hidden"
+      className="relative w-full shrink-0 select-none"
     >
       {marqueeStyle && (
         <div
@@ -944,42 +1260,26 @@ export function JustifiedGallery({
         />
       )}
 
-      {topSpacerHeight > 0 && (
-        <div style={{ height: `${topSpacerHeight}px`, marginBottom: "-16px" }} className="w-full shrink-0 pointer-events-none" />
-      )}
-
-      {visibleRows.map((row) => (
-        <div
-          key={row.items[0]?.item.id ?? row.top}
-          style={{ gap: `${gap}px` }}
-          className="flex flex-nowrap items-start w-full shrink-0"
-        >
-          {row.items.map(({ item, width, height }) => (
-            <ImageThumbnailCard
-              key={item.id}
-              item={item}
-              cardWidth={width}
-              cardHeight={height}
-              isSelected={selectedSet.has(item.id)}
-              onClick={(e) => handleCardClick(e, item)}
-              onDoubleClick={() => onDoubleClickItem(item)}
-              onDragStart={(e) => onDragStartItem(e, item)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onItemContextMenu(e, item);
-              }}
-            />
-          ))}
-        </div>
-      ))}
-
-      {bottomSpacerHeight > 0 && (
-        <div style={{ height: `${bottomSpacerHeight}px`, marginTop: "-16px" }} className="w-full shrink-0 pointer-events-none" />
-      )}
-
-      {/* Flexible blank canvas filler at the bottom so clicking/dragging below the last row always hits containerRef */}
-      <div className="flex-1 min-h-4 w-full pointer-events-none" />
+      {visibleCardIndices.map((idx) => {
+        const item = items[idx];
+        if (!item) return null;
+        return (
+          <ImageThumbnailCard
+            key={item.id}
+            item={item}
+            layoutMode={layoutMode}
+            cardWidth={layoutData.cardWidth[idx]}
+            cardHeight={layoutData.cardThumbHeight[idx]}
+            left={layoutData.cardLeft[idx]}
+            top={layoutData.cardTop[idx]}
+            isSelected={selectedSet.has(item.id)}
+            onClick={handleCardClick}
+            onDoubleClick={handleCardDoubleClick}
+            onDragStart={handleCardDragStart}
+            onContextMenu={handleCardContextMenu}
+          />
+        );
+      })}
     </div>
   );
-}
+});

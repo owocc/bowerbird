@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events } from "@wailsio/runtime";
 import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
+import type { Item } from "../../bindings/bowerbird/core/models";
 import { isInternalDragActive } from "../lib/drag-state";
 import { notifySuccess, notifyError } from "@/lib/notify";
 import { SuccessCodes, ErrorCodes } from "@/lib/error-codes";
+import { logDiagnostic } from "@/lib/logger";
 import { useTranslation } from "react-i18next";
-
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
 
 interface WailsFlagWindow extends Window {
@@ -75,10 +76,12 @@ export interface DropState {
 }
 
 interface UseFileDropOptions {
-  onRefresh: (newlyImportedIds?: string[]) => void | Promise<void>;
+  onRefresh: (newlyImportedIds?: string[], newlyImportedItems?: Item[]) => void | Promise<void>;
+  onItemsUpserted?: (upsertedItems: Item[]) => void;
+  onItemsTrashed?: (trashedIds: string[]) => void;
 }
 
-export function useFileDrop({ onRefresh }: UseFileDropOptions) {
+export function useFileDrop({ onRefresh, onItemsUpserted, onItemsTrashed }: UseFileDropOptions) {
   const { t } = useTranslation();
   const [state, setState] = useState<DropState>({
     status: "idle",
@@ -148,12 +151,24 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     });
 
     const unsubCompleted = Events.On("import-completed", (event: unknown) => {
+      const recvTs = performance.now();
       const data = extractEventPayload(event);
       const count = "count" in data ? Number(data.count) : 0;
       const ids =
         "ids" in data && Array.isArray(data.ids)
           ? data.ids.filter((id): id is string => typeof id === "string")
           : undefined;
+      const importedItems =
+        "items" in data && Array.isArray(data.items)
+          ? (data.items as Item[])
+          : undefined;
+      logDiagnostic(
+        "perf",
+        "ui",
+        "[Pipeline 6a/6] Frontend received import-completed event",
+        `count=${count} hasInlineItems=${Boolean(importedItems?.length)}`,
+        Math.round(performance.now() - recvTs)
+      );
       setState({
         status: "idle",
         total: 0,
@@ -164,7 +179,25 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       if (count > 0) {
         notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count });
       }
-      onRefresh(ids);
+      void Promise.resolve(onRefresh(ids, importedItems)).then(() => {
+        let done = false;
+        const markPainted = (via: string) => {
+          if (done) return;
+          done = true;
+          const rafTs = performance.now();
+          logDiagnostic(
+            "perf",
+            "ui",
+            "[Pipeline 6c/6] Frontend DOM committed & painted imported item",
+            `count=${count} firstId=${ids?.[0]?.slice(0, 12) ?? "-"} via=${via}`,
+            Math.round(rafTs - recvTs)
+          );
+        };
+
+        requestAnimationFrame(() => markPainted("raf"));
+        // Fallback: If window is backgrounded/unfocused and WebKit freezes rAF, don't report false freeze
+        window.setTimeout(() => markPainted("fallback-timer"), 40);
+      });
       clearTimer();
     });
 
@@ -184,6 +217,42 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       });
       notifyError(msg);
       clearTimer();
+    });
+
+    const unsubUpserted = Events.On("library-items-upserted", (event: unknown) => {
+      if (!onItemsUpserted) return;
+      const t0 = performance.now();
+      let list: Item[] = [];
+      if (Array.isArray(event)) {
+        list = event as Item[];
+      } else if (event && typeof event === "object" && "data" in event && Array.isArray(event.data)) {
+        list = event.data as Item[];
+      }
+      if (list.length > 0) {
+        onItemsUpserted(list);
+        requestAnimationFrame(() => {
+          logDiagnostic(
+            "perf",
+            "ui",
+            "[Pipeline 6b/6] Frontend processed library-items-upserted",
+            `upsertedCount=${list.length} firstName=${list[0]?.name ?? "-"}`,
+            Math.round(performance.now() - t0)
+          );
+        });
+      }
+    });
+
+    const unsubTrashed = Events.On("library-items-trashed", (event: unknown) => {
+      if (!onItemsTrashed) return;
+      let ids: string[] = [];
+      if (Array.isArray(event)) {
+        ids = event.filter((x): x is string => typeof x === "string");
+      } else if (event && typeof event === "object" && "data" in event && Array.isArray(event.data)) {
+        ids = event.data.filter((x): x is string => typeof x === "string");
+      }
+      if (ids.length > 0) {
+        onItemsTrashed(ids);
+      }
     });
 
     const unsubUpdated = Events.On("library-items-updated", () => {
@@ -206,11 +275,13 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       unsubProgress();
       unsubCompleted();
       unsubError();
+      unsubUpserted();
+      unsubTrashed();
       unsubUpdated();
       clearTimer();
       clearRefreshThrottle();
     };
-  }, [onRefresh, t]);
+  }, [onRefresh, onItemsUpserted, onItemsTrashed, t]);
   // Window-level listener: whenever external files are dragged over the window,
   // dynamically set document.body[data-dragging-files="true"] to disable all window dragging (-webkit-app-region: drag)
   useEffect(() => {
@@ -265,14 +336,14 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     };
   }, []);
 
-  // Import single File object via FileReader and return its new item ID
-  const importFileObject = useCallback(async (file: globalThis.File): Promise<string | null> => {
-    const { promise, resolve } = Promise.withResolvers<string | null>();
+  // Import single File object via FileReader and return its new Item
+  const importFileObject = useCallback(async (file: globalThis.File): Promise<Item | null> => {
+    const { promise, resolve } = Promise.withResolvers<Item | null>();
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const item = await ImportFromBase64(file.name, reader.result as string);
-        resolve(item?.id || null);
+        resolve(item || null);
       } catch (err) {
         console.error("Failed to import file:", file.name, err);
         resolve(null);
@@ -282,7 +353,6 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
     reader.readAsDataURL(file);
     return promise;
   }, []);
-
   // Batch import File objects (uses native Go multi-goroutine path import if disk paths are available)
   const importFileList = useCallback(
     async (fileList: FileList | globalThis.File[]): Promise<string[]> => {
@@ -318,9 +388,8 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
           });
           if (ids.length > 0) {
             notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: ids.length });
-            await onRefresh(ids);
+            await onRefresh(ids, imported || []);
           }
-          return ids;
         } catch (err) {
           setState({
             status: "idle",
@@ -343,6 +412,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
       });
 
       const importedIds: string[] = [];
+      const importedItems: Item[] = [];
       let completedCount = 0;
       let cursor = 0;
       const concurrency = Math.min(4, files.length);
@@ -351,9 +421,12 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
         while (cursor < files.length) {
           const idx = cursor++;
           const file = files[idx];
-          const itemId = await importFileObject(file);
+          const item = await importFileObject(file);
           completedCount++;
-          if (itemId) importedIds.push(itemId);
+          if (item) {
+            importedIds.push(item.id);
+            importedItems.push(item);
+          }
           setState({
             status: "importing",
             total: files.length,
@@ -379,7 +452,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
           message: t("importing.importedFiles", { count: importedIds.length }),
         });
         notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: importedIds.length });
-        await onRefresh(importedIds);
+        await onRefresh(importedIds, importedItems);
       } else {
         setState({
           status: "idle",
@@ -422,7 +495,7 @@ export function useFileDrop({ onRefresh }: UseFileDropOptions) {
             message: t("importing.remoteImported", { name: item.name }),
           });
           notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: 1 });
-          await onRefresh([item.id]);
+          await onRefresh([item.id], [item]);
         }
       } catch (err) {
         console.error("Failed to fetch remote asset:", err);

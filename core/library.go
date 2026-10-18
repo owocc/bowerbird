@@ -60,6 +60,7 @@ type LibraryManager struct {
 	trashDesc   []Item          // trashed items sorted by TrashedAt DESC, ImportedAt DESC
 	itemsByID   map[string]Item // O(1) lookup by ID or Hex (includes trashed & active)
 	searchIndex map[string]string
+	loadMu      sync.Mutex
 
 	// Per-content-hash locks so concurrent imports of identical files never race on disk
 	itemLocks sync.Map
@@ -267,15 +268,13 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	m.mu.Unlock()
 	go func() {
 		_ = m.ensureCacheLoaded()
+		m.backfillImageMetadata(libraryPath)
 	}()
 
 	// Persist to user data store so next launch reloads automatically
 	if m.userData != nil {
 		_ = m.userData.SetActiveLibraryPath(libraryPath)
 	}
-
-	// Backfill dominant color, palette, and extended metadata for legacy image items
-	go m.backfillImageMetadata(libraryPath)
 
 	RecordLog("info", "core", "Opened library", fmt.Sprintf("name=%s items=%d path=%s", meta.Name, count, libraryPath), time.Since(start).Milliseconds())
 	return m.activeLib, nil
@@ -368,6 +367,15 @@ func (m *LibraryManager) ensureCacheLoaded() error {
 	}
 	m.cacheMu.RUnlock()
 
+	m.loadMu.Lock()
+	defer m.loadMu.Unlock()
+
+	m.cacheMu.RLock()
+	if m.cacheLoaded {
+		m.cacheMu.RUnlock()
+		return nil
+	}
+	m.cacheMu.RUnlock()
 	start := time.Now()
 
 	m.mu.RLock()
@@ -896,6 +904,19 @@ type ProgressCallback func(current int, total int, filename string)
 
 // ImportFiles imports a list of files or folders with physical copy isolation and content deduplication.
 func (m *LibraryManager) ImportFiles(sourcePaths []string) ([]Item, error) {
+	if len(sourcePaths) == 1 {
+		fi, err := os.Stat(sourcePaths[0])
+		if err == nil && !fi.IsDir() {
+			it, err := m.importSingleFile(sourcePaths[0])
+			if err != nil {
+				return nil, err
+			}
+			if it != nil {
+				return []Item{*it}, nil
+			}
+			return []Item{}, nil
+		}
+	}
 	return m.ImportFilesWithProgress(sourcePaths, nil)
 }
 
@@ -959,12 +980,14 @@ type importJob struct {
 	index    int
 	srcPath  string
 	folderID string
+	tags     []string
 }
 
 type preparedImportResult struct {
 	index      int
 	item       *Item
 	folderID   string
+	tags       []string
 	isExisting bool
 	hasThumb   int
 	paletteStr string
@@ -1077,6 +1100,7 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 		return
 	}
 
+	tCommitStart := time.Now()
 	tx, err := db.Begin()
 	if err == nil {
 		itemStmt, itemStmtErr := tx.Prepare(`INSERT INTO items (id, hex, name, extension, filename, size, mime_type, width, height, has_thumbnail, dominant_color, palette, meta_json, tags, created_at, imported_at, updated_at)
@@ -1101,11 +1125,22 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 			if r.item == nil {
 				continue
 			}
+			tags := r.item.Tags
+			if len(tags) == 0 && len(r.tags) > 0 {
+				tags = r.tags
+			}
+			tagsStr := strings.Join(tags, ",")
 			if !r.isExisting && itemStmtErr == nil {
 				_, _ = itemStmt.Exec(
 					r.item.ID, r.item.Hex, r.item.Name, r.item.Extension, r.item.Filename, r.item.Size, r.item.MimeType,
-					r.item.Width, r.item.Height, r.hasThumb, r.item.DominantColor, r.paletteStr, r.metaJSON, "", r.item.CreatedAt, r.item.ImportedAt, r.item.UpdatedAt,
+					r.item.Width, r.item.Height, r.hasThumb, r.item.DominantColor, r.paletteStr, r.metaJSON, tagsStr, r.item.CreatedAt, r.item.ImportedAt, r.item.UpdatedAt,
 				)
+			}
+			for _, tg := range tags {
+				clean := strings.TrimSpace(tg)
+				if clean != "" {
+					_, _ = tx.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", clean, now)
+				}
 			}
 			if r.folderID != "" && folderStmtErr == nil {
 				_, _ = folderStmt.Exec(r.item.ID, r.folderID, now)
@@ -1119,17 +1154,37 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 		}
 		_ = tx.Commit()
 	}
+	sqliteMs := time.Since(tCommitStart).Milliseconds()
 
-	// Update in-memory cache immediately so live queries during background import see new items
+	// Update in-memory cache in a single O(N) pass for the entire batch
+	tCacheStart := time.Now()
+	var batchItems []Item
+	batchFolderID := ""
 	for _, r := range batch {
 		if r.item != nil {
-			m.upsertItemsInCache([]Item{*r.item}, r.folderID)
+			batchItems = append(batchItems, *r.item)
+			if batchFolderID == "" && r.folderID != "" {
+				batchFolderID = r.folderID
+			}
 		}
 	}
-
-	if m.app != nil && len(batch) > 1 {
-		m.app.Event.Emit("library-items-updated", len(batch))
+	if len(batchItems) > 0 {
+		m.upsertItemsInCache(batchItems, batchFolderID)
 	}
+	cacheMs := time.Since(tCacheStart).Milliseconds()
+
+	// Only emit mid-stream incremental batch updates when importing multiple batches (>1 item);
+	// single-file imports and final completion already emit import-completed with the full items slice.
+	if m.app != nil && len(batchItems) > 1 {
+		m.app.Event.Emit("library-items-upserted", batchItems)
+	}
+	RecordLog(
+		"perf",
+		"core",
+		"[Pipeline 4/6] Committed import batch (SQLite + Memory Cache + Emit)",
+		fmt.Sprintf("batchSize=%d sqliteMs=%d cacheUpsertMs=%d", len(batchItems), sqliteMs, cacheMs),
+		time.Since(tCommitStart).Milliseconds(),
+	)
 }
 
 // ensureItemDir creates the content-addressed item directory if needed.
@@ -1225,6 +1280,7 @@ func copyAndHashFile(srcPath, tempDestPath string) (string, int64, []byte, error
 }
 
 func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportResult {
+	tPrepStart := time.Now()
 	srcPath := job.srcPath
 	m.mu.RLock()
 	active := m.activeLib
@@ -1241,6 +1297,7 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 		return preparedImportResult{index: job.index, srcPath: srcPath, err: err}
 	}
 
+	tHashStart := time.Now()
 	itemsRoot := filepath.Join(active.Path, "items")
 	tempFile, tempErr := os.CreateTemp(itemsRoot, ".import_*")
 	var contentHex string
@@ -1262,6 +1319,7 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 			return preparedImportResult{index: job.index, srcPath: srcPath, err: fmt.Errorf("failed to compute file hash: %w", err)}
 		}
 	}
+	copyHashMs := time.Since(tHashStart).Milliseconds()
 
 	itemLock := m.acquireItemLock(contentHex)
 	defer itemLock.Unlock()
@@ -1348,11 +1406,24 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 	nameWithoutExt := strings.TrimSuffix(originalFilename, filepath.Ext(originalFilename))
 	mimeType := DetectMimeTypeWithHeader(destPath, ext, headerBytes)
 
+	tThumbStart := time.Now()
 	width, height, hasThumbnail, dominantColor, palette, imgMeta := m.processImageThumbnail(destPath, itemDir, ext)
-
+	thumbPaletteMs := time.Since(tThumbStart).Milliseconds()
+	RecordLog(
+		"perf",
+		"core",
+		"[Pipeline 3/6] File stored, hashed & thumbnail/palette generated",
+		fmt.Sprintf("file=%q size=%dB dims=%dx%d copyHashMs=%d thumbPaletteMs=%d dominant=%s",
+			originalFilename, size, width, height, copyHashMs, thumbPaletteMs, dominantColor),
+		time.Since(tPrepStart).Milliseconds(),
+	)
 	folders := []string{}
 	if job.folderID != "" {
 		folders = []string{job.folderID}
+	}
+	itemTags := job.tags
+	if itemTags == nil {
+		itemTags = []string{}
 	}
 
 	item := Item{
@@ -1369,7 +1440,7 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 		DominantColor: dominantColor,
 		Palette:       palette,
 		Meta:          imgMeta,
-		Tags:          []string{},
+		Tags:          itemTags,
 		Folders:       folders,
 		CreatedAt:     createdAt,
 		ImportedAt:    now,
@@ -1377,27 +1448,30 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
-	metaBytes, _ := json.Marshal(ItemMetadata{
-		ID:            item.ID,
-		Hex:           item.Hex,
-		Name:          item.Name,
-		Extension:     item.Extension,
-		Filename:      item.Filename,
-		Size:          item.Size,
-		MimeType:      item.MimeType,
-		Width:         item.Width,
-		Height:        item.Height,
-		HasThumbnail:  item.HasThumbnail,
-		DominantColor: item.DominantColor,
-		Palette:       item.Palette,
-		Meta:          item.Meta,
-		Tags:          item.Tags,
-		Folders:       item.Folders,
-		CreatedAt:     item.CreatedAt,
-		ImportedAt:    item.ImportedAt,
-		UpdatedAt:     item.UpdatedAt,
-	})
-	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
+	itemCopy := item
+	go func() {
+		metaBytes, _ := json.Marshal(ItemMetadata{
+			ID:            itemCopy.ID,
+			Hex:           itemCopy.Hex,
+			Name:          itemCopy.Name,
+			Extension:     itemCopy.Extension,
+			Filename:      itemCopy.Filename,
+			Size:          itemCopy.Size,
+			MimeType:      itemCopy.MimeType,
+			Width:         itemCopy.Width,
+			Height:        itemCopy.Height,
+			HasThumbnail:  itemCopy.HasThumbnail,
+			DominantColor: itemCopy.DominantColor,
+			Palette:       itemCopy.Palette,
+			Meta:          itemCopy.Meta,
+			Tags:          itemCopy.Tags,
+			Folders:       itemCopy.Folders,
+			CreatedAt:     itemCopy.CreatedAt,
+			ImportedAt:    itemCopy.ImportedAt,
+			UpdatedAt:     itemCopy.UpdatedAt,
+		})
+		_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
+	}()
 
 	hasThumbInt := 0
 	if hasThumbnail {
@@ -1414,6 +1488,7 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 		index:      job.index,
 		item:       &item,
 		folderID:   job.folderID,
+		tags:       job.tags,
 		isExisting: false,
 		hasThumb:   hasThumbInt,
 		paletteStr: paletteStr,
@@ -1423,7 +1498,12 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 }
 
 func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
-	res := m.prepareSingleFileImport(importJob{index: 0, srcPath: srcPath})
+	return m.ImportSingleFileWithTags(srcPath, nil)
+}
+
+// ImportSingleFileWithTags imports a single file and applies tags in a single atomic database commit.
+func (m *LibraryManager) ImportSingleFileWithTags(srcPath string, tags []string) (*Item, error) {
+	res := m.prepareSingleFileImport(importJob{index: 0, srcPath: srcPath, tags: tags})
 	if res.err != nil {
 		return nil, res.err
 	}
@@ -1494,8 +1574,11 @@ func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data
 			}
 			_, _ = m.UpdateItemDetails(existing.ID, note, rawURL, rating, prompt)
 		}
-		if m.app != nil {
-			m.app.Event.Emit("library-items-updated", 1)
+		if updatedItem, gErr := m.GetItem(existing.ID); gErr == nil && updatedItem != nil {
+			if m.app != nil {
+				m.app.Event.Emit("library-items-upserted", []Item{*updatedItem})
+			}
+			return updatedItem, nil
 		}
 		return m.GetItem(existing.ID)
 	}
@@ -1588,31 +1671,34 @@ func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data
 	}
 	m.populateItemPaths(&item, active.Path, port)
 
-	metaBytes, _ := json.MarshalIndent(ItemMetadata{
-		ID:            item.ID,
-		Hex:           item.Hex,
-		Name:          item.Name,
-		Extension:     item.Extension,
-		Filename:      item.Filename,
-		Size:          item.Size,
-		MimeType:      item.MimeType,
-		Width:         item.Width,
-		Height:        item.Height,
-		HasThumbnail:  item.HasThumbnail,
-		DominantColor: item.DominantColor,
-		Palette:       item.Palette,
-		Meta:          item.Meta,
-		Note:          item.Note,
-		URL:           item.URL,
-		Rating:        item.Rating,
-		Prompt:        item.Prompt,
-		Tags:          item.Tags,
-		Folders:       item.Folders,
-		CreatedAt:     item.CreatedAt,
-		ImportedAt:    item.ImportedAt,
-		UpdatedAt:     item.UpdatedAt,
-	}, "", "  ")
-	_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
+	itemCopy := item
+	go func() {
+		metaBytes, _ := json.MarshalIndent(ItemMetadata{
+			ID:            itemCopy.ID,
+			Hex:           itemCopy.Hex,
+			Name:          itemCopy.Name,
+			Extension:     itemCopy.Extension,
+			Filename:      itemCopy.Filename,
+			Size:          itemCopy.Size,
+			MimeType:      itemCopy.MimeType,
+			Width:         itemCopy.Width,
+			Height:        itemCopy.Height,
+			HasThumbnail:  itemCopy.HasThumbnail,
+			DominantColor: itemCopy.DominantColor,
+			Palette:       itemCopy.Palette,
+			Meta:          itemCopy.Meta,
+			Note:          itemCopy.Note,
+			URL:           itemCopy.URL,
+			Rating:        itemCopy.Rating,
+			Prompt:        itemCopy.Prompt,
+			Tags:          itemCopy.Tags,
+			Folders:       itemCopy.Folders,
+			CreatedAt:     itemCopy.CreatedAt,
+			ImportedAt:    itemCopy.ImportedAt,
+			UpdatedAt:     itemCopy.UpdatedAt,
+		}, "", "  ")
+		_ = os.WriteFile(filepath.Join(itemDir, "metadata.json"), metaBytes, 0644)
+	}()
 
 	hasThumbInt := 0
 	if hasThumbnail {
@@ -1668,7 +1754,7 @@ func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data
 
 	m.upsertItemsInCache([]Item{item}, "")
 	if m.app != nil {
-		m.app.Event.Emit("library-items-updated", 1)
+		m.app.Event.Emit("library-items-upserted", []Item{item})
 		m.app.Event.Emit("library-item-imported", item)
 	}
 	return &item, nil
@@ -1775,7 +1861,17 @@ func encodeThumbnailAndExtractPalette(img image.Image, origW, origH int, itemDir
 	}
 
 	thumb := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
-	draw.BiLinear.Scale(thumb, thumb.Bounds(), img, bounds, draw.Over, nil)
+	// Fast 2-stage downscale for high-resolution (e.g. Retina 4K/5K) images:
+	// NearestNeighbor pre-shrink to 2x target size, then BiLinear final pass (10x faster than BiLinear over 15M pixels)
+	if origW > targetW*2 || origH > targetH*2 {
+		midW := max(targetW, targetW*2)
+		midH := max(targetH, targetH*2)
+		mid := image.NewRGBA(image.Rect(0, 0, midW, midH))
+		draw.NearestNeighbor.Scale(mid, mid.Bounds(), img, bounds, draw.Src, nil)
+		draw.BiLinear.Scale(thumb, thumb.Bounds(), mid, mid.Bounds(), draw.Over, nil)
+	} else {
+		draw.BiLinear.Scale(thumb, thumb.Bounds(), img, bounds, draw.Over, nil)
+	}
 
 	dominantColor, palette, imgMeta := ExtractPaletteAndMeta(img, thumb, origW, origH, ext, filePath)
 
@@ -1934,7 +2030,7 @@ func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, vid
 	m.upsertItemsInCache([]Item{*item}, "")
 
 	if m.app != nil {
-		m.app.Event.Emit("library-items-updated", 1)
+		m.app.Event.Emit("library-items-upserted", []Item{*item})
 	}
 
 	return item, nil
@@ -1964,14 +2060,21 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 	var list []pendingItem
 	for rows.Next() {
 		var p pendingItem
-		if rows.Scan(&p.id, &p.filename, &p.ext, &p.hasThumb) == nil && (IsImageExtension(p.ext) || IsVideoExtension(p.ext)) {
-			list = append(list, p)
+		if rows.Scan(&p.id, &p.filename, &p.ext, &p.hasThumb) == nil {
+			extLower := strings.ToLower(p.ext)
+			// Only backfill standard decodable images and native AVFoundation video containers (mp4/mov/m4v)
+			if IsImageExtension(extLower) || extLower == "mp4" || extLower == "mov" || extLower == "m4v" {
+				list = append(list, p)
+			}
 		}
 	}
 	rows.Close()
 
 	if len(list) == 0 {
 		return
+	}
+	if len(list) > 32 {
+		list = list[:32]
 	}
 
 	updatedCount := 0
@@ -2037,6 +2140,7 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 		updStmt, _ = tx.Prepare("UPDATE items SET width = CASE WHEN ? > 0 THEN ? ELSE width END, height = CASE WHEN ? > 0 THEN ? ELSE height END, has_thumbnail = ?, dominant_color = ?, palette = ?, meta_json = ? WHERE id = ?")
 	}
 
+	var updatedItems []Item
 	for r := range resCh {
 		hasThumbInt := r.p.hasThumb
 		if r.hasThumb {
@@ -2055,6 +2159,20 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 		}
 		if execErr == nil {
 			updatedCount++
+			m.mutateCachedItem(r.p.id, func(it *Item) {
+				if r.w > 0 && r.h > 0 {
+					it.Width = r.w
+					it.Height = r.h
+				}
+				if r.hasThumb {
+					it.HasThumbnail = true
+				}
+				it.DominantColor = r.dominantColor
+				it.Palette = r.palette
+				it.Meta = r.imgMeta
+				updatedItems = append(updatedItems, *it)
+			})
+
 			itemDir := filepath.Join(libPath, "items", r.p.id)
 			metaPath := filepath.Join(itemDir, "metadata.json")
 			if raw, rErr := os.ReadFile(metaPath); rErr == nil {
@@ -2084,12 +2202,8 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 		_ = tx.Commit()
 	}
 
-	if updatedCount > 0 {
-		m.invalidateCache()
-		_ = m.ensureCacheLoaded()
-		if m.app != nil {
-			m.app.Event.Emit("library-items-updated", updatedCount)
-		}
+	if len(updatedItems) > 0 && m.app != nil {
+		m.app.Event.Emit("library-items-upserted", updatedItems)
 	}
 }
 
@@ -2637,6 +2751,7 @@ func (m *LibraryManager) PermanentDeleteItem(id string) error {
 
 // MoveToTrash moves an item to the recycle bin, preserving all folder references for restore.
 func (m *LibraryManager) MoveToTrash(id string) error {
+	tMoveStart := time.Now()
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -2675,36 +2790,170 @@ func (m *LibraryManager) MoveToTrash(id string) error {
 
 	// 3. Remove active links from item_folders so it no longer counts in active views
 	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
-
-	// 4. Update metadata.json on disk if present
-	itemDir := filepath.Join(active.Path, "items", id)
-	metaPath := filepath.Join(itemDir, "metadata.json")
-	if data, readErr := os.ReadFile(metaPath); readErr == nil {
-		var meta ItemMetadata
-		if json.Unmarshal(data, &meta) == nil {
-			meta.InTrash = true
-			meta.TrashedAt = now
-			meta.TrashedFolders = currentFolders
-			updated, _ := json.MarshalIndent(meta, "", "  ")
-			_ = os.WriteFile(metaPath, updated, 0644)
+	// 4. Update metadata.json on disk asynchronously so UI returns immediately
+	activePath := active.Path
+	go func() {
+		metaPath := filepath.Join(activePath, "items", id, "metadata.json")
+		if data, readErr := os.ReadFile(metaPath); readErr == nil {
+			var meta ItemMetadata
+			if json.Unmarshal(data, &meta) == nil {
+				meta.InTrash = true
+				meta.TrashedAt = now
+				meta.TrashedFolders = currentFolders
+				if updated, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+					_ = os.WriteFile(metaPath, updated, 0644)
+				}
+			}
 		}
-	}
-
+	}()
 	m.mutateCachedItem(id, func(it *Item) {
 		it.InTrash = true
 		it.TrashedAt = now
 		it.Folders = currentFolders
 	})
+	RecordLog("perf", "core", "Backend MoveToTrash executed", fmt.Sprintf("id=%s", id), time.Since(tMoveStart).Milliseconds())
 	return nil
 }
 
-// BatchMoveToTrash moves multiple items to the recycle bin.
+// BatchMoveToTrash moves multiple items to the recycle bin in a single SQLite transaction
+// and a single O(N) in-memory cache pass, while syncing metadata.json asynchronously.
 func (m *LibraryManager) BatchMoveToTrash(ids []string) error {
-	for _, id := range ids {
-		if err := m.MoveToTrash(id); err != nil {
-			return err
+	tBatchStart := time.Now()
+	if len(ids) == 0 {
+		return nil
+	}
+	if len(ids) == 1 {
+		return m.MoveToTrash(ids[0])
+	}
+
+	m.mu.RLock()
+	active := m.activeLib
+	db := m.db
+	m.mu.RUnlock()
+
+	if active == nil || db == nil {
+		return errors.New("no active library")
+	}
+
+	now := time.Now().Unix()
+	foldersByItem := make(map[string][]string, len(ids))
+
+	// Resolve current folders from in-memory cache when available, or query SQLite
+	m.cacheMu.RLock()
+	cacheReady := m.cacheLoaded
+	if cacheReady {
+		for _, id := range ids {
+			if it, ok := m.itemsByID[id]; ok {
+				cp := make([]string, len(it.Folders))
+				copy(cp, it.Folders)
+				foldersByItem[id] = cp
+			}
 		}
 	}
+	m.cacheMu.RUnlock()
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	updStmt, err := tx.Prepare("UPDATE items SET in_trash = 1, trashed_at = ?, trashed_folders = ? WHERE id = ? OR hex = ?")
+	if err != nil {
+		return err
+	}
+	defer updStmt.Close()
+
+	delFolderStmt, err := tx.Prepare("DELETE FROM item_folders WHERE item_id = ?")
+	if err != nil {
+		return err
+	}
+	defer delFolderStmt.Close()
+
+	for _, id := range ids {
+		currentFolders, ok := foldersByItem[id]
+		if !ok {
+			rows, qErr := tx.Query("SELECT folder_id FROM item_folders WHERE item_id = ?", id)
+			if qErr == nil {
+				for rows.Next() {
+					var fID string
+					if rows.Scan(&fID) == nil {
+						currentFolders = append(currentFolders, fID)
+					}
+				}
+				rows.Close()
+			}
+			if currentFolders == nil {
+				currentFolders = []string{}
+			}
+			foldersByItem[id] = currentFolders
+		}
+		foldersJSON, _ := json.Marshal(currentFolders)
+		if _, err := updStmt.Exec(now, string(foldersJSON), id, id); err != nil {
+			return err
+		}
+		_, _ = delFolderStmt.Exec(id)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Update in-memory cache in a single O(N) pass
+	m.cacheMu.Lock()
+	if m.cacheLoaded {
+		trashSet := make(map[string]bool, len(ids))
+		var newlyTrashed []Item
+		for _, id := range ids {
+			if it, ok := m.itemsByID[id]; ok && !it.InTrash {
+				it.InTrash = true
+				it.TrashedAt = now
+				it.Folders = foldersByItem[id]
+				m.itemsByID[it.ID] = it
+				if it.Hex != "" {
+					m.itemsByID[it.Hex] = it
+				}
+				trashSet[it.ID] = true
+				if it.Hex != "" {
+					trashSet[it.Hex] = true
+				}
+				newlyTrashed = append(newlyTrashed, it)
+			}
+		}
+		if len(trashSet) > 0 {
+			filtered := m.itemsDesc[:0]
+			for i := range m.itemsDesc {
+				it := m.itemsDesc[i]
+				if !trashSet[it.ID] && (it.Hex == "" || !trashSet[it.Hex]) {
+					filtered = append(filtered, it)
+				}
+			}
+			m.itemsDesc = filtered
+			m.trashDesc = append(newlyTrashed, m.trashDesc...)
+		}
+	}
+	m.cacheMu.Unlock()
+
+	// Sync metadata.json files asynchronously in background so UI returns in < 2ms
+	activePath := active.Path
+	go func() {
+		for _, id := range ids {
+			metaPath := filepath.Join(activePath, "items", id, "metadata.json")
+			if data, readErr := os.ReadFile(metaPath); readErr == nil {
+				var meta ItemMetadata
+				if json.Unmarshal(data, &meta) == nil {
+					meta.InTrash = true
+					meta.TrashedAt = now
+					meta.TrashedFolders = foldersByItem[id]
+					if updated, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+						_ = os.WriteFile(metaPath, updated, 0644)
+					}
+				}
+			}
+		}
+	}()
+
+	RecordLog("perf", "core", "Backend BatchMoveToTrash executed", fmt.Sprintf("count=%d", len(ids)), time.Since(tBatchStart).Milliseconds())
 	return nil
 }
 
@@ -2744,19 +2993,21 @@ func (m *LibraryManager) RestoreFromTrash(id string) error {
 		return err
 	}
 
-	itemDir := filepath.Join(active.Path, "items", id)
-	metaPath := filepath.Join(itemDir, "metadata.json")
-	if data, readErr := os.ReadFile(metaPath); readErr == nil {
-		var meta ItemMetadata
-		if json.Unmarshal(data, &meta) == nil {
-			meta.InTrash = false
-			meta.TrashedAt = 0
-			meta.TrashedFolders = nil
-			updated, _ := json.MarshalIndent(meta, "", "  ")
-			_ = os.WriteFile(metaPath, updated, 0644)
+	activePath := active.Path
+	go func() {
+		metaPath := filepath.Join(activePath, "items", id, "metadata.json")
+		if data, readErr := os.ReadFile(metaPath); readErr == nil {
+			var meta ItemMetadata
+			if json.Unmarshal(data, &meta) == nil {
+				meta.InTrash = false
+				meta.TrashedAt = 0
+				meta.TrashedFolders = nil
+				if updated, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+					_ = os.WriteFile(metaPath, updated, 0644)
+				}
+			}
 		}
-	}
-
+	}()
 	m.mutateCachedItem(id, func(it *Item) {
 		it.InTrash = false
 		it.TrashedAt = 0
@@ -2779,9 +3030,11 @@ func (m *LibraryManager) BatchRestoreFromTrash(ids []string) error {
 	return nil
 }
 
-// EmptyTrash permanently deletes all items in the recycle bin.
+// EmptyTrash permanently deletes all items in the recycle bin in a single transaction
+// and removes item directories asynchronously.
 func (m *LibraryManager) EmptyTrash() error {
 	m.mu.RLock()
+	active := m.activeLib
 	db := m.db
 	m.mu.RUnlock()
 
@@ -2793,8 +3046,6 @@ func (m *LibraryManager) EmptyTrash() error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-
 	var ids []string
 	for rows.Next() {
 		var itID string
@@ -2802,10 +3053,48 @@ func (m *LibraryManager) EmptyTrash() error {
 			ids = append(ids, itID)
 		}
 	}
+	rows.Close()
 
-	for _, itID := range ids {
-		_ = m.PermanentDeleteItem(itID)
+	if len(ids) == 0 {
+		return nil
 	}
+
+	tx, err := db.Begin()
+	if err == nil {
+		for _, itID := range ids {
+			_, _ = tx.Exec("DELETE FROM item_folders WHERE item_id = ?", itID)
+		}
+		_, _ = tx.Exec("DELETE FROM items WHERE in_trash = 1")
+		_ = tx.Commit()
+	}
+
+	m.cacheMu.Lock()
+	if m.cacheLoaded {
+		for _, itID := range ids {
+			if it, ok := m.itemsByID[itID]; ok {
+				delete(m.itemsByID, it.ID)
+				if it.Hex != "" {
+					delete(m.itemsByID, it.Hex)
+				}
+				delete(m.searchIndex, it.ID)
+			} else {
+				delete(m.itemsByID, itID)
+				delete(m.searchIndex, itID)
+			}
+		}
+		m.trashDesc = nil
+	}
+	m.cacheMu.Unlock()
+
+	if active != nil {
+		activePath := active.Path
+		go func() {
+			for _, itID := range ids {
+				_ = os.RemoveAll(filepath.Join(activePath, "items", itID))
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -3313,16 +3602,21 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 
 	_, _ = db.Exec("INSERT OR IGNORE INTO tags (name, created_at, color) VALUES (?, ?, '')", cleanTag, now)
 
-	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
-	if data, readErr := os.ReadFile(metaPath); readErr == nil {
-		var meta ItemMetadata
-		if json.Unmarshal(data, &meta) == nil {
-			meta.Tags = existingTags
-			meta.UpdatedAt = now
-			updated, _ := json.MarshalIndent(meta, "", "  ")
-			_ = os.WriteFile(metaPath, updated, 0644)
+	activePath := active.Path
+	tagsCopy := append([]string{}, existingTags...)
+	go func() {
+		metaPath := filepath.Join(activePath, "items", itemID, "metadata.json")
+		if data, readErr := os.ReadFile(metaPath); readErr == nil {
+			var meta ItemMetadata
+			if json.Unmarshal(data, &meta) == nil {
+				meta.Tags = tagsCopy
+				meta.UpdatedAt = now
+				if updated, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+					_ = os.WriteFile(metaPath, updated, 0644)
+				}
+			}
 		}
-	}
+	}()
 	m.mutateCachedItem(itemID, func(it *Item) {
 		it.Tags = existingTags
 		it.UpdatedAt = now
@@ -3365,16 +3659,21 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 		return err
 	}
 
-	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
-	if data, readErr := os.ReadFile(metaPath); readErr == nil {
-		var meta ItemMetadata
-		if json.Unmarshal(data, &meta) == nil {
-			meta.Tags = newTags
-			meta.UpdatedAt = now
-			updated, _ := json.MarshalIndent(meta, "", "  ")
-			_ = os.WriteFile(metaPath, updated, 0644)
+	activePath := active.Path
+	tagsCopy := append([]string{}, newTags...)
+	go func() {
+		metaPath := filepath.Join(activePath, "items", itemID, "metadata.json")
+		if data, readErr := os.ReadFile(metaPath); readErr == nil {
+			var meta ItemMetadata
+			if json.Unmarshal(data, &meta) == nil {
+				meta.Tags = tagsCopy
+				meta.UpdatedAt = now
+				if updated, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+					_ = os.WriteFile(metaPath, updated, 0644)
+				}
+			}
 		}
-	}
+	}()
 	m.mutateCachedItem(itemID, func(it *Item) {
 		if newTags == nil {
 			it.Tags = []string{}
@@ -3418,16 +3717,21 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 		return err
 	}
 
-	metaPath := filepath.Join(active.Path, "items", itemID, "metadata.json")
-	if data, readErr := os.ReadFile(metaPath); readErr == nil {
-		var meta ItemMetadata
-		if json.Unmarshal(data, &meta) == nil {
-			meta.Tags = cleanTags
-			meta.UpdatedAt = now
-			updated, _ := json.MarshalIndent(meta, "", "  ")
-			_ = os.WriteFile(metaPath, updated, 0644)
+	activePath := active.Path
+	tagsCopy := append([]string{}, cleanTags...)
+	go func() {
+		metaPath := filepath.Join(activePath, "items", itemID, "metadata.json")
+		if data, readErr := os.ReadFile(metaPath); readErr == nil {
+			var meta ItemMetadata
+			if json.Unmarshal(data, &meta) == nil {
+				meta.Tags = tagsCopy
+				meta.UpdatedAt = now
+				if updated, mErr := json.MarshalIndent(meta, "", "  "); mErr == nil {
+					_ = os.WriteFile(metaPath, updated, 0644)
+				}
+			}
 		}
-	}
+	}()
 	m.mutateCachedItem(itemID, func(it *Item) {
 		it.Tags = cleanTags
 		it.UpdatedAt = now

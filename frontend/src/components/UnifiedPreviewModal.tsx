@@ -21,7 +21,7 @@ export interface UnifiedPreviewModalProps {
   open: boolean;
   mode: "inline" | "full-window";
   activeItem: Item | null;
-  items: Item[];
+  items: Item[] | { items: Item[]; version: number };
   onClose: () => void;
   onIndexChange?: (item: Item) => void;
   sidebarOpen?: boolean;
@@ -40,13 +40,14 @@ export function UnifiedPreviewModal({
   open,
   mode,
   activeItem,
-  items,
+  items: rawItemsProp,
   onClose,
   onIndexChange,
   sidebarOpen = true,
   onToggleSidebar,
   onItemUpdated,
 }: UnifiedPreviewModalProps) {
+  const items = Array.isArray(rawItemsProp) ? rawItemsProp : rawItemsProp.items;
   const { t } = useTranslation();
   usePreviewPlugins();
   const controllerRef = useRef<PreviewZoomController | null>(null);

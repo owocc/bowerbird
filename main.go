@@ -109,7 +109,7 @@ func main() {
 		BackgroundColour: application.NewRGB(6, 7, 15),
 		URL:              "/",
 	})
-
+	coreMgr.SetWindow(window)
 	// Intercept window close so the menu bar / tray icon stays alive
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		event.Cancel()
@@ -179,6 +179,7 @@ func main() {
 		files := event.Context().DroppedFiles()
 		details := event.Context().DropTargetDetails()
 		core.LogDragTrace("native-drop-received", fmt.Sprintf("files=%d paths=%v details=%+v", len(files), files, details))
+		window.Focus()
 		if len(files) == 0 {
 			return
 		}
@@ -221,23 +222,37 @@ func main() {
 		// 1. Handle internal item drag-and-drop (Move to folder)
 		if len(internalItemIDs) > 0 {
 			if (targetType == "folder" || targetType == "subfolder") && targetFolderID != "" {
+				var updatedItems []core.Item
 				for _, itID := range internalItemIDs {
 					_ = coreMgr.MoveItemToFolder(itID, "", targetFolderID)
+					if fullIt, gErr := coreMgr.GetItem(itID); gErr == nil && fullIt != nil {
+						updatedItems = append(updatedItems, *fullIt)
+					}
 				}
 				core.LogDragTrace("native-drop", fmt.Sprintf("successfully moved %d internal items to folder %s", len(internalItemIDs), targetFolderID))
-				app.Event.Emit("library-items-updated", len(internalItemIDs))
-			} else if targetType == "trash" {
-				for _, itID := range internalItemIDs {
-					_ = coreMgr.MoveToTrash(itID)
+				if len(updatedItems) > 0 {
+					app.Event.Emit("library-items-upserted", updatedItems)
+				} else {
+					app.Event.Emit("library-items-updated", len(internalItemIDs))
 				}
+			} else if targetType == "trash" {
+				_ = coreMgr.BatchMoveToTrash(internalItemIDs)
 				core.LogDragTrace("native-drop", fmt.Sprintf("successfully moved %d internal items to trash", len(internalItemIDs)))
-				app.Event.Emit("library-items-updated", len(internalItemIDs))
+				app.Event.Emit("library-items-trashed", internalItemIDs)
 			} else if targetType == "all" {
+				var updatedItems []core.Item
 				for _, itID := range internalItemIDs {
 					_ = coreMgr.MoveItemToFolder(itID, "", "")
+					if fullIt, gErr := coreMgr.GetItem(itID); gErr == nil && fullIt != nil {
+						updatedItems = append(updatedItems, *fullIt)
+					}
 				}
 				core.LogDragTrace("native-drop", fmt.Sprintf("successfully unlinked %d internal items to all", len(internalItemIDs)))
-				app.Event.Emit("library-items-updated", len(internalItemIDs))
+				if len(updatedItems) > 0 {
+					app.Event.Emit("library-items-upserted", updatedItems)
+				} else {
+					app.Event.Emit("library-items-updated", len(internalItemIDs))
+				}
 			} else {
 				core.LogDragTrace("native-drop", fmt.Sprintf("internal items dropped on non-folder target (%s), ignored", targetType))
 			}
@@ -334,15 +349,29 @@ func main() {
 						app.Event.Emit("import-error", err.Error())
 						return
 					}
+					var updatedItems []core.Item
 					for _, it := range imported {
 						_ = coreMgr.AddItemToFolder(it.ID, targetFolderID)
+						if fullIt, gErr := coreMgr.GetItem(it.ID); gErr == nil && fullIt != nil {
+							updatedItems = append(updatedItems, *fullIt)
+						} else {
+							updatedItems = append(updatedItems, it)
+						}
 					}
 					totalImported += len(imported)
+					if len(folderPaths) == 0 {
+						app.Event.Emit("import-completed", map[string]any{
+							"count": totalImported,
+							"items": updatedItems,
+						})
+						return
+					}
 				}
-				app.Event.Emit("import-completed", map[string]any{
-					"count": totalImported,
-				})
-				app.Event.Emit("library-items-updated", totalImported)
+				if totalImported > 0 {
+					app.Event.Emit("import-completed", map[string]any{
+						"count": totalImported,
+					})
+				}
 			}()
 			return
 		}
@@ -373,8 +402,8 @@ func main() {
 				app.Event.Emit("import-completed", map[string]any{
 					"count": len(imported),
 					"ids":   ids,
+					"items": imported,
 				})
-				app.Event.Emit("library-items-updated", len(imported))
 			}
 		}()
 	})

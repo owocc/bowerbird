@@ -124,7 +124,7 @@ func (s *Service) ImportFiles(sourcePaths []string) ([]Item, error) {
 		if err != nil {
 			app.Event.Emit("import-error", err.Error())
 		} else {
-			app.Event.Emit("import-completed", map[string]any{"count": len(items)})
+			app.Event.Emit("import-completed", map[string]any{"count": len(items), "items": items})
 		}
 	}
 	return items, err
