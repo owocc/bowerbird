@@ -530,6 +530,21 @@ func (s *Service) SetPluginEnabled(id string, enabled bool) error {
 	}
 	return s.mgr.GetPluginManager().SetPluginEnabled(id, enabled)
 }
+// CheckPluginUpdates groups installed plugins by marketplace origin, queries in batch, and returns available updates.
+func (s *Service) CheckPluginUpdates() ([]PluginUpdateInfo, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return []PluginUpdateInfo{}, nil
+	}
+	return s.mgr.GetPluginManager().CheckPluginUpdates()
+}
+
+// UpgradePlugin upgrades the specified plugin from its remembered update/source URL.
+func (s *Service) UpgradePlugin(id string) (*InstalledPlugin, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return nil, ErrCoreNotInitialized
+	}
+	return s.mgr.GetPluginManager().UpgradePlugin(id)
+}
 
 // OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
 func (s *Service) OpenMarketplace() error {

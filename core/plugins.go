@@ -62,7 +62,38 @@ type InstalledPlugin struct {
 	Style        string   `json:"style,omitempty"`
 	Enabled      bool     `json:"enabled"`
 	InstalledAt  string   `json:"installedAt"`
-	SourceURL    string   `json:"sourceUrl"`
+	SourceURL      string   `json:"sourceUrl"`
+	MarketplaceURL string   `json:"marketplaceUrl,omitempty"`
+	UpdateURL      string   `json:"updateUrl,omitempty"`
+}
+
+// PluginUpdateInfo represents available update details for an installed plugin.
+type PluginUpdateInfo struct {
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	CurrentVersion string   `json:"currentVersion"`
+	LatestVersion  string   `json:"latestVersion"`
+	HasUpdate      bool     `json:"hasUpdate"`
+	ManifestURL    string   `json:"manifestUrl"`
+	DownloadURL    string   `json:"downloadUrl,omitempty"`
+	MarketplaceURL string   `json:"marketplaceUrl,omitempty"`
+	Changelog      []string `json:"changelog,omitempty"`
+}
+
+// BatchCheckUpdateRequest represents batch payload sent to a marketplace.
+type BatchCheckUpdateRequest struct {
+	Plugins []PluginCheckItem `json:"plugins"`
+}
+
+// PluginCheckItem represents individual plugin query in a batch update request.
+type PluginCheckItem struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+// BatchCheckUpdateResponse represents response from a marketplace update check endpoint.
+type BatchCheckUpdateResponse struct {
+	Updates []PluginUpdateInfo `json:"updates"`
 }
 
 // PluginManager manages plugin installation, validation, storage, and persistence.
@@ -345,7 +376,9 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 		Style:        manifest.Style,
 		Enabled:      true,
 		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
-		SourceURL:    pluginURL,
+		SourceURL:      pluginURL,
+		MarketplaceURL: extractMarketplaceURL(pluginURL),
+		UpdateURL:      pluginURL,
 	}
 
 	pm.plugins[manifest.ID] = installed
@@ -664,4 +697,250 @@ func (pm *PluginManager) SetPluginEnabled(id string, enabled bool) error {
 		})
 	}
 	return nil
+}
+
+func extractMarketplaceURL(rawURL string) string {
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
+	}
+	return ""
+}
+
+// CompareSemVer compares two semantic version strings (e.g. "1.2.3" vs "1.2.0").
+// Returns 1 if v1 > v2, -1 if v1 < v2, and 0 if v1 == v2.
+func CompareSemVer(v1, v2 string) int {
+	clean1 := strings.TrimPrefix(strings.TrimSpace(v1), "v")
+	clean2 := strings.TrimPrefix(strings.TrimSpace(v2), "v")
+
+	parts1 := strings.Split(clean1, ".")
+	parts2 := strings.Split(clean2, ".")
+
+	maxLen := max(len(parts1), len(parts2))
+	for i := 0; i < maxLen; i++ {
+		var n1, n2 int
+		if i < len(parts1) {
+			seg := strings.SplitN(parts1[i], "-", 2)[0]
+			fmt.Sscanf(seg, "%d", &n1)
+		}
+		if i < len(parts2) {
+			seg := strings.SplitN(parts2[i], "-", 2)[0]
+			fmt.Sscanf(seg, "%d", &n2)
+		}
+		if n1 > n2 {
+			return 1
+		}
+		if n1 < n2 {
+			return -1
+		}
+	}
+	return 0
+}
+
+// CheckPluginUpdates inspects all installed plugins, groups them by marketplace origin,
+// queries each marketplace in batch to minimize network requests, and falls back to single
+// manifest checks when needed.
+func (pm *PluginManager) CheckPluginUpdates() ([]PluginUpdateInfo, error) {
+	pm.mu.RLock()
+	allInstalled := make([]*InstalledPlugin, 0, len(pm.plugins))
+	for _, p := range pm.plugins {
+		copyP := *p
+		allInstalled = append(allInstalled, &copyP)
+	}
+	pm.mu.RUnlock()
+
+	if len(allInstalled) == 0 {
+		return []PluginUpdateInfo{}, nil
+	}
+
+	// 1. Group plugins by MarketplaceURL
+	groups := make(map[string][]*InstalledPlugin)
+	var standalone []*InstalledPlugin
+
+	for _, p := range allInstalled {
+		market := strings.TrimSpace(p.MarketplaceURL)
+		if market == "" && p.SourceURL != "" {
+			market = extractMarketplaceURL(p.SourceURL)
+		}
+
+		if market != "" {
+			groups[market] = append(groups[market], p)
+		} else {
+			standalone = append(standalone, p)
+		}
+	}
+
+	var results []PluginUpdateInfo
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// 2. Query each marketplace in batch
+	for marketURL, pluginList := range groups {
+		wg.Add(1)
+		go func(mURL string, pList []*InstalledPlugin) {
+			defer wg.Done()
+			updates, err := pm.checkMarketplaceBatch(mURL, pList)
+			if err == nil && len(updates) > 0 {
+				mu.Lock()
+				results = append(results, updates...)
+				mu.Unlock()
+				return
+			}
+
+			// Fallback: check each plugin's manifest individually if batch endpoint unavailable
+			for _, p := range pList {
+				if info := pm.checkSinglePluginUpdate(p); info != nil {
+					mu.Lock()
+					results = append(results, *info)
+					mu.Unlock()
+				}
+			}
+		}(marketURL, pluginList)
+	}
+
+	// 3. Query standalone plugins individually
+	for _, p := range standalone {
+		wg.Add(1)
+		go func(plugin *InstalledPlugin) {
+			defer wg.Done()
+			if info := pm.checkSinglePluginUpdate(plugin); info != nil {
+				mu.Lock()
+				results = append(results, *info)
+				mu.Unlock()
+			}
+		}(p)
+	}
+
+	wg.Wait()
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ID < results[j].ID
+	})
+
+	return results, nil
+}
+
+func (pm *PluginManager) checkMarketplaceBatch(marketURL string, plugins []*InstalledPlugin) ([]PluginUpdateInfo, error) {
+	checkURL := strings.TrimRight(marketURL, "/") + "/api/plugins/check-updates"
+
+	reqPayload := BatchCheckUpdateRequest{
+		Plugins: make([]PluginCheckItem, len(plugins)),
+	}
+	for i, p := range plugins {
+		reqPayload.Plugins[i] = PluginCheckItem{
+			ID:      p.ID,
+			Version: p.Version,
+		}
+	}
+
+	bodyBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, checkURL, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Bowerbird-Plugin-Updater/1.0")
+
+	resp, err := pm.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("marketplace returned HTTP %d", resp.StatusCode)
+	}
+
+	var batchResp BatchCheckUpdateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&batchResp); err != nil {
+		return nil, err
+	}
+
+	var validUpdates []PluginUpdateInfo
+	for _, u := range batchResp.Updates {
+		if u.HasUpdate || CompareSemVer(u.LatestVersion, u.CurrentVersion) > 0 {
+			u.HasUpdate = true
+			if u.MarketplaceURL == "" {
+				u.MarketplaceURL = marketURL
+			}
+			validUpdates = append(validUpdates, u)
+		}
+	}
+	return validUpdates, nil
+}
+
+func (pm *PluginManager) checkSinglePluginUpdate(p *InstalledPlugin) *PluginUpdateInfo {
+	targetURL := p.UpdateURL
+	if targetURL == "" {
+		targetURL = p.SourceURL
+	}
+	if targetURL == "" || !strings.HasPrefix(targetURL, "http") {
+		return nil
+	}
+
+	req, err := http.NewRequest(http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Bowerbird-Plugin-Updater/1.0")
+
+	resp, err := pm.httpClient.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var m PluginManifest
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return nil
+	}
+
+	if CompareSemVer(m.Version, p.Version) > 0 {
+		return &PluginUpdateInfo{
+			ID:             p.ID,
+			Name:           p.Name,
+			CurrentVersion: p.Version,
+			LatestVersion:  m.Version,
+			HasUpdate:      true,
+			ManifestURL:    targetURL,
+			MarketplaceURL: p.MarketplaceURL,
+		}
+	}
+	return nil
+}
+
+// UpgradePlugin downloads and updates an installed plugin from its remembered update/source URL.
+func (pm *PluginManager) UpgradePlugin(id string) (*InstalledPlugin, error) {
+	pm.mu.RLock()
+	p, exists := pm.plugins[id]
+	if !exists {
+		pm.mu.RUnlock()
+		return nil, fmt.Errorf("plugin %q not found", id)
+	}
+	targetURL := p.UpdateURL
+	if targetURL == "" {
+		targetURL = p.SourceURL
+	}
+	pm.mu.RUnlock()
+
+	if targetURL == "" {
+		return nil, fmt.Errorf("plugin %q has no source or update URL", id)
+	}
+
+	updated, err := pm.InstallPluginFromURL(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upgrade plugin %q: %w", id, err)
+	}
+
+	if pm.app != nil {
+		pm.app.Event.Emit("plugin:changed", map[string]any{
+			"action": "updated",
+			"id":     id,
+		})
+	}
+
+	return updated, nil
 }

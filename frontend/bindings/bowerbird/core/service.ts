@@ -67,6 +67,13 @@ export function CaptureWindow(): $CancellablePromise<$models.Item | null> {
 }
 
 /**
+ * CheckPluginUpdates groups installed plugins by marketplace origin, queries in batch, and returns available updates.
+ */
+export function CheckPluginUpdates(): $CancellablePromise<$models.PluginUpdateInfo[] | null> {
+    return $Call.ByID(1242454735);
+}
+
+/**
  * ClearLogs clears both the in-memory log buffer and the on-disk log file.
  */
 export function ClearLogs(): $CancellablePromise<void> {
@@ -416,4 +423,11 @@ export function UninstallPlugin(id: string): $CancellablePromise<void> {
 
 export function UpdateItemDetails(id: string, note: string, rawURL: string, rating: number, prompt: string): $CancellablePromise<$models.Item | null> {
     return $Call.ByID(217761380, id, note, rawURL, rating, prompt);
+}
+
+/**
+ * UpgradePlugin upgrades the specified plugin from its remembered update/source URL.
+ */
+export function UpgradePlugin(id: string): $CancellablePromise<$models.InstalledPlugin | null> {
+    return $Call.ByID(1187033539, id);
 }

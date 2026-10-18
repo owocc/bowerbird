@@ -426,3 +426,69 @@ func TestAPIServer_PluginEndpoints(t *testing.T) {
 		t.Fatalf("expected confirmed.plugin to be installed after explicit confirmation: %v", err)
 	}
 }
+
+func TestCompareSemVer(t *testing.T) {
+	if CompareSemVer("1.2.0", "1.1.0") <= 0 {
+		t.Errorf("expected 1.2.0 > 1.1.0")
+	}
+	if CompareSemVer("1.0.0", "1.0.0") != 0 {
+		t.Errorf("expected 1.0.0 == 1.0.0")
+	}
+	if CompareSemVer("1.0.0", "1.0.1") >= 0 {
+		t.Errorf("expected 1.0.0 < 1.0.1")
+	}
+	if CompareSemVer("v2.0.0", "1.9.9") <= 0 {
+		t.Errorf("expected v2.0.0 > 1.9.9")
+	}
+}
+
+func TestCheckPluginUpdates_Batch(t *testing.T) {
+	tempPluginsDir := t.TempDir()
+	pm := NewPluginManagerWithDir(tempPluginsDir)
+
+	// Start mock marketplace server
+	marketSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/plugins/check-updates" && r.Method == http.MethodPost {
+			var req BatchCheckUpdateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+
+			resp := BatchCheckUpdateResponse{
+				Updates: []PluginUpdateInfo{
+					{
+						ID:             "market.p1",
+						Name:           "Market Plugin 1",
+						CurrentVersion: "1.0.0",
+						LatestVersion:  "1.2.0",
+						HasUpdate:      true,
+						ManifestURL:    "/plugins/p1/manifest.json",
+					},
+				},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer marketSrv.Close()
+
+	pm.plugins["market.p1"] = &InstalledPlugin{
+		ID:             "market.p1",
+		Name:           "Market Plugin 1",
+		Version:        "1.0.0",
+		MarketplaceURL: marketSrv.URL,
+		SourceURL:      marketSrv.URL + "/plugins/p1/manifest.json",
+		Enabled:        true,
+	}
+
+	updates, err := pm.CheckPluginUpdates()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(updates) != 1 {
+		t.Fatalf("expected 1 update, got %d", len(updates))
+	}
+	if updates[0].ID != "market.p1" || updates[0].LatestVersion != "1.2.0" {
+		t.Fatalf("unexpected update payload: %+v", updates[0])
+	}
+}

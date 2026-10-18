@@ -113,6 +113,8 @@ export interface InstalledPlugin {
     "enabled": boolean;
     "installedAt": string;
     "sourceUrl": string;
+    "marketplaceUrl"?: string;
+    "updateUrl"?: string;
 }
 
 /**
@@ -220,6 +222,21 @@ export interface LogEntry {
     "message": string;
     "detail"?: string;
     "durationMs"?: number;
+}
+
+/**
+ * PluginUpdateInfo represents available update details for an installed plugin.
+ */
+export interface PluginUpdateInfo {
+    "id": string;
+    "name": string;
+    "currentVersion": string;
+    "latestVersion": string;
+    "hasUpdate": boolean;
+    "manifestUrl": string;
+    "downloadUrl"?: string;
+    "marketplaceUrl"?: string;
+    "changelog"?: string[] | null;
 }
 
 /**

@@ -68,6 +68,8 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/item/list", s.handleAPIItemList)
 
 	mux.HandleFunc("/api/plugins", s.handleAPIPluginsList)
+	mux.HandleFunc("/api/plugins/check-updates", s.handleAPIPluginsCheckUpdates)
+	mux.HandleFunc("/api/plugins/upgrade", s.handleAPIPluginUpgrade)
 	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
 	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
 	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
@@ -709,4 +711,62 @@ func (s *AssetServer) handleAPIPluginUninstall(w http.ResponseWriter, r *http.Re
 	}
 
 	writeSuccess(w, map[string]any{"uninstalled": true, "id": req.ID})
+}
+
+// handleAPIPluginsCheckUpdates triggers grouped batch update check across marketplaces.
+func (s *AssetServer) handleAPIPluginsCheckUpdates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeSuccess(w, []PluginUpdateInfo{})
+		return
+	}
+
+	updates, err := s.manager.GetPluginManager().CheckPluginUpdates()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	if updates == nil {
+		updates = []PluginUpdateInfo{}
+	}
+	writeSuccess(w, updates)
+}
+
+// handleAPIPluginUpgrade upgrades an installed plugin to its latest available version.
+func (s *AssetServer) handleAPIPluginUpgrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "id is required")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+
+	updated, err := s.manager.GetPluginManager().UpgradePlugin(req.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodePluginInstallFailed, err.Error())
+		return
+	}
+
+	writeSuccess(w, updated)
 }
