@@ -137,8 +137,8 @@ jobs:
               if [ -f "$d/index.js" ]; then
                 cp "$d/index.js" "repo/$plugin_id/index.js"
               fi
+            fi
           done
-
           # Create/update README.md
           cat << 'EOF' > README.md
           # Bowerbird Official Plugins Distribution Repository
