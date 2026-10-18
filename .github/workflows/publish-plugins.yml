@@ -6,7 +6,9 @@ on:
       - main
     paths:
       - "plugins/**"
+      - "!plugins/**/README.md"
       - "packages/plugin-sdk/**"
+      - "!packages/plugin-sdk/README.md"
       - "scripts/build-plugins.mjs"
       - ".github/workflows/publish-plugins.yml"
   workflow_dispatch:
