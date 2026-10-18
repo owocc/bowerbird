@@ -1,6 +1,163 @@
 @import "@workspace/ui/globals.css";
 
-/* Additional marketplace specific styles */
-:root {
-  color-scheme: light dark;
+@theme {
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary-hover: var(--secondary-hover);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-surface: var(--surface);
+  --color-surface-card: var(--surface-card);
+  --color-surface-active: var(--surface-active);
+
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-input: var(--input-border);
+  --color-ring: var(--ring);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-skeleton: var(--skeleton);
+  --color-skeleton-muted: var(--skeleton-muted);
+  --color-skeleton-highlight: var(--skeleton-highlight);
+}
+
+:root,
+.dark {
+  /* Primary brand colors (White theme in dark mode) */
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --primary-hover: #e4e4e7;
+
+  /* Secondary surface colors */
+  --secondary: #18181b;
+  --secondary-foreground: #f4f4f5;
+  --secondary-hover: #27272a;
+
+  /* Page canvas & typography (Default Dark) */
+  --background: #09090b;
+  --foreground: #f4f4f5;
+
+  /* Muted backgrounds and secondary text */
+  --muted: #18181b;
+  --muted-foreground: #a1a1aa;
+
+  /* Surfaces & Containers */
+  --surface: #141417;
+  --surface-card: #111113;
+  --surface-active: #27272a;
+
+  /* Borders & Inputs */
+  --border: #27272a;
+  --border-subtle: #1e1e22;
+  --input-border: #3f3f46;
+  --ring: #ffffff;
+
+  /* Cards */
+  --card: #111113;
+  --card-foreground: #f4f4f5;
+
+  /* Skeleton Loading Colors in dark mode */
+  --skeleton: #27272a;
+  --skeleton-muted: #1c1c20;
+  --skeleton-highlight: #3f3f46;
+
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.light {
+  /* Primary brand colors (Black theme in light mode) */
+  --primary: #000000;
+  --primary-foreground: #ffffff;
+  --primary-hover: #27272a;
+
+  /* Secondary surface colors */
+  --secondary: #f5f5f7;
+  --secondary-foreground: #111827;
+  --secondary-hover: #eaeaea;
+
+  /* Page canvas & typography (Light mode) */
+  --background: #ffffff;
+  --foreground: #111827;
+
+  /* Muted backgrounds and secondary text */
+  --muted: #f5f5f7;
+  --muted-foreground: #86868b;
+
+  /* Surfaces & Containers */
+  --surface: #f5f5f7;
+  --surface-card: #f9fafb;
+  --surface-active: #e5e5ea;
+
+  /* Borders & Inputs */
+  --border: #e5e5ea;
+  --border-subtle: #f0f0f5;
+  --input-border: #d2d2d7;
+  --ring: #000000;
+
+  /* Cards */
+  --card: #ffffff;
+  --card-foreground: #111827;
+
+  /* Skeleton Loading Colors */
+  --skeleton: #e2e4e9;
+  --skeleton-muted: #f1f2f6;
+  --skeleton-highlight: #d0d3dc;
+
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--skeleton) 0%,
+    var(--skeleton-muted) 45%,
+    var(--skeleton) 90%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .touch-pan-x {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
 }

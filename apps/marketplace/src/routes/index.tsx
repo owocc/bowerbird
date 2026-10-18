@@ -1,339 +1,342 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import * as React from "react";
-import {
-  Search,
-  Filter,
-  Download,
-  Check,
-  Sparkles,
-  Layers,
-  FileText,
-  Music,
-  Table,
-  Camera,
-  Box,
-  Star,
-  ExternalLink,
-  ChevronRight,
-  Info,
-  Laptop,
-} from "lucide-react";
-import { usePluginsCatalog, type MarketplacePlugin } from "../data/plugins";
-import { I18nContext } from "../lib/i18n";
-import { DesktopContext } from "../lib/desktop-context";
+import { ChevronRight, Sparkles, PlusCircle } from "lucide-react";
+import { getAllApps } from "../data/apps";
+import type { AppItem } from "../lib/types";
+import { HeroFeaturedCard } from "../components/hero-featured-card";
+import { useI18n } from "../lib/i18n";
 
 export const Route = createFileRoute("/")({
-  component: MarketplaceCatalog,
+  component: AppsPage,
 });
 
-function getIconComponent(iconName: MarketplacePlugin["iconName"]) {
-  switch (iconName) {
-    case "file-text":
-      return FileText;
-    case "music":
-      return Music;
-    case "table":
-      return Table;
-    case "camera":
-      return Camera;
-    case "sparkles":
-      return Sparkles;
-    default:
-      return Box;
+function formatLocalizedDate(date: Date, locale: string): string {
+  try {
+    return date.toLocaleDateString(locale === "zh" ? "zh-CN" : "en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return date.toDateString();
   }
 }
 
-function MarketplaceCatalog() {
-  const { t } = React.useContext(I18nContext);
-  const { connected, installedPlugins, installingId, installViaAPI, installViaProtocol } =
-    React.useContext(DesktopContext);
+export function AppsPage() {
+  const { t, locale } = useI18n();
+  const navigate = useNavigate();
 
-  const { plugins: allPluginsList } = usePluginsCatalog();
-  const [searchQuery, setSearchQuery] = React.useState<string>("");
-  const [selectedCategory, setSelectedCategory] = React.useState<"all" | "preview" | "metadata">("all");
-  const [selectedFormat, setSelectedFormat] = React.useState<string>("all");
+  const allApps = React.useMemo(() => getAllApps(), []);
+  const webApps = React.useMemo(() => getAllApps({ category: "web" }), []);
+  const toolApps = React.useMemo(() => getAllApps({ category: "tools" }), []);
+  const aiApps = React.useMemo(() => getAllApps({ category: "ai" }), []);
 
-  // Collect all available format extensions across plugins
-  const allFormats = React.useMemo(() => {
-    const set = new Set<string>();
-    for (const p of allPluginsList) {
-      for (const ext of p.extensions) {
-        set.add(ext.toLowerCase().replace(/^\./, ""));
-      }
-    }
-    return Array.from(set).sort();
-  }, [allPluginsList]);
+  const featuredApps = allApps.filter((a: AppItem) => a.featured);
+  const heroApp = featuredApps[0] || allApps[0];
+  const secondHeroApp = featuredApps[1] || allApps[1] || heroApp;
+  const thirdHeroApp = featuredApps[2] || allApps[2] || heroApp;
 
-  const filteredPlugins = React.useMemo(() => {
-    return allPluginsList.filter((plugin) => {
-      // Category filter
-      if (selectedCategory !== "all" && plugin.category !== selectedCategory) {
-        return false;
-      }
-      // Format filter
-      if (selectedFormat !== "all") {
-        const hasFormat = plugin.extensions.some(
-          (ext) => ext.toLowerCase().replace(/^\./, "") === selectedFormat.toLowerCase()
-        );
-        if (!hasFormat) return false;
-      }
-      // Search query
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        const matchesName = plugin.name.toLowerCase().includes(q);
-        const matchesDesc = plugin.description.toLowerCase().includes(q);
-        const matchesExt = plugin.extensions.some((ext) => ext.toLowerCase().includes(q));
-        const matchesAuthor = plugin.author.toLowerCase().includes(q);
-        return matchesName || matchesDesc || matchesExt || matchesAuthor;
-      }
-      return true;
-    });
-  }, [searchQuery, selectedCategory, selectedFormat]);
+  // List 1: Web category
+  const webListApps = webApps.length > 0 ? webApps.slice(0, 5) : allApps.slice(0, 5);
+  // List 2: Tools category
+  const toolListApps = toolApps.length > 0 ? toolApps.slice(0, 5) : allApps.slice(2, 7);
+  // List 3: AI category
+  const aiListApps = aiApps.length > 0 ? aiApps.slice(0, 5) : allApps.slice(4, 9);
+
+  const dateString = React.useMemo(() => formatLocalizedDate(new Date(), locale), [locale]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 w-full space-y-8">
-      {/* Hero Banner */}
-      <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-primary/5 p-6 sm:p-10 shadow-sm">
-        <div className="max-w-3xl space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/20">
-            <Sparkles className="size-3.5" />
-            <span>Official & Community Ecosystem</span>
-          </div>
-          <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-foreground">
-            {t("catalogTitle")}
+    <div className="p-4 sm:p-6 lg:p-8 w-full space-y-8 sm:space-y-10 lg:space-y-12 bg-background text-foreground transition-colors duration-200">
+      {/* Apps Header */}
+      <div className="border-b border-border pb-4">
+        <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+          {dateString}
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-1">
+          <h1 className="text-2xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+            {t("apps.title")}
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground leading-relaxed">
-            {t("catalogSubtitle")}
-          </p>
-        </div>
-
-        {/* Desktop Helper Notice */}
-        {!connected && (
-          <div className="mt-6 flex items-start gap-3 rounded-xl border border-border/80 bg-background/80 p-4 text-xs text-muted-foreground max-w-2xl">
-            <Info className="size-4 text-primary shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <span className="font-semibold text-foreground">Bowerbird Desktop integration</span>
-              <p>{t("desktopHelp")}</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Search and Filters */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
-        {/* Search Input */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t("searchPlaceholder")}
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary transition-all shadow-2xs"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-
-        {/* Category & Format Tabs */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Category Tabs */}
-          <div className="inline-flex p-1 rounded-xl bg-muted/60 border border-border/70 text-xs font-medium">
-            <button
-              type="button"
-              onClick={() => setSelectedCategory("all")}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                selectedCategory === "all"
-                  ? "bg-card text-foreground font-semibold shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t("categoryAll")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory("preview")}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                selectedCategory === "preview"
-                  ? "bg-card text-foreground font-semibold shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t("categoryPreview")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory("metadata")}
-              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                selectedCategory === "metadata"
-                  ? "bg-card text-foreground font-semibold shadow-2xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t("categoryMetadata")}
-            </button>
-          </div>
-
-          {/* Format dropdown */}
-          <select
-            value={selectedFormat}
-            onChange={(e) => setSelectedFormat(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-border bg-card text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 cursor-pointer shadow-2xs"
+          <button
+            type="button"
+            onClick={() => navigate({ to: "/search", search: { q: "" } })}
+            className="inline-flex items-center gap-1.5 px-3.5 sm:px-4 py-1.5 sm:py-2 rounded-full bg-foreground text-background text-xs font-semibold hover:opacity-90 transition cursor-pointer"
           >
-            <option value="all">All Formats</option>
-            {allFormats.map((ext) => (
-              <option key={ext} value={ext}>
-                .{ext}
-              </option>
-            ))}
-          </select>
+            <PlusCircle className="w-3.5 h-3.5" />
+            <span>{t("submit")}</span>
+          </button>
         </div>
       </div>
 
-      {/* Plugins Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-        {filteredPlugins.map((plugin) => {
-          const Icon = getIconComponent(plugin.iconName);
-          const isInstalled = installedPlugins.has(plugin.id);
-          const isInstalling = installingId === plugin.id;
+      {/* Empty State */}
+      {allApps.length === 0 ? (
+        <div className="bg-card rounded-3xl p-10 md:p-14 border border-border text-center space-y-6 shadow-xs">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-secondary flex items-center justify-center text-foreground">
+            <Sparkles className="w-8 h-8 animate-pulse" />
+          </div>
+          <div className="space-y-2 max-w-lg mx-auto">
+            <h2 className="text-2xl font-extrabold text-foreground">
+              {t("apps.emptyTitle")}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {t("apps.emptyDesc")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate({ to: "/search", search: { q: "" } })}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover active:scale-[0.98] transition-all shadow-xs cursor-pointer"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>{t("apps.recommendFirst")}</span>
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-8 sm:space-y-10 lg:space-y-12">
+          {/* Row 1: Left Wide (Hero Banner), Right Narrow (Web 分类列表) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Left Wide: Hero Feature Card (7 cols) */}
+            {heroApp && (
+              <div className="lg:col-span-7 flex flex-col">
+                <HeroFeaturedCard app={heroApp} tag={t("apps.heroTag1")} />
+              </div>
+            )}
 
-          return (
-            <div
-              key={plugin.id}
-              className="group flex flex-col justify-between rounded-2xl border border-border/70 bg-card hover:border-primary/50 transition-all duration-200 hover:shadow-md p-6 relative overflow-hidden"
-            >
-              {/* Card Header */}
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="size-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20 group-hover:scale-105 transition-transform">
-                      <Icon className="size-6" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Link
-                          to="/plugins/$pluginId"
-                          params={{ pluginId: plugin.id }}
-                          className="font-bold text-base text-foreground hover:text-primary transition-colors inline-flex items-center gap-1"
-                        >
-                          {plugin.name}
-                        </Link>
-                        {plugin.featured && (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                            Featured
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
-                        <span>by {plugin.author}</span>
-                        <span>•</span>
-                        <span className="font-mono">v{plugin.version}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Status Indicator */}
-                  {isInstalled ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                      <Check className="size-3.5" />
-                      <span>{t("installed")}</span>
+            {/* Right Narrow: Web 分类列表 (5 cols) */}
+            <div className="lg:col-span-5 bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border flex flex-col justify-between shadow-xs">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      {t("apps.webCategory")}
                     </span>
-                  ) : null}
+                    <h2 className="text-xl font-bold text-foreground tracking-tight">
+                      {t("apps.webTitle")}
+                    </h2>
+                  </div>
+                  <Link
+                    to="/category/$name"
+                    params={{ name: "web" }}
+                    className="text-xs font-semibold text-foreground hover:underline flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <span>{t("viewAll")}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
                 </div>
 
-                {/* Description */}
-                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-3">
-                  {plugin.description}
-                </p>
-
-                {/* Format Badges */}
-                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-[11px] font-medium text-muted-foreground mr-1">
-                    Formats:
-                  </span>
-                  {plugin.extensions.map((ext) => (
-                    <span
-                      key={ext}
-                      className="px-2 py-0.5 rounded-md bg-muted text-[11px] font-mono font-medium text-muted-foreground border border-border/50"
+                <div className="divide-y divide-border">
+                  {webListApps.map((app: AppItem, index: number) => (
+                    <div
+                      key={app.id}
+                      className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3 group"
                     >
-                      .{ext.replace(/^\./, "")}
-                    </span>
+                      <Link
+                        to="/app/$id"
+                        params={{ id: app.id }}
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                      >
+                        <img
+                          src={app.icon_url}
+                          alt={app.name}
+                          className="w-11 h-11 rounded-xl object-cover shadow-2xs group-hover:scale-105 transition-transform shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                              {app.name}
+                            </span>
+                            {index === 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-[#FF9500]/15 text-[#FF9500] font-bold rounded">
+                                {t("apps.badgeHot")}
+                              </span>
+                            )}
+                            {index === 1 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-[#34C759]/15 text-[#34C759] font-bold rounded">
+                                {t("apps.badgeSpeed")}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {app.tagline || app.description.slice(0, 30)}
+                          </p>
+                        </div>
+                      </Link>
+                      <Link
+                        to="/app/$id"
+                        params={{ id: app.id }}
+                        className="px-3.5 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all shrink-0 cursor-pointer"
+                      >
+                        {t("view")}
+                      </Link>
+                    </div>
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
 
-              {/* Card Footer */}
-              <div className="mt-6 pt-4 border-t border-border/60 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1 font-medium">
-                    <Star className="size-3.5 fill-amber-400 text-amber-400" />
-                    <span>{plugin.rating}</span>
-                  </span>
-                  <span>•</span>
-                  <span>{plugin.downloadsCount} installs</span>
+          {/* Row 2: Reversed! Left Narrow (工具 分类列表), Right Wide (主打推荐大卡片) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Left Narrow: 工具 分类列表 (5 cols) */}
+            <div className="lg:col-span-5 bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border flex flex-col justify-between order-2 lg:order-1 shadow-xs">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      {t("apps.toolsCategory")}
+                    </span>
+                    <h2 className="text-xl font-bold text-foreground tracking-tight">
+                      {t("apps.toolsTitle")}
+                    </h2>
+                  </div>
+                  <Link
+                    to="/category/$name"
+                    params={{ name: "tools" }}
+                    className="text-xs font-semibold text-foreground hover:underline flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <span>{t("viewAll")}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <Link
-                    to="/plugins/$pluginId"
-                    params={{ pluginId: plugin.id }}
-                    className="px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted rounded-lg transition-colors"
-                  >
-                    {t("openDetails")}
-                  </Link>
-
-                  {isInstalled ? (
-                    <button
-                      type="button"
-                      disabled
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-muted text-muted-foreground cursor-default flex items-center gap-1.5"
+                <div className="divide-y divide-border">
+                  {toolListApps.map((app: AppItem, index: number) => (
+                    <div
+                      key={app.id}
+                      className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3 group"
                     >
-                      <Check className="size-3.5" />
-                      <span>{t("installed")}</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => (connected ? installViaAPI(plugin) : installViaProtocol(plugin))}
-                      disabled={isInstalling}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-all flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
-                      title={connected ? "1-Click Direct Install" : "Install via bowerbird:// protocol"}
-                    >
-                      <Download className="size-3.5" />
-                      <span>{isInstalling ? t("installing") : t("installPlugin")}</span>
-                    </button>
-                  )}
+                      <Link
+                        to="/app/$id"
+                        params={{ id: app.id }}
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                      >
+                        <img
+                          src={app.icon_url}
+                          alt={app.name}
+                          className="w-11 h-11 rounded-xl object-cover shadow-2xs group-hover:scale-105 transition-transform shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                              {app.name}
+                            </span>
+                            {index === 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-[#007AFF]/15 text-[#007AFF] font-bold rounded">
+                                {t("apps.badgeWorkflow")}
+                              </span>
+                            )}
+                            {index === 1 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-[#AF52DE]/15 text-[#AF52DE] font-bold rounded">
+                                {t("apps.badgePraise")}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {app.tagline || app.description.slice(0, 30)}
+                          </p>
+                        </div>
+                      </Link>
+                      <Link
+                        to="/app/$id"
+                        params={{ id: app.id }}
+                        className="px-3.5 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all shrink-0 cursor-pointer"
+                      >
+                        {t("view")}
+                      </Link>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-          );
-        })}
-      </div>
 
-      {filteredPlugins.length === 0 && (
-        <div className="text-center py-16 border border-dashed border-border rounded-2xl p-8 space-y-3">
-          <p className="text-base font-semibold text-foreground">No plugins found matching your query</p>
-          <p className="text-xs text-muted-foreground">
-            Try adjusting your search terms or clearing format filters.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setSearchQuery("");
-              setSelectedCategory("all");
-              setSelectedFormat("all");
-            }}
-            className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold cursor-pointer"
-          >
-            Reset Filters
-          </button>
+            {/* Right Wide: Featured Spotlight Card (7 cols) */}
+            {secondHeroApp && (
+              <div className="lg:col-span-7 flex flex-col order-1 lg:order-2">
+                <HeroFeaturedCard app={secondHeroApp} tag={t("apps.heroTag2")} />
+              </div>
+            )}
+          </div>
+
+          {/* Row 3: Left Wide (AI 专区大卡片), Right Narrow (AI 分类列表) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+            {/* Left Wide: AI Spotlight Card (7 cols) */}
+            {thirdHeroApp && (
+              <div className="lg:col-span-7 flex flex-col">
+                <HeroFeaturedCard app={thirdHeroApp} tag={t("apps.heroTag3")} />
+              </div>
+            )}
+
+            {/* Right Narrow: AI 分类列表 (5 cols) */}
+            <div className="lg:col-span-5 bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border flex flex-col justify-between shadow-xs">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      {t("apps.aiCategory")}
+                    </span>
+                    <h2 className="text-xl font-bold text-foreground tracking-tight">
+                      {t("apps.aiTitle")}
+                    </h2>
+                  </div>
+                  <Link
+                    to="/category/$name"
+                    params={{ name: "ai" }}
+                    className="text-xs font-semibold text-foreground hover:underline flex items-center gap-0.5 cursor-pointer"
+                  >
+                    <span>{t("viewAll")}</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Link>
+                </div>
+
+                <div className="divide-y divide-border">
+                  {aiListApps.map((app: AppItem, index: number) => (
+                    <div
+                      key={app.id}
+                      className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3 group"
+                    >
+                      <Link
+                        to="/app/$id"
+                        params={{ id: app.id }}
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                      >
+                        <img
+                          src={app.icon_url}
+                          alt={app.name}
+                          className="w-11 h-11 rounded-xl object-cover shadow-2xs group-hover:scale-105 transition-transform shrink-0"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
+                              {app.name}
+                            </span>
+                            {index === 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-[#FF2D55]/15 text-[#FF2D55] font-bold rounded">
+                                {t("apps.badgeGenerate")}
+                              </span>
+                            )}
+                            {index === 1 && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-[#5856D6]/15 text-[#5856D6] font-bold rounded">
+                                {t("apps.badgeAlgorithm")}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">
+                            {app.tagline || app.description.slice(0, 30)}
+                          </p>
+                        </div>
+                      </Link>
+                      <Link
+                        to="/app/$id"
+                        params={{ id: app.id }}
+                        className="px-3.5 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all shrink-0 cursor-pointer"
+                      >
+                        {t("view")}
+                      </Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

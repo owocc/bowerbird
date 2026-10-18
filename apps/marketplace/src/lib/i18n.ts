@@ -1,51 +1,307 @@
 import * as React from "react";
 
-export type Locale = "en" | "zh";
+export type Locale = "zh" | "en";
 
-export interface Translations {
-  catalogTitle: string;
-  catalogSubtitle: string;
-  searchPlaceholder: string;
-  categoryAll: string;
-  categoryPreview: string;
-  categoryMetadata: string;
-  desktopConnected: string;
-  desktopOffline: string;
-  desktopHelp: string;
-  installBowerbird: string;
-  installPlugin: string;
-  installing: string;
-  installed: string;
-  uninstall: string;
-  openDetails: string;
-  docsTitle: string;
-  navMarketplace: string;
-  navDocs: string;
-  navGithub: string;
-  backToCatalog: string;
-  supportedFormats: string;
-  versionHistory: string;
-  detailsOverview: string;
-  manualDownload: string;
-  downloadManifest: string;
-  downloadBundle: string;
-  oneClickInstall: string;
-  oneClickHint: string;
-  sdkQuickStart: string;
-  sdkManifestSpec: string;
-  sdkHostApi: string;
-  sdkPackaging: string;
-  rating: string;
-  author: string;
-  version: string;
-  priority: string;
-}
+export const MESSAGES: Record<Locale, Record<string, string>> = {
+  zh: {
+    // Common
+    appName: "Hyakume",
+    home: "首页",
+    search: "搜索",
+    searchPlaceholder: "搜索应用、工具或游戏...",
+    categories: "类别",
+    all: "全部",
+    tools: "工具",
+    ai: "AI",
+    games: "游戏",
+    web: "WEB",
+    allApps: "全部应用",
+    submit: "推荐收录",
+    login: "登录",
+    register: "注册",
+    logout: "退出",
+    explore: "开始探索",
+    language: "语言",
+    english: "English",
+    chinese: "简体中文",
+    viewAll: "查看全部",
+    view: "查看",
 
-export const MESSAGES: Record<Locale, Translations> = {
+    // Sidebar
+    "sidebar.title": "Hyakume",
+    "sidebar.apps": "Apps",
+    "sidebar.games": "游戏",
+    "sidebar.web": "WEB",
+    "sidebar.searchPlaceholder": "搜索",
+    "sidebar.categoriesHeader": "类别",
+    "sidebar.all": "全部",
+    "sidebar.tools": "工具",
+    "sidebar.ai": "AI",
+    "sidebar.dashboard": "我的发布",
+
+    // Apps Page
+    "apps.title": "Apps",
+    "apps.emptyTitle": "暂无收录应用",
+    "apps.emptyDesc": "当前数据库中尚无 Web App 数据。你可以使用右上角的推荐收录功能，体验 AI 自动化分析并收录优质站点。",
+    "apps.recommendFirst": "推荐第一个应用",
+    "apps.heroTag1": "时下热门 • 精选主打",
+    "apps.heroTag2": "主打推荐 • 生产力飞跃",
+    "apps.heroTag3": "AI 智能探索 • 前沿科技",
+    "apps.webCategory": "WEB 分类",
+    "apps.webTitle": "精选 Web 应用",
+    "apps.toolsCategory": "工具 分类",
+    "apps.toolsTitle": "效率必备利器",
+    "apps.aiCategory": "AI 分类",
+    "apps.aiTitle": "智能创造可能",
+    "apps.badgeHot": "热门收录",
+    "apps.badgeSpeed": "极速体验",
+    "apps.badgeWorkflow": "工作流核心",
+    "apps.badgePraise": "深度好评",
+    "apps.badgeGenerate": "智能生成",
+    "apps.badgeAlgorithm": "前沿算法",
+
+    // Category Page
+    "category.featured": "精选 {category} 应用",
+    "category.topCharts": "热门排行",
+    "category.editorsChoice": "精选推荐",
+    "category.emptyTitle": "暂无该分类收录",
+    "category.emptyDesc": "当前尚未收录属于【{category}】的应用。点击右上角“推荐收录”，立即提交优质 Web App！",
+
+    // Search Page
+    "searchPage.title": "搜索",
+    "searchPage.resultsFor": "“{query}”的搜索结果",
+    "searchPage.foundCount": "找到 {count} 个相关应用与工具",
+    "searchPage.noResults": "未找到相关应用",
+    "searchPage.noResultsDesc": "没有找到与 “{query}” 匹配的应用。你可以使用 AI 一键推荐工具收录它！",
+    "searchPage.autoSubmit": "AI 一键自动化收录",
+
+    // App Detail
+    "appDetail.visitWebsite": "访问网站",
+    "appDetail.copied": "已复制",
+    "appDetail.share": "分享",
+    "appDetail.freeWebApp": "免费 · Web App",
+    "appDetail.ratingsCount": "{count} 个评分",
+    "appDetail.ageRating": "年龄分级",
+    "appDetail.sizePlatform": "大小 / 平台",
+    "appDetail.preview": "预览",
+    "appDetail.noPreview": "该应用无预览图",
+    "appDetail.noPreviewDesc": "开发者暂未提供此 Web App 的界面预览截图",
+    "appDetail.quickAccess": "快捷访问",
+    "appDetail.launchOnline": "在线运行",
+    "appDetail.aboutApp": "关于此应用",
+    "appDetail.showMore": "展开全文",
+    "appDetail.showLess": "收起",
+    "appDetail.whatsNew": "新功能",
+    "appDetail.version": "版本",
+    "appDetail.ratingsReviews": "评分与评论",
+    "appDetail.writeReview": "写评论",
+    "appDetail.outOf5": "满分 5 分",
+    "appDetail.totalRatings": "有 {count} 个评分",
+    "appDetail.information": "信息",
+    "appDetail.size": "大小",
+    "appDetail.category": "类别",
+    "appDetail.compatibility": "兼容性",
+    "appDetail.languages": "语言",
+    "appDetail.copyright": "版权",
+    "appDetail.moreFromDev": "更多来自“{developer}”的 App",
+    "appDetail.previewDesktop": "PC 桌面端",
+    "appDetail.previewTablet": "平板端",
+    "appDetail.previewMobile": "手机端",
+    "appDetail.previewMultiDevice": "PC · 平板 · 手机三端预览",
+    "appDetail.recommendedApps": "相关应用推荐",
+
+    // Footer
+    "footer.tagline": "现代化 Web App 精选收录平台",
+    "footer.subTagline": "现代化 Web App 精选收录平台。致力于发现优质在线工具，支持一键快照与自动化收录。",
+    "footer.discover": "发现探索",
+    "footer.appsFeatured": "Apps 精选",
+    "footer.allApps": "全部应用",
+    "footer.games": "游戏专区",
+    "footer.web": "WEB 应用",
+    "footer.tools": "效率工具",
+    "footer.ai": "AI 应用",
+    "footer.services": "收录服务",
+    "footer.submitApp": "推荐 / 投放应用",
+    "footer.snapshotPipeline": "AI 自动快照管线",
+    "footer.guidelines": "收录标准指引",
+    "footer.developerCollab": "开发者合作",
+    "footer.aboutPlatform": "关于平台",
+    "footer.aboutUs": "关于我们",
+    "footer.terms": "服务条款",
+    "footer.privacy": "隐私政策",
+    "footer.contact": "联系与反馈",
+    "footer.copyright": "© 2026 Hyakume. 保留所有权利。",
+
+    // Backward compatibility for Bowerbird plugins
+    catalogTitle: "Bowerbird 插件市场",
+    catalogSubtitle: "使用官方与社区插件扩展 Bowerbird，支持富媒体预览、元数据透视和自动化工作流。",
+    categoryAll: "全部插件",
+    categoryPreview: "预览插件",
+    categoryMetadata: "元数据插件",
+    desktopConnected: "桌面端已连接",
+    desktopOffline: "桌面端未启动",
+    desktopHelp: "在计算机上启动 Bowerbird 即可启用一键安装及本地状态同步。",
+    installBowerbird: "通过 Bowerbird 安装",
+    installPlugin: "安装插件",
+    installing: "正在安装...",
+    installed: "已安装",
+    uninstall: "卸载",
+    openDetails: "查看详情",
+    docsTitle: "插件开发指南",
+    navMarketplace: "插件市场",
+    navDocs: "开发文档",
+    navGithub: "代码仓库",
+    backToCatalog: "返回插件列表",
+    supportedFormats: "支持文件格式",
+    versionHistory: "版本更新历史",
+    detailsOverview: "功能特点",
+    manualDownload: "手动下载",
+    downloadManifest: "下载 manifest.json",
+    downloadBundle: "下载 index.js",
+    oneClickInstall: "一键安装到 Bowerbird",
+    oneClickHint: "通过 bowerbird:// 系统协议直接安装到本地运行的 Bowerbird。",
+    sdkQuickStart: "快速开始",
+    sdkManifestSpec: "插件清单规范",
+    sdkHostApi: "宿主 API 与能力",
+    sdkPackaging: "构建与发布",
+    rating: "评分",
+    author: "作者",
+    version: "版本",
+    priority: "优先级",
+  },
+
   en: {
+    // Common
+    appName: "Hyakume",
+    home: "Home",
+    search: "Search",
+    searchPlaceholder: "Search apps, tools or games...",
+    categories: "Categories",
+    all: "All",
+    tools: "Tools",
+    ai: "AI",
+    games: "Games",
+    web: "WEB",
+    allApps: "All Apps",
+    submit: "Submit App",
+    login: "Log In",
+    register: "Sign Up",
+    logout: "Log Out",
+    explore: "Explore",
+    language: "Language",
+    english: "English",
+    chinese: "简体中文",
+    viewAll: "View All",
+    view: "View",
+
+    // Sidebar
+    "sidebar.title": "Hyakume",
+    "sidebar.apps": "Apps",
+    "sidebar.games": "Games",
+    "sidebar.web": "WEB",
+    "sidebar.searchPlaceholder": "Search",
+    "sidebar.categoriesHeader": "Categories",
+    "sidebar.all": "All",
+    "sidebar.tools": "Tools",
+    "sidebar.ai": "AI",
+    "sidebar.dashboard": "My Publications",
+
+    // Apps Page
+    "apps.title": "Apps",
+    "apps.emptyTitle": "No Apps Found",
+    "apps.emptyDesc": "There are no Web Apps in the directory yet. Use Submit App in the top right to analyze and add your favorite sites.",
+    "apps.recommendFirst": "Submit First App",
+    "apps.heroTag1": "Trending • Featured Spotlight",
+    "apps.heroTag2": "Staff Pick • Productivity Leap",
+    "apps.heroTag3": "AI Frontiers • Cutting Edge",
+    "apps.webCategory": "WEB Category",
+    "apps.webTitle": "Curated Web Apps",
+    "apps.toolsCategory": "Tools Category",
+    "apps.toolsTitle": "Essential Utilities",
+    "apps.aiCategory": "AI Category",
+    "apps.aiTitle": "Intelligent Frontiers",
+    "apps.badgeHot": "Popular",
+    "apps.badgeSpeed": "Ultra Fast",
+    "apps.badgeWorkflow": "Workflow",
+    "apps.badgePraise": "Top Rated",
+    "apps.badgeGenerate": "Generative",
+    "apps.badgeAlgorithm": "Algorithm",
+
+    // Category Page
+    "category.featured": "Featured {category} Apps",
+    "category.topCharts": "Top Charts",
+    "category.editorsChoice": "Editor's Choice",
+    "category.emptyTitle": "No apps in this category",
+    "category.emptyDesc": "No Web Apps found under [{category}] yet. Click Submit App to add one!",
+
+    // Search Page
+    "searchPage.title": "Search",
+    "searchPage.resultsFor": "Results for \"{query}\"",
+    "searchPage.foundCount": "Found {count} apps & tools",
+    "searchPage.noResults": "No apps found",
+    "searchPage.noResultsDesc": "No apps match \"{query}\". You can use AI submission to index it!",
+    "searchPage.autoSubmit": "AI Auto Indexing",
+
+    // App Detail
+    "appDetail.visitWebsite": "Visit Website",
+    "appDetail.copied": "Copied",
+    "appDetail.share": "Share",
+    "appDetail.freeWebApp": "Free · Web App",
+    "appDetail.ratingsCount": "{count} ratings",
+    "appDetail.ageRating": "Age Rating",
+    "appDetail.sizePlatform": "Size / Platform",
+    "appDetail.preview": "Preview",
+    "appDetail.noPreview": "No preview available",
+    "appDetail.noPreviewDesc": "The developer has not provided preview screenshots for this Web App yet.",
+    "appDetail.quickAccess": "Quick Access",
+    "appDetail.launchOnline": "Launch Online",
+    "appDetail.aboutApp": "About this App",
+    "appDetail.showMore": "Show More",
+    "appDetail.showLess": "Show Less",
+    "appDetail.whatsNew": "What's New",
+    "appDetail.version": "Version",
+    "appDetail.ratingsReviews": "Ratings & Reviews",
+    "appDetail.writeReview": "Write a Review",
+    "appDetail.outOf5": "out of 5",
+    "appDetail.totalRatings": "{count} Ratings",
+    "appDetail.information": "Information",
+    "appDetail.size": "Size",
+    "appDetail.category": "Category",
+    "appDetail.compatibility": "Compatibility",
+    "appDetail.languages": "Languages",
+    "appDetail.copyright": "Copyright",
+    "appDetail.moreFromDev": "More by \"{developer}\"",
+    "appDetail.previewDesktop": "Desktop PC",
+    "appDetail.previewTablet": "Tablet",
+    "appDetail.previewMobile": "Mobile",
+    "appDetail.previewMultiDevice": "PC · Tablet · Mobile Multi-Device Preview",
+    "appDetail.recommendedApps": "Related Recommendations",
+
+    // Footer
+    "footer.tagline": "Modern Curated Web App Directory",
+    "footer.subTagline": "Modern Curated Web App Directory. Dedicated to discovering premier online tools with instant snapshot analysis.",
+    "footer.discover": "Discover",
+    "footer.appsFeatured": "Featured Apps",
+    "footer.allApps": "All Apps",
+    "footer.games": "Games Hub",
+    "footer.web": "WEB Apps",
+    "footer.tools": "Productivity Tools",
+    "footer.ai": "AI Applications",
+    "footer.services": "Services",
+    "footer.submitApp": "Submit App",
+    "footer.snapshotPipeline": "AI Snapshot Pipeline",
+    "footer.guidelines": "Inclusion Guidelines",
+    "footer.developerCollab": "Developer Partners",
+    "footer.aboutPlatform": "About Platform",
+    "footer.aboutUs": "About Us",
+    "footer.terms": "Terms of Service",
+    "footer.privacy": "Privacy Policy",
+    "footer.contact": "Contact & Feedback",
+    "footer.copyright": "© 2026 Hyakume. All rights reserved.",
+
+    // Backward compatibility for Bowerbird plugins
     catalogTitle: "Bowerbird Plugin Marketplace",
     catalogSubtitle: "Extend Bowerbird with community and official plugins for rich media previews, metadata inspection, and custom workflows.",
-    searchPlaceholder: "Search plugins by name, format, or description...",
     categoryAll: "All Plugins",
     categoryPreview: "Preview Plugins",
     categoryMetadata: "Metadata Plugins",
@@ -80,56 +336,30 @@ export const MESSAGES: Record<Locale, Translations> = {
     version: "Version",
     priority: "Priority",
   },
-  zh: {
-    catalogTitle: "Bowerbird 插件市场",
-    catalogSubtitle: "使用官方与社区插件扩展 Bowerbird，支持富媒体预览、元数据透视和自动化工作流。",
-    searchPlaceholder: "按插件名称、支持格式或描述搜索...",
-    categoryAll: "全部插件",
-    categoryPreview: "预览插件",
-    categoryMetadata: "元数据插件",
-    desktopConnected: "桌面端已连接",
-    desktopOffline: "桌面端未启动",
-    desktopHelp: "在计算机上启动 Bowerbird 即可启用一键安装及本地状态同步。",
-    installBowerbird: "通过 Bowerbird 安装",
-    installPlugin: "安装插件",
-    installing: "正在安装...",
-    installed: "已安装",
-    uninstall: "卸载",
-    openDetails: "查看详情",
-    docsTitle: "插件开发指南",
-    navMarketplace: "插件市场",
-    navDocs: "开发文档",
-    navGithub: "代码仓库",
-    backToCatalog: "返回插件列表",
-    supportedFormats: "支持文件格式",
-    versionHistory: "版本更新历史",
-    detailsOverview: "功能特点",
-    manualDownload: "手动下载",
-    downloadManifest: "下载 manifest.json",
-    downloadBundle: "下载 index.js",
-    oneClickInstall: "一键安装到 Bowerbird",
-    oneClickHint: "通过 bowerbird:// 系统协议直接安装到您本地运行的 Bowerbird 桌面客户端。",
-    sdkQuickStart: "快速开始",
-    sdkManifestSpec: "插件清单规范",
-    sdkHostApi: "宿主 API 与能力",
-    sdkPackaging: "构建与发布",
-    rating: "评分",
-    author: "作者",
-    version: "版本",
-    priority: "优先级",
-  },
 };
 
 export interface I18nContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: keyof Translations) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}
+
+function resolveMessage(locale: Locale, key: string, params?: Record<string, string | number>): string {
+  const dict = MESSAGES[locale] || MESSAGES.zh;
+  let text = dict[key] || MESSAGES.en[key] || key;
+
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      text = text.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+    }
+  }
+  return text;
 }
 
 export const I18nContext = React.createContext<I18nContextValue>({
-  locale: "en",
+  locale: "zh",
   setLocale: () => {},
-  t: (key) => MESSAGES.en[key] || String(key),
+  t: (key, params) => resolveMessage("zh", key, params),
 });
 
 export function useI18n(): I18nContextValue {
