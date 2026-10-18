@@ -91,8 +91,10 @@ jobs:
           version: 9
 
       - name: Install NSIS
-        run: choco install nsis -y
-
+        run: |
+          choco install nsis -y
+          echo "C:\Program Files (x86)\NSIS" >> $GITHUB_PATH
+          echo "C:\Program Files\NSIS" >> $GITHUB_PATH
       - name: Install Tools
         shell: pwsh
         run: |
