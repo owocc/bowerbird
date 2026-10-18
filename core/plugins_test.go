@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -208,6 +209,31 @@ func TestPluginManager_InstallFromManifestURL(t *testing.T) {
 	}
 	if _, err := os.Stat(pluginDir); !os.IsNotExist(err) {
 		t.Fatalf("expected plugin dir to be deleted")
+	}
+
+	// Verify diagnostic lifecycle logs recorded
+	logs := GetLogsSnapshot()
+	var pluginLogs []LogEntry
+	for _, l := range logs {
+		if l.Category == "plugin" {
+			pluginLogs = append(pluginLogs, l)
+		}
+	}
+	if len(pluginLogs) == 0 {
+		t.Fatalf("expected plugin lifecycle log entries, found none")
+	}
+	foundPhase1 := false
+	foundPhase5 := false
+	for _, l := range pluginLogs {
+		if strings.Contains(l.Message, "[Phase 1/5]") {
+			foundPhase1 = true
+		}
+		if strings.Contains(l.Message, "[Phase 5/5]") {
+			foundPhase5 = true
+		}
+	}
+	if !foundPhase1 || !foundPhase5 {
+		t.Errorf("expected phase 1 and phase 5 markers in plugin logs, got: %+v", pluginLogs)
 	}
 }
 

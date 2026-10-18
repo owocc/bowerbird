@@ -85,6 +85,9 @@ func NewLibraryManager() *LibraryManager {
 	}
 	mgr.userData = store
 	mgr.pluginMgr = NewPluginManager()
+	if store != nil && mgr.pluginMgr != nil {
+		mgr.pluginMgr.UpdateNetworkSettings(store.GetNetworkSettings())
+	}
 	// Start internal HTTP asset streaming server
 	mgr.assetServer = newAssetServer(mgr)
 
@@ -110,6 +113,31 @@ func (m *LibraryManager) SetApp(app *application.App) {
 	if m.pluginMgr != nil {
 		m.pluginMgr.SetApp(app)
 	}
+}
+
+// GetNetworkSettings returns the current network/proxy configuration.
+func (m *LibraryManager) GetNetworkSettings() NetworkSettings {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.userData != nil {
+		return m.userData.GetNetworkSettings()
+	}
+	return NetworkSettings{ProxyMode: ProxyModeSystem}
+}
+
+// SetNetworkSettings updates network/proxy settings across user data and the plugin manager.
+func (m *LibraryManager) SetNetworkSettings(settings NetworkSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.userData != nil {
+		if err := m.userData.SetNetworkSettings(settings); err != nil {
+			return err
+		}
+	}
+	if m.pluginMgr != nil {
+		m.pluginMgr.UpdateNetworkSettings(settings)
+	}
+	return nil
 }
 
 func (m *LibraryManager) GetPluginManager() *PluginManager {
@@ -1807,7 +1835,11 @@ func (m *LibraryManager) ImportFromURLWithOptions(rawURL string, opts ImportItem
 		}
 	}
 
-	client := &http.Client{Timeout: 45 * time.Second}
+	netSettings := m.GetNetworkSettings()
+	client := &http.Client{
+		Transport: CreateProxyTransport(netSettings),
+		Timeout:   45 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch network resource: %w", err)

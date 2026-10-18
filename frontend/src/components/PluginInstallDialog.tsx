@@ -17,6 +17,7 @@ import {
   InstallPluginFromURL,
   GetPendingPluginInstall,
   ClearPendingPluginInstall,
+  OpenLogsWindow,
 } from "../../bindings/bowerbird/core/service";
 
 export interface PluginInstallRequest {
@@ -30,7 +31,7 @@ export function PluginInstallDialog() {
   const [open, setOpen] = React.useState<boolean>(false);
   const [request, setRequest] = React.useState<PluginInstallRequest | null>(null);
   const [installing, setInstalling] = React.useState<boolean>(false);
-
+  const [installError, setInstallError] = React.useState<string | null>(null);
   React.useEffect(() => {
     // Check if there is a pending install request on mount (e.g. Settings window just launched)
     GetPendingPluginInstall()
@@ -76,6 +77,7 @@ export function PluginInstallDialog() {
   const handleInstall = async () => {
     if (!request) return;
     setInstalling(true);
+    setInstallError(null);
 
     try {
       // 1. Download and install files only upon explicit manual confirmation
@@ -114,6 +116,8 @@ export function PluginInstallDialog() {
       setRequest(null);
     } catch (err) {
       console.error("[PluginInstallDialog] Install error:", err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setInstallError(errMsg);
       notifyError(err);
     } finally {
       setInstalling(false);
@@ -182,6 +186,24 @@ export function PluginInstallDialog() {
               Ensure you trust the publisher before installing.
             </span>
           </div>
+
+          {installError && (
+            <div className="flex flex-col gap-2 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-[11px]">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="size-4 shrink-0 mt-0.5" />
+                <span className="font-mono break-all">{installError}</span>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => OpenLogsWindow()}
+                  className="text-[11px] font-semibold underline hover:opacity-80 cursor-pointer text-primary"
+                >
+                  查看详细安装日志 / View Logs
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
