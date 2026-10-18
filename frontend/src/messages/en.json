@@ -321,6 +321,7 @@
       "general": "General",
       "shortcuts": "Shortcuts & Capture",
       "plugins": "Plugins",
+      "network": "Network",
       "data": "Data & Storage",
       "extension": "Browser Extension"
     },
@@ -337,6 +338,34 @@
       "openInExplorer": "Open in File Explorer",
       "copyPath": "Copy Path",
       "pathCopied": "Path Copied!"
+    },
+    "network": {
+      "title": "Network & Proxy Settings",
+      "description": "Configure network proxy rules. Accessing the plugin marketplace or downloading remote plugins may require a proxy in certain network environments.",
+      "proxyMode": "Proxy Mode",
+      "proxyModeDesc": "Choose how network requests are routed",
+      "modeSystem": "System Proxy",
+      "modeSystemDesc": "Automatically use operating system or environment proxy settings (Recommended)",
+      "modeDirect": "Direct Connection",
+      "modeDirectDesc": "Bypass all proxies and connect directly to target servers",
+      "modeCustom": "Custom Proxy",
+      "modeCustomDesc": "Manually specify an HTTP, HTTPS, or SOCKS5 proxy server address",
+      "customProxyLabel": "Proxy Server Address",
+      "customProxyPlaceholder": "e.g. http://127.0.0.1:7890 or socks5://127.0.0.1:1080",
+      "customProxyHelp": "Supports http://, https://, socks5:// schemes. Defaults to http:// if omitted.",
+      "customProxyInvalid": "Invalid proxy address, please specify a valid IP/domain and port",
+      "testTitle": "Connectivity Test",
+      "testDesc": "Test connectivity to the plugin marketplace or target server using current proxy settings",
+      "testTargetLabel": "Target URL",
+      "testButton": "Test Connection",
+      "testing": "Testing…",
+      "testSuccess": "Connected successfully",
+      "testFailed": "Connection failed",
+      "latency": "Latency",
+      "statusCode": "Status Code",
+      "activeProxy": "Active Proxy",
+      "saveSuccess": "Network settings saved and applied",
+      "saveFailed": "Failed to save network settings"
     },
     "extension": {
       "title": "Browser Extension & Open API",
@@ -399,7 +428,10 @@
       "metadataBadge": "Metadata Extension",
       "supportedFormats": "Supported formats",
       "supportsZoom": "Zoom & Pan",
-      "title": "Installed plugins"
+      "title": "Installed plugins",
+      "scanLocal": "Scan Local Plugins",
+      "scanning": "Scanning…",
+      "scanSuccess": "Scan completed, synchronized local plugin folder"
     },
     "subtitle": "Application preferences",
     "title": "Settings"

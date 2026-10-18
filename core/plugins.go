@@ -44,6 +44,7 @@ type PluginManifest struct {
 	Homepage     string   `json:"homepage,omitempty"`
 	Repository   string   `json:"repository,omitempty"`
 	License      string   `json:"license,omitempty"`
+	DownloadURL  string   `json:"downloadUrl,omitempty"`
 }
 
 // InstalledPlugin represents an installed plugin persisted in installed.json.
@@ -113,6 +114,7 @@ type PluginManager struct {
 	pendingInstall *PluginInstallRequest
 	httpClient     *http.Client
 	app            *application.App
+	networkSettings NetworkSettings
 }
 
 // NewPluginManager creates a PluginManager with default path in UserDataDir()/plugins.
@@ -126,12 +128,15 @@ func NewPluginManagerWithDir(baseDir string) *PluginManager {
 		baseDir:   baseDir,
 		indexPath: filepath.Join(baseDir, "installed.json"),
 		plugins:   make(map[string]*InstalledPlugin),
+		networkSettings: NetworkSettings{ProxyMode: ProxyModeSystem},
 		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
+			Timeout:   60 * time.Second,
+			Transport: CreateProxyTransport(NetworkSettings{ProxyMode: ProxyModeSystem}),
 		},
 	}
 	_ = os.MkdirAll(baseDir, 0755)
 	pm.loadIndexLocked()
+	pm.scanLocalPluginsLocked()
 	return pm
 }
 
@@ -140,6 +145,36 @@ func (pm *PluginManager) SetApp(app *application.App) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	pm.app = app
+}
+
+// UpdateNetworkSettings updates the proxy configuration used for plugin downloads and update checks.
+func (pm *PluginManager) UpdateNetworkSettings(settings NetworkSettings) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.networkSettings = settings
+	if pm.httpClient != nil {
+		pm.httpClient.Transport = CreateProxyTransport(settings)
+	}
+}
+
+// GetNetworkSettings returns the current network/proxy settings of the plugin manager.
+func (pm *PluginManager) GetNetworkSettings() NetworkSettings {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.networkSettings
+}
+
+// getProxyDescription returns a human-readable description of the proxy used for targetURL.
+func (pm *PluginManager) getProxyDescription(targetURL string) string {
+	pm.mu.RLock()
+	settings := pm.networkSettings
+	pm.mu.RUnlock()
+
+	desc, err := ResolveActiveProxy(settings, targetURL)
+	if err != nil {
+		return fmt.Sprintf("error resolving proxy: %v", err)
+	}
+	return desc
 }
 
 // SetPendingInstall records a pending installation request for the Settings window to consume.
@@ -311,7 +346,10 @@ func (pm *PluginManager) saveIndexLocked() error {
 func (pm *PluginManager) ListInstalledPlugins() ([]InstalledPlugin, error) {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
+	return pm.listInstalledPluginsLocked(), nil
+}
 
+func (pm *PluginManager) listInstalledPluginsLocked() []InstalledPlugin {
 	result := make([]InstalledPlugin, 0, len(pm.plugins))
 	for _, p := range pm.plugins {
 		result = append(result, *p)
@@ -322,7 +360,138 @@ func (pm *PluginManager) ListInstalledPlugins() ([]InstalledPlugin, error) {
 		}
 		return result[i].ID < result[j].ID
 	})
-	return result, nil
+	return result
+}
+
+// scanLocalPluginsLocked scans baseDir for manually placed plugin folders,
+// validates manifests, registers new plugins as disabled by default,
+// cleans up removed plugins, and saves installed.json.
+func (pm *PluginManager) scanLocalPluginsLocked() bool {
+	entries, err := os.ReadDir(pm.baseDir)
+	if err != nil {
+		return false
+	}
+
+	changed := false
+	seenIDs := make(map[string]bool)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		pluginFolder := filepath.Join(pm.baseDir, name)
+		manifestPath := filepath.Join(pluginFolder, "manifest.json")
+		manifestBytes, err := os.ReadFile(manifestPath)
+		if err != nil {
+			continue
+		}
+
+		var m PluginManifest
+		if err := json.Unmarshal(manifestBytes, &m); err != nil {
+			RecordLog("warn", "plugin", fmt.Sprintf("Ignored invalid manifest in %s: %v", name, err), "", 0)
+			continue
+		}
+
+		if err := ValidateManifest(&m); err != nil {
+			RecordLog("warn", "plugin", fmt.Sprintf("Manifest validation failed for %s: %v", name, err), "", 0)
+			continue
+		}
+
+		// Verify main entry file exists
+		mainFile := filepath.Join(pluginFolder, filepath.FromSlash(m.Main))
+		if info, err := os.Stat(mainFile); err != nil || info.IsDir() {
+			RecordLog("warn", "plugin", fmt.Sprintf("Plugin main entry %q not found in %s", m.Main, name), "", 0)
+			continue
+		}
+
+		// Verify style file if defined
+		if m.Style != "" {
+			styleFile := filepath.Join(pluginFolder, filepath.FromSlash(m.Style))
+			if info, err := os.Stat(styleFile); err != nil || info.IsDir() {
+				RecordLog("warn", "plugin", fmt.Sprintf("Plugin style file %q not found in %s", m.Style, name), "", 0)
+				continue
+			}
+		}
+
+		seenIDs[m.ID] = true
+
+		if existing, found := pm.plugins[m.ID]; found {
+			// Update metadata if changed on disk
+			if existing.Name != m.Name || existing.Version != m.Version ||
+				existing.Description != m.Description || existing.Author != m.Author ||
+				existing.Priority != m.Priority || existing.Main != m.Main || existing.Style != m.Style {
+				existing.Name = m.Name
+				existing.Version = m.Version
+				existing.Description = m.Description
+				existing.Author = m.Author
+				existing.Priority = m.Priority
+				existing.Extensions = m.Extensions
+				existing.MimePrefixes = m.MimePrefixes
+				existing.SupportsZoom = m.SupportsZoom
+				existing.Main = m.Main
+				existing.Style = m.Style
+				changed = true
+			}
+		} else {
+			// Newly discovered manual plugin: register as disabled by default
+			installed := &InstalledPlugin{
+				ID:           m.ID,
+				Name:         m.Name,
+				Version:      m.Version,
+				Description:  m.Description,
+				Author:       m.Author,
+				Kind:         m.Kind,
+				Priority:     m.Priority,
+				Extensions:   m.Extensions,
+				MimePrefixes: m.MimePrefixes,
+				SupportsZoom: m.SupportsZoom,
+				Main:         m.Main,
+				Style:        m.Style,
+				Enabled:      false, // 默认禁用 per user requirement
+				InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+				SourceURL:    "manual",
+			}
+			pm.plugins[m.ID] = installed
+			changed = true
+			RecordLog("info", "plugin", fmt.Sprintf("Discovered manual plugin %q (v%s, id: %s) in directory %s, registered as disabled", m.Name, m.Version, m.ID, name), pluginFolder, 0)
+		}
+	}
+
+	// Remove index entries for plugins whose directories no longer exist on disk
+	for id := range pm.plugins {
+		if !seenIDs[id] {
+			pluginDir := filepath.Join(pm.baseDir, id)
+			if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
+				delete(pm.plugins, id)
+				changed = true
+				RecordLog("info", "plugin", fmt.Sprintf("Removed orphaned plugin %q from index: directory %s no longer exists", id, pluginDir), "", 0)
+			}
+		}
+	}
+
+	if changed {
+		_ = pm.saveIndexLocked()
+	}
+	return changed
+}
+
+// ScanLocalPlugins scans the plugin directory for manually dropped plugins and updates the index.
+func (pm *PluginManager) ScanLocalPlugins() ([]InstalledPlugin, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	changed := pm.scanLocalPluginsLocked()
+	if changed && pm.app != nil {
+		pm.app.Event.Emit("plugin:changed", map[string]any{
+			"action": "scanned",
+		})
+	}
+	return pm.listInstalledPluginsLocked(), nil
 }
 
 // GetInstalledPlugin returns details of an installed plugin by ID.
@@ -345,32 +514,70 @@ func (pm *PluginManager) InstallPlugin(pluginURL string) (*InstalledPlugin, erro
 
 // InstallPluginFromURL downloads, extracts, validates, and installs a plugin atomically.
 func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugin, error) {
+	startTotal := time.Now()
+	proxyDesc := pm.getProxyDescription(pluginURL)
+
+	RecordLog("info", "plugin", fmt.Sprintf("Starting plugin installation from URL: %s", pluginURL),
+		fmt.Sprintf("proxy=%s", proxyDesc), 0)
+
 	if strings.TrimSpace(pluginURL) == "" {
-		return nil, errors.New("plugin URL is required")
+		err := errors.New("plugin URL is required")
+		RecordLog("error", "plugin", "Plugin installation aborted: empty plugin URL", "", 0)
+		return nil, err
 	}
 
-	// Create a unique staging directory within baseDir
+	// Phase 1: Staging directory creation
 	stagingName := fmt.Sprintf(".staging-%d-%d", time.Now().UnixNano(), os.Getpid())
 	stagingDir := filepath.Join(pm.baseDir, stagingName)
 	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("[Phase 1/5] Failed to create staging directory: %v", err), stagingDir, 0)
 		return nil, fmt.Errorf("failed to create staging directory: %w", err)
 	}
+	RecordLog("info", "plugin", fmt.Sprintf("[Phase 1/5] Created staging directory: %s", stagingName), stagingDir, 0)
 	defer func() {
 		_ = os.RemoveAll(stagingDir)
 	}()
 
+	// Phase 2: Download & Extraction
+	RecordLog("info", "plugin", fmt.Sprintf("[Phase 2/5] Downloading plugin from %s (proxy: %s)", pluginURL, proxyDesc), "", 0)
 	manifest, err := pm.downloadAndExtract(pluginURL, stagingDir)
 	if err != nil {
+		// Fallback for official plugins: if marketplace worker endpoint fails, try official GitHub releases
+		if pID := extractPluginIDFromURL(pluginURL); pID != "" {
+			RecordLog("info", "plugin", fmt.Sprintf("Primary download failed for %s (%v), attempting fallback from official GitHub releases...", pID, err), "", 0)
+			fallbackCandidates := []string{
+				fmt.Sprintf("https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest/%s-v1.0.0.zip", pID),
+				fmt.Sprintf("https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest/%s-v1.0.0-alpha.zip", pID),
+				fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/manifest.json", pID),
+			}
+			for _, candURL := range fallbackCandidates {
+				if fbManifest, fbErr := pm.downloadAndExtract(candURL, stagingDir); fbErr == nil {
+					manifest = fbManifest
+					err = nil
+					RecordLog("info", "plugin", fmt.Sprintf("Fallback installation succeeded via %s", candURL), "", 0)
+					break
+				}
+			}
+		}
+	}
+	if err != nil {
+		elapsed := time.Since(startTotal).Milliseconds()
+		RecordLog("error", "plugin", fmt.Sprintf("[Phase 2/5] Plugin download/extraction failed: %v", err),
+			fmt.Sprintf("url=%s, proxy=%s, elapsed=%dms", pluginURL, proxyDesc, elapsed), elapsed)
 		return nil, fmt.Errorf("failed to download plugin: %w", err)
 	}
 
+	// Phase 3: Manifest & Files Validation
+	RecordLog("info", "plugin", fmt.Sprintf("[Phase 3/5] Validating plugin manifest: id=%s, name=%q, version=%s", manifest.ID, manifest.Name, manifest.Version), "", 0)
 	if err := ValidateManifest(manifest); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("[Phase 3/5] Plugin manifest validation failed for %s: %v", manifest.ID, err), "", 0)
 		return nil, fmt.Errorf("invalid plugin manifest: %w", err)
 	}
 
 	// Verify main entry file exists in stagingDir
 	mainPath := filepath.Join(stagingDir, filepath.FromSlash(manifest.Main))
 	if info, err := os.Stat(mainPath); err != nil || info.IsDir() {
+		RecordLog("error", "plugin", fmt.Sprintf("[Phase 3/5] Plugin main file check failed: %q (err: %v)", manifest.Main, err), "", 0)
 		return nil, fmt.Errorf("plugin main file %q not found or is a directory", manifest.Main)
 	}
 
@@ -378,23 +585,29 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 	if manifest.Style != "" {
 		stylePath := filepath.Join(stagingDir, filepath.FromSlash(manifest.Style))
 		if info, err := os.Stat(stylePath); err != nil || info.IsDir() {
+			RecordLog("error", "plugin", fmt.Sprintf("[Phase 3/5] Plugin style file check failed: %q (err: %v)", manifest.Style, err), "", 0)
 			return nil, fmt.Errorf("plugin style file %q not found", manifest.Style)
 		}
 	}
+	RecordLog("info", "plugin", fmt.Sprintf("[Phase 3/5] Plugin validation passed: %s (main: %s, style: %s)", manifest.ID, manifest.Main, manifest.Style), "", 0)
 
 	destDir := filepath.Join(pm.baseDir, manifest.ID)
 
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
-	// Atomically replace destination directory
+	// Phase 4: Atomic directory swap
+	RecordLog("info", "plugin", fmt.Sprintf("[Phase 4/5] Deploying plugin files to destination: %s", destDir), "", 0)
 	if _, err := os.Stat(destDir); err == nil {
 		_ = os.RemoveAll(destDir)
 	}
 	if err := os.Rename(stagingDir, destDir); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("[Phase 4/5] Failed to move plugin directory to %s: %v", destDir, err), "", 0)
 		return nil, fmt.Errorf("failed to move plugin to destination directory: %w", err)
 	}
 
+	// Phase 5: Registration & Persistence
+	RecordLog("info", "plugin", fmt.Sprintf("[Phase 5/5] Registering plugin in installed.json: %s (v%s)", manifest.ID, manifest.Version), "", 0)
 	installed := &InstalledPlugin{
 		ID:           manifest.ID,
 		Name:         manifest.Name,
@@ -417,6 +630,7 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 
 	pm.plugins[manifest.ID] = installed
 	if err := pm.saveIndexLocked(); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("[Phase 5/5] Failed to save installed.json: %v", err), "", 0)
 		return nil, fmt.Errorf("failed to save installed.json: %w", err)
 	}
 
@@ -426,6 +640,10 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 			"id":     manifest.ID,
 		})
 	}
+
+	totalDuration := time.Since(startTotal).Milliseconds()
+	RecordLog("info", "plugin", fmt.Sprintf("Plugin %q (v%s, id: %s) installed successfully in %dms", manifest.Name, manifest.Version, manifest.ID, totalDuration),
+		fmt.Sprintf("dir=%s, proxy=%s, source=%s", destDir, proxyDesc, pluginURL), totalDuration)
 
 	copyP := *installed
 	return &copyP, nil
@@ -444,33 +662,46 @@ func (pm *PluginManager) downloadAndExtract(rawURL string, stagingDir string) (*
 		if runtime.GOOS == "windows" && strings.HasPrefix(filePath, "/") {
 			filePath = strings.TrimPrefix(filePath, "/")
 		}
+		RecordLog("info", "plugin", fmt.Sprintf("Reading local plugin package from file: %s", filePath), "", 0)
 		data, err := os.ReadFile(filePath)
 		if err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed reading local plugin package %s: %v", filePath, err), "", 0)
 			return nil, err
 		}
 		bodyBytes = data
 	} else {
+		proxyDesc := pm.getProxyDescription(rawURL)
 		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 		if err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed building HTTP request for %s: %v", rawURL, err), "", 0)
 			return nil, err
 		}
 		req.Header.Set("User-Agent", "Bowerbird-Plugin-Installer/1.0")
 
+		RecordLog("info", "plugin", fmt.Sprintf("Sending HTTP GET %s (via %s)", rawURL, proxyDesc), "", 0)
+		dlStart := time.Now()
 		resp, err := pm.httpClient.Do(req)
+		dlDuration := time.Since(dlStart).Milliseconds()
 		if err != nil {
-			return nil, err
+			RecordLog("error", "plugin", fmt.Sprintf("Network connection to %s failed: %v", rawURL, err),
+				fmt.Sprintf("proxy=%s, duration=%dms", proxyDesc, dlDuration), dlDuration)
+			return nil, fmt.Errorf("%w (proxy: %s)", err, proxyDesc)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			RecordLog("error", "plugin", fmt.Sprintf("Server returned HTTP %d %s for %s", resp.StatusCode, resp.Status, rawURL),
+				fmt.Sprintf("proxy=%s, duration=%dms", proxyDesc, dlDuration), dlDuration)
 			return nil, fmt.Errorf("HTTP error %d downloading plugin from %s", resp.StatusCode, rawURL)
 		}
 
 		data, err := io.ReadAll(resp.Body)
 		if err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed reading response stream from %s: %v", rawURL, err), "", 0)
 			return nil, err
 		}
 		bodyBytes = data
+		RecordLog("info", "plugin", fmt.Sprintf("Downloaded %d bytes from %s in %dms", len(bodyBytes), rawURL, dlDuration), "", dlDuration)
 	}
 
 	// Check if this payload is a zip archive
@@ -478,39 +709,48 @@ func (pm *PluginManager) downloadAndExtract(rawURL string, stagingDir string) (*
 		(len(bodyBytes) >= 4 && bodyBytes[0] == 0x50 && bodyBytes[1] == 0x4B && bodyBytes[2] == 0x03 && bodyBytes[3] == 0x04)
 
 	if isZip {
+		RecordLog("info", "plugin", fmt.Sprintf("Detected ZIP bundle archive (%d bytes), unzipping...", len(bodyBytes)), "", 0)
 		zipReader, err := zip.NewReader(bytes.NewReader(bodyBytes), int64(len(bodyBytes)))
 		if err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Corrupt ZIP archive from %s: %v", rawURL, err), "", 0)
 			return nil, fmt.Errorf("invalid zip archive: %w", err)
 		}
 		if err := extractZipSafely(zipReader, stagingDir); err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed extracting ZIP entries: %v", err), "", 0)
 			return nil, fmt.Errorf("failed to extract zip archive: %w", err)
 		}
 		if err := flattenIfSingleFolder(stagingDir); err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed reorganizing ZIP directory structure: %v", err), "", 0)
 			return nil, fmt.Errorf("failed to reorganize archive structure: %w", err)
 		}
 
 		manifestPath := filepath.Join(stagingDir, "manifest.json")
 		manifestBytes, err := os.ReadFile(manifestPath)
 		if err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("manifest.json missing in unpacked ZIP: %v", err), "", 0)
 			return nil, errors.New("manifest.json not found in plugin archive")
 		}
 
 		var m PluginManifest
 		if err := json.Unmarshal(manifestBytes, &m); err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed to parse manifest.json from ZIP: %v", err), "", 0)
 			return nil, fmt.Errorf("failed to parse manifest.json: %w", err)
 		}
+		RecordLog("info", "plugin", fmt.Sprintf("ZIP unpacked successfully with %d files: plugin %s (%s)", len(zipReader.File), m.ID, m.Version), "", 0)
 		return &m, nil
 	}
 
 	// Treat as JSON manifest
+	RecordLog("info", "plugin", fmt.Sprintf("Detected standalone JSON manifest (%d bytes), parsing...", len(bodyBytes)), "", 0)
 	var m PluginManifest
 	if err := json.Unmarshal(bodyBytes, &m); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("Failed to parse plugin manifest from %s: %v", rawURL, err), "", 0)
 		return nil, fmt.Errorf("failed to parse plugin manifest from %s: %w", rawURL, err)
 	}
 	if err := ValidateManifest(&m); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("Validation of standalone manifest failed: %v", err), "", 0)
 		return nil, err
 	}
-
 	// Save manifest.json in stagingDir
 	if err := os.WriteFile(filepath.Join(stagingDir, "manifest.json"), bodyBytes, 0644); err != nil {
 		return nil, err
@@ -525,28 +765,28 @@ func (pm *PluginManager) downloadAndExtract(rawURL string, stagingDir string) (*
 
 	// Download main JS
 	if m.Main != "" {
-		if err := pm.downloadAssetToStaging(&baseURL, m.Main, stagingDir); err != nil {
+		if err := pm.downloadAssetToStaging(&baseURL, m.Main, stagingDir, m.ID); err != nil {
 			return nil, fmt.Errorf("failed to download main file %q: %w", m.Main, err)
 		}
 	}
 
 	// Download style CSS if specified
 	if m.Style != "" {
-		if err := pm.downloadAssetToStaging(&baseURL, m.Style, stagingDir); err != nil {
+		if err := pm.downloadAssetToStaging(&baseURL, m.Style, stagingDir, m.ID); err != nil {
 			return nil, fmt.Errorf("failed to download style file %q: %w", m.Style, err)
 		}
 	}
 
 	// Download icon if relative
 	if m.Icon != "" && !strings.HasPrefix(m.Icon, "data:") && !strings.Contains(m.Icon, "://") {
-		_ = pm.downloadAssetToStaging(&baseURL, m.Icon, stagingDir)
+		_ = pm.downloadAssetToStaging(&baseURL, m.Icon, stagingDir, m.ID)
 	}
 
 	return &m, nil
 }
 
 // downloadAssetToStaging downloads a relative asset referenced by the manifest into stagingDir.
-func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath string, stagingDir string) error {
+func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath string, stagingDir string, pluginID string) error {
 	destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 		return err
@@ -561,12 +801,68 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 		}
 		data, err := os.ReadFile(filePath)
 		if err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed reading local plugin asset %s: %v", filePath, err), "", 0)
 			return err
 		}
 		return os.WriteFile(destPath, data, 0644)
 	}
 
+	proxyDesc := pm.getProxyDescription(assetURL.String())
 	req, err := http.NewRequest(http.MethodGet, assetURL.String(), nil)
+	if err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("Failed building asset request %s: %v", assetURL.String(), err), "", 0)
+		return err
+	}
+	req.Header.Set("User-Agent", "Bowerbird-Plugin-Installer/1.0")
+
+	RecordLog("info", "plugin", fmt.Sprintf("Downloading plugin asset: %s (via %s)", assetURL.String(), proxyDesc), "", 0)
+	dlStart := time.Now()
+	resp, err := pm.httpClient.Do(req)
+	dlDuration := time.Since(dlStart).Milliseconds()
+	if err != nil {
+		if strings.HasPrefix(pluginID, "official.") {
+			fallbackURL := fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/%s", pluginID, relativePath)
+			RecordLog("info", "plugin", fmt.Sprintf("Asset download failed, trying official GitHub fallback: %s", fallbackURL), "", 0)
+			if fbErr := pm.downloadDirectFile(fallbackURL, destPath); fbErr == nil {
+				RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from GitHub fallback", relativePath), "", 0)
+				return nil
+			}
+		}
+		RecordLog("error", "plugin", fmt.Sprintf("Failed downloading plugin asset %s: %v", assetURL.String(), err),
+			fmt.Sprintf("proxy=%s, duration=%dms", proxyDesc, dlDuration), dlDuration)
+		return fmt.Errorf("%w (proxy: %s)", err, proxyDesc)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if strings.HasPrefix(pluginID, "official.") {
+			fallbackURL := fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/%s", pluginID, relativePath)
+			RecordLog("info", "plugin", fmt.Sprintf("Asset HTTP %d, trying official GitHub fallback: %s", resp.StatusCode, fallbackURL), "", 0)
+			if fbErr := pm.downloadDirectFile(fallbackURL, destPath); fbErr == nil {
+				RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from GitHub fallback", relativePath), "", 0)
+				return nil
+			}
+		}
+		RecordLog("error", "plugin", fmt.Sprintf("HTTP %d error downloading plugin asset %s", resp.StatusCode, assetURL.String()),
+			fmt.Sprintf("status=%s, proxy=%s, duration=%dms", resp.Status, proxyDesc, dlDuration), dlDuration)
+		return fmt.Errorf("HTTP error %d downloading %s", resp.StatusCode, assetURL.String())
+	}
+
+	outFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	n, err := io.Copy(outFile, resp.Body)
+	if err == nil {
+		RecordLog("info", "plugin", fmt.Sprintf("Downloaded plugin asset %s (%d bytes in %dms)", relativePath, n, dlDuration), "", dlDuration)
+	}
+	return err
+}
+
+func (pm *PluginManager) downloadDirectFile(rawURL string, destPath string) error {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return err
 	}
@@ -579,7 +875,7 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP error %d downloading %s", resp.StatusCode, assetURL.String())
+		return fmt.Errorf("HTTP error %d from %s", resp.StatusCode, rawURL)
 	}
 
 	outFile, err := os.Create(destPath)
@@ -590,6 +886,22 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 
 	_, err = io.Copy(outFile, resp.Body)
 	return err
+}
+
+func extractPluginIDFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(parsed.Path, "/")
+	for _, p := range parts {
+		if strings.HasPrefix(p, "official.") {
+			name := strings.TrimSuffix(p, ".zip")
+			name = strings.TrimSuffix(name, ".json")
+			return name
+		}
+	}
+	return ""
 }
 
 // extractZipSafely unpacks all entries from a zip reader while preventing Zip Slip attacks.
@@ -684,8 +996,12 @@ func (pm *PluginManager) UninstallPlugin(id string) error {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	RecordLog("info", "plugin", fmt.Sprintf("Initiating uninstallation for plugin %s", id), "", 0)
+
 	if _, exists := pm.plugins[id]; !exists {
-		return fmt.Errorf("plugin %q is not installed", id)
+		err := fmt.Errorf("plugin %q is not installed", id)
+		RecordLog("warn", "plugin", fmt.Sprintf("Uninstall failed: plugin %s is not installed", id), "", 0)
+		return err
 	}
 
 	destDir := filepath.Join(pm.baseDir, id)
@@ -693,6 +1009,7 @@ func (pm *PluginManager) UninstallPlugin(id string) error {
 
 	delete(pm.plugins, id)
 	if err := pm.saveIndexLocked(); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("Failed to update installed.json during uninstallation of %s: %v", id, err), "", 0)
 		return fmt.Errorf("failed to update installed.json: %w", err)
 	}
 
@@ -702,6 +1019,7 @@ func (pm *PluginManager) UninstallPlugin(id string) error {
 			"id":     id,
 		})
 	}
+	RecordLog("info", "plugin", fmt.Sprintf("Plugin %s uninstalled successfully", id), destDir, 0)
 	return nil
 }
 
@@ -948,10 +1266,12 @@ func (pm *PluginManager) checkSinglePluginUpdate(p *InstalledPlugin) *PluginUpda
 
 // UpgradePlugin downloads and updates an installed plugin from its remembered update/source URL.
 func (pm *PluginManager) UpgradePlugin(id string) (*InstalledPlugin, error) {
+	RecordLog("info", "plugin", fmt.Sprintf("Initiating upgrade for plugin %s", id), "", 0)
 	pm.mu.RLock()
 	p, exists := pm.plugins[id]
 	if !exists {
 		pm.mu.RUnlock()
+		RecordLog("error", "plugin", fmt.Sprintf("Upgrade failed: plugin %s not found", id), "", 0)
 		return nil, fmt.Errorf("plugin %q not found", id)
 	}
 	targetURL := p.UpdateURL
@@ -961,11 +1281,14 @@ func (pm *PluginManager) UpgradePlugin(id string) (*InstalledPlugin, error) {
 	pm.mu.RUnlock()
 
 	if targetURL == "" {
+		RecordLog("error", "plugin", fmt.Sprintf("Upgrade failed: plugin %s has no source or update URL", id), "", 0)
 		return nil, fmt.Errorf("plugin %q has no source or update URL", id)
 	}
 
+	RecordLog("info", "plugin", fmt.Sprintf("Upgrading plugin %s from URL: %s", id, targetURL), "", 0)
 	updated, err := pm.InstallPluginFromURL(targetURL)
 	if err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("Upgrade failed for plugin %s: %v", id, err), "", 0)
 		return nil, fmt.Errorf("failed to upgrade plugin %q: %w", id, err)
 	}
 
@@ -975,6 +1298,7 @@ func (pm *PluginManager) UpgradePlugin(id string) (*InstalledPlugin, error) {
 			"id":     id,
 		})
 	}
+	RecordLog("info", "plugin", fmt.Sprintf("Plugin %s upgraded to v%s successfully", id, updated.Version), "", 0)
 
 	return updated, nil
 }

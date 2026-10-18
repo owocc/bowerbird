@@ -16,6 +16,8 @@ export type {
     LibraryInfo,
     LibraryManager,
     LogEntry,
+    NetworkSettings,
+    NetworkTestResult,
     PluginInstallRequest,
     PluginUpdateInfo,
     Tag

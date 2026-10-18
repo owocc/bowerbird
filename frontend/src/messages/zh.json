@@ -321,6 +321,7 @@
       "general": "通用设置",
       "shortcuts": "快捷键与截图",
       "plugins": "插件管理",
+      "network": "网络设置",
       "data": "数据与存储",
       "extension": "浏览器插件"
     },
@@ -337,6 +338,34 @@
       "openInExplorer": "在文件资源管理器中打开",
       "copyPath": "复制路径",
       "pathCopied": "路径已复制！"
+    },
+    "network": {
+      "title": "网络与代理设置",
+      "description": "配置应用程序的网络代理规则。由于部分地区网络限制，访问插件市场或下载远程插件可能需要代理支持。",
+      "proxyMode": "代理模式",
+      "proxyModeDesc": "选择应用程序连接网络时使用的代理策略",
+      "modeSystem": "跟随系统代理",
+      "modeSystemDesc": "自动读取操作系统或环境变量中的代理配置（推荐）",
+      "modeDirect": "直接连接 (不走代理)",
+      "modeDirectDesc": "绕过所有代理，直接连接目标服务器",
+      "modeCustom": "自定义代理",
+      "modeCustomDesc": "手动指定 HTTP、HTTPS 或 SOCKS5 代理服务器地址",
+      "customProxyLabel": "代理服务器地址",
+      "customProxyPlaceholder": "例如：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080",
+      "customProxyHelp": "支持 http://, https://, socks5:// 协议格式。未填写协议时默认使用 http://",
+      "customProxyInvalid": "代理地址格式无效，请输入有效的 IP/域名与端口",
+      "testTitle": "网络连通性测试",
+      "testDesc": "通过当前生效的代理配置测试与插件市场或指定服务器的连接情况",
+      "testTargetLabel": "测试目标地址",
+      "testButton": "测试连接",
+      "testing": "正在测试…",
+      "testSuccess": "连接成功",
+      "testFailed": "连接失败",
+      "latency": "延迟",
+      "statusCode": "状态码",
+      "activeProxy": "当前生效代理",
+      "saveSuccess": "网络设置已保存并生效",
+      "saveFailed": "保存网络设置失败"
     },
     "extension": {
       "title": "浏览器插件与开放 API",
@@ -399,7 +428,10 @@
       "metadataBadge": "元数据扩展",
       "supportedFormats": "支持格式",
       "supportsZoom": "缩放与平移",
-      "title": "已安装插件"
+      "title": "已安装插件",
+      "scanLocal": "扫描本地插件",
+      "scanning": "正在扫描…",
+      "scanSuccess": "插件扫描完成，已同步本地插件目录"
     },
     "subtitle": "偏好设置与个性化配置",
     "title": "偏好设置"

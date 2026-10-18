@@ -190,6 +190,13 @@ export function GetLogs(): $CancellablePromise<$models.LogEntry[] | null> {
 }
 
 /**
+ * GetNetworkSettings returns the persisted network/proxy configuration.
+ */
+export function GetNetworkSettings(): $CancellablePromise<$models.NetworkSettings> {
+    return $Call.ByID(4081387195);
+}
+
+/**
  * GetPendingPluginInstall returns any pending plugin installation request.
  */
 export function GetPendingPluginInstall(): $CancellablePromise<$models.PluginInstallRequest | null> {
@@ -412,6 +419,15 @@ export function SaveItemThumbnail(itemID: string, base64Data: string, videoWidth
     return $Call.ByID(446346362, itemID, base64Data, videoWidth, videoHeight);
 }
 
+/**
+ * ScanLocalPlugins scans the plugins directory for manually placed plugin folders,
+ * validates manifests, registers newly discovered plugins as disabled by default,
+ * and updates installed.json.
+ */
+export function ScanLocalPlugins(): $CancellablePromise<$models.InstalledPlugin[] | null> {
+    return $Call.ByID(164233440);
+}
+
 export function SelectDirectory(): $CancellablePromise<string> {
     return $Call.ByID(3643486703);
 }
@@ -441,6 +457,13 @@ export function SetManager(mgr: $models.LibraryManager | null): $CancellableProm
 }
 
 /**
+ * SetNetworkSettings validates, persists, and applies network/proxy configuration.
+ */
+export function SetNetworkSettings(settings: $models.NetworkSettings): $CancellablePromise<void> {
+    return $Call.ByID(1154463919, settings);
+}
+
+/**
  * SetPluginEnabled enables or disables the specified plugin.
  */
 export function SetPluginEnabled(id: string, enabled: boolean): $CancellablePromise<void> {
@@ -457,6 +480,13 @@ export function SetTheme(theme: string): $CancellablePromise<void> {
 
 export function StartDragItems(ids: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(4164627166, ids);
+}
+
+/**
+ * TestNetworkConnection tests HTTP connectivity to targetURL through current or provided proxy settings.
+ */
+export function TestNetworkConnection(targetURL: string): $CancellablePromise<$models.NetworkTestResult | null> {
+    return $Call.ByID(818346522, targetURL);
 }
 
 export function ToggleFavorite(itemID: string): $CancellablePromise<boolean> {

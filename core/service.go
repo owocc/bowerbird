@@ -2,12 +2,14 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -507,6 +509,16 @@ func (s *Service) ListInstalledPlugins() ([]InstalledPlugin, error) {
 	return s.mgr.GetPluginManager().ListInstalledPlugins()
 }
 
+// ScanLocalPlugins scans the plugins directory for manually placed plugin folders,
+// validates manifests, registers newly discovered plugins as disabled by default,
+// and updates installed.json.
+func (s *Service) ScanLocalPlugins() ([]InstalledPlugin, error) {
+	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
+		return []InstalledPlugin{}, nil
+	}
+	return s.mgr.GetPluginManager().ScanLocalPlugins()
+}
+
 // GetPendingPluginInstall returns any pending plugin installation request.
 func (s *Service) GetPendingPluginInstall() *PluginInstallRequest {
 	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
@@ -615,4 +627,52 @@ func (s *Service) OpenUserDataFolder() error {
 // OpenPluginsFolder opens the plugins directory in the native file manager.
 func (s *Service) OpenPluginsFolder() error {
 	return s.OpenFolder(s.GetPluginsDir())
+}
+
+// GetNetworkSettings returns the persisted network/proxy configuration.
+func (s *Service) GetNetworkSettings() NetworkSettings {
+	if s.mgr == nil {
+		return NetworkSettings{ProxyMode: ProxyModeSystem}
+	}
+	return s.mgr.GetNetworkSettings()
+}
+
+// SetNetworkSettings validates, persists, and applies network/proxy configuration.
+func (s *Service) SetNetworkSettings(settings NetworkSettings) error {
+	mode := strings.ToLower(strings.TrimSpace(settings.ProxyMode))
+	if mode == "" {
+		mode = ProxyModeSystem
+	}
+	if !IsValidProxyMode(mode) {
+		return fmt.Errorf("invalid proxy mode: %s", settings.ProxyMode)
+	}
+	settings.ProxyMode = mode
+
+	if mode == ProxyModeCustom {
+		norm, err := NormalizeProxyURL(settings.CustomProxy)
+		if err != nil {
+			return err
+		}
+		settings.CustomProxy = norm
+	}
+
+	if s.mgr != nil {
+		if err := s.mgr.SetNetworkSettings(settings); err != nil {
+			return err
+		}
+	}
+
+	RecordLog("info", "network", fmt.Sprintf("Network settings updated: mode=%s, customProxy=%s", settings.ProxyMode, settings.CustomProxy), "", 0)
+
+	if app := s.getApp(); app != nil {
+		app.Event.Emit(NetworkSettingsChangedEvent, settings)
+	}
+	return nil
+}
+
+// TestNetworkConnection tests HTTP connectivity to targetURL through current or provided proxy settings.
+func (s *Service) TestNetworkConnection(targetURL string) (*NetworkTestResult, error) {
+	settings := s.GetNetworkSettings()
+	result := TestNetworkConnectivity(settings, targetURL, 10*time.Second)
+	return &result, nil
 }

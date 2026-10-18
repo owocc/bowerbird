@@ -13,9 +13,10 @@ type UserData struct {
 	ActiveLibraryPath string   `json:"activeLibraryPath"`
 	RecentLibraries   []string `json:"recentLibraries"`
 	// Theme is the persisted colour mode: "dark", "light" or "system".
-	Theme     string `json:"theme,omitempty"`
-	Language  string `json:"language,omitempty"`
-	UpdatedAt int64  `json:"updatedAt"`
+	Theme     string          `json:"theme,omitempty"`
+	Language  string          `json:"language,omitempty"`
+	Network   NetworkSettings `json:"network,omitempty"`
+	UpdatedAt int64           `json:"updatedAt"`
 }
 
 // UserDataStore provides thread-safe, atomic persistence for user configuration.
@@ -162,6 +163,27 @@ func (s *UserDataStore) SetLanguage(language string) error {
 	defer s.mu.Unlock()
 
 	s.data.Language = language
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// GetNetworkSettings returns the persisted network/proxy configuration.
+func (s *UserDataStore) GetNetworkSettings() NetworkSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	settings := s.data.Network
+	if settings.ProxyMode == "" {
+		settings.ProxyMode = ProxyModeSystem
+	}
+	return settings
+}
+
+// SetNetworkSettings updates and persists the network/proxy configuration atomically.
+func (s *UserDataStore) SetNetworkSettings(settings NetworkSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data.Network = settings
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }

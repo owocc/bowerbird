@@ -76,8 +76,10 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
   }, [checkConnection]);
 
   const getInstallUrl = (plugin: MarketplacePlugin, origin: string) => {
-    if (plugin.downloadUrl && plugin.downloadUrl.endsWith(".zip")) {
-      return plugin.downloadUrl;
+    if (plugin.downloadUrl) {
+      return plugin.downloadUrl.startsWith("http")
+        ? plugin.downloadUrl
+        : `${origin}${plugin.downloadUrl}`;
     }
     return plugin.manifestUrl.startsWith("http")
       ? plugin.manifestUrl

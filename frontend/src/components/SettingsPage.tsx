@@ -31,6 +31,12 @@ import {
   Loader2,
   HardDrive,
   FolderOpen,
+  Network,
+  WifiOff,
+  CheckCircle2,
+  XCircle,
+  Activity,
+  Radio,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
@@ -38,15 +44,21 @@ import { useTheme, type Theme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
 import {
   GetAssetServerPort,
   OpenExternalURL,
   CheckPluginUpdates,
   UpgradePlugin,
   GetPendingPluginInstall,
+  GetNetworkSettings,
+  SetNetworkSettings,
+  TestNetworkConnection,
+  ScanLocalPlugins,
+  OpenLogsWindow,
 } from "../../bindings/bowerbird/core/service";
-import type { PluginUpdateInfo } from "../../bindings/bowerbird/core/models";
-import { loadRemotePlugin } from "@/plugins/preview/remote-loader";
+import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult } from "../../bindings/bowerbird/core/models";
+import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
 import { Events } from "@wailsio/runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -64,7 +76,7 @@ import {
 } from "@/plugins/preview/registry";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "shortcuts" | "plugins" | "data" | "extension";
+type SettingsSectionId = "general" | "shortcuts" | "plugins" | "network" | "data" | "extension";
 
 interface ThemeOption {
   value: Theme;
@@ -119,6 +131,34 @@ const LANGUAGE_OPTIONS: LanguageOption[] = [
     icon: Globe,
     labelKey: "settings.language.en",
     descriptionKey: "settings.language.enDescription",
+  },
+];
+
+interface ProxyModeOption {
+  value: "system" | "direct" | "custom";
+  icon: typeof Network;
+  labelKey: string;
+  descriptionKey: string;
+}
+
+const PROXY_MODE_OPTIONS: ProxyModeOption[] = [
+  {
+    value: "system",
+    icon: Monitor,
+    labelKey: "settings.network.modeSystem",
+    descriptionKey: "settings.network.modeSystemDesc",
+  },
+  {
+    value: "direct",
+    icon: WifiOff,
+    labelKey: "settings.network.modeDirect",
+    descriptionKey: "settings.network.modeDirectDesc",
+  },
+  {
+    value: "custom",
+    icon: Network,
+    labelKey: "settings.network.modeCustom",
+    descriptionKey: "settings.network.modeCustomDesc",
   },
 ];
 
@@ -366,6 +406,144 @@ export function SettingsPage() {
   });
   const [openingFolder, setOpeningFolder] = useState<string | null>(null);
   const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null);
+  const [networkSettings, setNetworkSettingsState] = useState<NetworkSettings>({
+    proxyMode: "system",
+    customProxy: "",
+  });
+  const [customProxyInput, setCustomProxyInput] = useState<string>("");
+  const [savingNetwork, setSavingNetwork] = useState(false);
+  const [testTargetUrl, setTestTargetUrl] = useState<string>("https://raw.githubusercontent.com");
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<NetworkTestResult | null>(null);
+  const [scanningPlugins, setScanningPlugins] = useState(false);
+
+  useEffect(() => {
+    GetNetworkSettings()
+      .then((settings) => {
+        if (settings) {
+          setNetworkSettingsState(settings);
+          setCustomProxyInput(settings.customProxy || "");
+        }
+      })
+      .catch(() => {
+        fetch("http://127.0.0.1:41595/api/network/settings")
+          .then((res) => (res.ok ? res.json() : null))
+          .then((json) => {
+            if (json?.data) {
+              setNetworkSettingsState(json.data);
+              setCustomProxyInput(json.data.customProxy || "");
+            }
+          })
+          .catch(() => {});
+      });
+
+    const unsub = Events.On("network-settings-changed", (evt: unknown) => {
+      if (evt && typeof evt === "object" && "data" in evt && evt.data) {
+        const s = evt.data as NetworkSettings;
+        setNetworkSettingsState(s);
+        setCustomProxyInput(s.customProxy || "");
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSaveNetworkSettings = async (mode: string, customProxyVal?: string) => {
+    const proxyVal = customProxyVal !== undefined ? customProxyVal : customProxyInput;
+    setSavingNetwork(true);
+    try {
+      const payload: NetworkSettings = {
+        proxyMode: mode,
+        customProxy: proxyVal.trim(),
+      };
+      let saved = false;
+      try {
+        await SetNetworkSettings(payload);
+        saved = true;
+      } catch {
+        const res = await fetch("http://127.0.0.1:41595/api/network/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          saved = true;
+        }
+      }
+      if (saved) {
+        setNetworkSettingsState(payload);
+        notifySuccess(t("settings.network.saveSuccess"));
+      } else {
+        throw new Error("Failed to save network settings");
+      }
+    } catch (err) {
+      console.error("Save network settings failed:", err);
+      notifyError(err);
+    } finally {
+      setSavingNetwork(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTestingConnection(true);
+    setTestResult(null);
+    try {
+      let res: NetworkTestResult | null = null;
+      try {
+        res = await TestNetworkConnection(testTargetUrl.trim());
+      } catch {
+        const fetchRes = await fetch("http://127.0.0.1:41595/api/network/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            targetUrl: testTargetUrl.trim(),
+            proxyMode: networkSettings.proxyMode,
+            customProxy: customProxyInput.trim(),
+          }),
+        });
+        if (fetchRes.ok) {
+          const json = await fetchRes.json();
+          res = json.data;
+        }
+      }
+      if (res) {
+        setTestResult(res);
+        if (res.success) {
+          notifySuccess(t("settings.network.testSuccess"));
+        } else {
+          notifyError(res.error || t("settings.network.testFailed"));
+        }
+      }
+    } catch (err) {
+      console.error("Test connection failed:", err);
+      notifyError(err);
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+  const handleScanLocalPlugins = async () => {
+    setScanningPlugins(true);
+    try {
+      let plugins: any = null;
+      try {
+        plugins = await ScanLocalPlugins();
+      } catch {
+        const res = await fetch("http://127.0.0.1:41595/api/plugins/scan", { method: "POST" });
+        if (res.ok) {
+          const json = await res.json();
+          plugins = json.data;
+        }
+      }
+      await loadAllInstalledPlugins();
+      const count = Array.isArray(plugins) ? plugins.length : installedPlugins.length;
+      notifySuccess(t("settings.plugins.scanSuccess", { count, defaultValue: `Scan completed, synchronized local plugin folder (${count} plugins)` }));
+    } catch (err) {
+      console.error("Scan local plugins failed:", err);
+      notifyError(err);
+    } finally {
+      setScanningPlugins(false);
+    }
+  };
+
 
   useEffect(() => {
     fetch("http://127.0.0.1:41595/api/system/paths")
@@ -520,6 +698,11 @@ export function SettingsPage() {
       badge: installedPlugins.length,
     },
     {
+      id: "network",
+      label: t("settings.nav.network"),
+      icon: Network,
+    },
+    {
       id: "data",
       label: t("settings.nav.data"),
       icon: HardDrive,
@@ -595,6 +778,8 @@ export function SettingsPage() {
               ? t("settings.nav.shortcuts")
               : activeSection === "plugins"
               ? t("settings.nav.plugins")
+              : activeSection === "network"
+              ? t("settings.nav.network")
               : activeSection === "data"
               ? t("settings.nav.data")
               : t("settings.nav.extension")}
@@ -792,6 +977,20 @@ export function SettingsPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={handleScanLocalPlugins}
+                    disabled={scanningPlugins}
+                    className="h-8 gap-1.5 text-xs cursor-pointer"
+                    title={t("settings.plugins.scanLocal", { defaultValue: "Scan Local Plugins" })}
+                  >
+                    <FolderOpen className={cn("size-3.5 text-primary", scanningPlugins && "animate-pulse")} />
+                    <span>
+                      {scanningPlugins
+                        ? t("settings.plugins.scanning", { defaultValue: "Scanning…" })
+                        : t("settings.plugins.scanLocal", { defaultValue: "Scan Local Plugins" })}
+                    </span>
+                  </Button>
+                  <Button
+                    size="sm"
                     onClick={handleCheckUpdates}
                     disabled={checkingUpdates}
                     className="h-8 gap-1.5 text-xs cursor-pointer"
@@ -827,6 +1026,213 @@ export function SettingsPage() {
                   />
                 ))}
               </div>
+            </div>
+          )}
+          {activeSection === "network" && (
+            <div className="max-w-2xl space-y-6">
+              {/* Proxy Mode Selection */}
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">
+                    {t("settings.network.proxyMode")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.network.proxyModeDesc")}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3" role="radiogroup">
+                  {PROXY_MODE_OPTIONS.map(
+                    ({ value, icon: Icon, labelKey, descriptionKey }) => {
+                      const selected = networkSettings.proxyMode === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          disabled={savingNetwork}
+                          onClick={() => handleSaveNetworkSettings(value)}
+                          className={cn(
+                            "group relative flex flex-col items-center gap-1.5 rounded-xl border p-3.5 text-center transition-colors cursor-pointer",
+                            selected
+                              ? "border-primary bg-primary/10 text-foreground"
+                              : "border-border/60 bg-muted/30 text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground"
+                          )}
+                        >
+                          {selected && (
+                            <span className="absolute right-2 top-2 flex size-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="size-2.5" />
+                            </span>
+                          )}
+                          <Icon className="size-5" />
+                          <span className="text-[11px] font-medium">
+                            {t(labelKey)}
+                          </span>
+                          <span className="text-[10px] leading-tight text-muted-foreground">
+                            {t(descriptionKey)}
+                          </span>
+                        </button>
+                      );
+                    }
+                  )}
+                </div>
+              </section>
+
+              {/* Custom Proxy Address Input */}
+              {networkSettings.proxyMode === "custom" && (
+                <section className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-foreground">
+                      {t("settings.network.customProxyLabel")}
+                    </label>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.network.customProxyHelp")}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={customProxyInput}
+                      onChange={(e) => setCustomProxyInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleSaveNetworkSettings("custom", customProxyInput);
+                        }
+                      }}
+                      placeholder={t("settings.network.customProxyPlaceholder")}
+                      className="flex-1 font-mono text-xs h-8 bg-muted/30"
+                    />
+                    <Button
+                      size="sm"
+                      disabled={savingNetwork || !customProxyInput.trim()}
+                      onClick={() => handleSaveNetworkSettings("custom", customProxyInput)}
+                      className="h-8 text-xs cursor-pointer"
+                    >
+                      {savingNetwork ? (
+                        <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                      ) : (
+                        <Check className="size-3.5 mr-1.5" />
+                      )}
+                      <span>{t("common.save", { defaultValue: "Save" })}</span>
+                    </Button>
+                  </div>
+                </section>
+              )}
+
+              {/* Network Connectivity Test */}
+              <section className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Activity className="size-4 text-primary" />
+                    <h3 className="text-xs font-semibold text-foreground">
+                      {t("settings.network.testTitle")}
+                    </h3>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.network.testDesc")}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[11px] font-medium text-muted-foreground">
+                    {t("settings.network.testTargetLabel")}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={testTargetUrl}
+                      onChange={(e) => setTestTargetUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleTestConnection();
+                        }
+                      }}
+                      placeholder="https://raw.githubusercontent.com"
+                      className="flex-1 font-mono text-xs h-8 bg-muted/30"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={testingConnection || !testTargetUrl.trim()}
+                      onClick={handleTestConnection}
+                      className="h-8 text-xs cursor-pointer gap-1.5 shrink-0"
+                    >
+                      {testingConnection ? (
+                        <Loader2 className="size-3.5 animate-spin text-primary" />
+                      ) : (
+                        <Radio className="size-3.5 text-primary" />
+                      )}
+                      <span>
+                        {testingConnection
+                          ? t("settings.network.testing")
+                          : t("settings.network.testButton")}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Test Result Display */}
+                {testResult && (
+                  <div
+                    className={cn(
+                      "rounded-lg border p-3 space-y-2 text-xs",
+                      testResult.success
+                        ? "border-emerald-500/30 bg-emerald-500/5 text-foreground"
+                        : "border-destructive/30 bg-destructive/5 text-foreground"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-medium">
+                        {testResult.success ? (
+                          <CheckCircle2 className="size-4 text-emerald-500" />
+                        ) : (
+                          <XCircle className="size-4 text-destructive" />
+                        )}
+                        <span>
+                          {testResult.success
+                            ? t("settings.network.testSuccess")
+                            : t("settings.network.testFailed")}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {testResult.statusCode && (
+                          <Badge variant="outline" className="text-[10px] font-mono">
+                            HTTP {testResult.statusCode}
+                          </Badge>
+                        )}
+                        <Badge
+                          variant={testResult.success ? "secondary" : "destructive"}
+                          className="text-[10px] font-mono"
+                        >
+                          {testResult.latencyMs} ms
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <span>
+                        {t("settings.network.activeProxy")}:{" "}
+                        <code className="text-foreground font-mono bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                          {testResult.activeProxy || "direct"}
+                        </code>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => OpenLogsWindow()}
+                        className="text-primary hover:underline cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <span>{t("appMenu.logs", { defaultValue: "Logs…" })}</span>
+                      </button>
+                    </div>
+
+                    {testResult.error && (
+                      <div className="text-[11px] font-mono text-destructive bg-destructive/10 p-2 rounded-md break-all">
+                        {testResult.error}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
             </div>
           )}
           {activeSection === "data" && (

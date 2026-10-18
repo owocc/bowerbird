@@ -225,6 +225,32 @@ export interface LogEntry {
 }
 
 /**
+ * NetworkSettings stores user-configured proxy settings.
+ */
+export interface NetworkSettings {
+    /**
+     * "system" | "direct" | "custom"
+     */
+    "proxyMode": string;
+
+    /**
+     * e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
+     */
+    "customProxy"?: string;
+}
+
+/**
+ * NetworkTestResult holds the diagnostic outcome of a connectivity check.
+ */
+export interface NetworkTestResult {
+    "success": boolean;
+    "statusCode"?: number;
+    "latencyMs": number;
+    "activeProxy"?: string;
+    "error"?: string;
+}
+
+/**
  * PluginInstallRequest represents a requested plugin installation.
  */
 export interface PluginInstallRequest {

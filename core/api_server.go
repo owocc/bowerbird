@@ -77,9 +77,12 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
 	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
 	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
+	mux.HandleFunc("/api/plugins/scan", s.handleAPIPluginsScan)
 	mux.HandleFunc("/api/system/paths", s.handleAPISystemPaths)
 	mux.HandleFunc("/api/system/open-user-data", s.handleAPIOpenUserData)
 	mux.HandleFunc("/api/system/open-plugins", s.handleAPIOpenPlugins)
+	mux.HandleFunc("/api/network/settings", s.handleAPINetworkSettings)
+	mux.HandleFunc("/api/network/test", s.handleAPINetworkTest)
 }
 
 // handleAPIPing provides a lightweight check to determine if the desktop application is running.
@@ -582,6 +585,24 @@ func (s *AssetServer) handleAPIPluginsList(w http.ResponseWriter, r *http.Reques
 	writeSuccess(w, plugins)
 }
 
+// handleAPIPluginsScan triggers a local directory scan and returns all discovered plugins.
+func (s *AssetServer) handleAPIPluginsScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+	plugins, err := s.manager.GetPluginManager().ScanLocalPlugins()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, plugins)
+}
+
 // APIPluginInstallRequest represents payload requesting plugin installation.
 type APIPluginInstallRequest struct {
 	ManifestURL string `json:"manifestUrl"`
@@ -623,6 +644,7 @@ func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	RecordLog("info", "plugin", fmt.Sprintf("Received plugin install request: id=%s, version=%s, manifestUrl=%s", req.ID, req.Version, req.ManifestURL), fmt.Sprintf("remoteAddr=%s", r.RemoteAddr), 0)
 	// Emit event and open Settings window for explicit manual user confirmation
 	if s.manager != nil {
 		if pm := s.manager.GetPluginManager(); pm != nil {
@@ -679,6 +701,8 @@ func (s *AssetServer) handleAPIPluginConfirmInstall(w http.ResponseWriter, r *ht
 		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "manifestUrl is required")
 		return
 	}
+
+	RecordLog("info", "plugin", fmt.Sprintf("User confirmed plugin installation: manifestUrl=%s", req.ManifestURL), fmt.Sprintf("remoteAddr=%s", r.RemoteAddr), 0)
 
 	if s.manager == nil || s.manager.GetPluginManager() == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
@@ -845,4 +869,93 @@ func (s *AssetServer) handleAPIOpenPlugins(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeSuccess(w, map[string]any{"opened": true, "path": dir})
+}
+
+// handleAPINetworkSettings handles GET and POST requests for network/proxy configuration.
+func (s *AssetServer) handleAPINetworkSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		var settings NetworkSettings
+		if s.manager != nil && s.manager.userData != nil {
+			settings = s.manager.userData.GetNetworkSettings()
+		} else {
+			settings = NetworkSettings{ProxyMode: ProxyModeSystem}
+		}
+		writeSuccess(w, settings)
+
+	case http.MethodPost:
+		var settings NetworkSettings
+		if err := json.NewDecoder(r.Body).Decode(&settings); err != nil {
+			writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid JSON: "+err.Error())
+			return
+		}
+
+		mode := strings.ToLower(strings.TrimSpace(settings.ProxyMode))
+		if mode == "" {
+			mode = ProxyModeSystem
+		}
+		if !IsValidProxyMode(mode) {
+			writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid proxyMode: "+settings.ProxyMode)
+			return
+		}
+		settings.ProxyMode = mode
+
+		if mode == ProxyModeCustom {
+			norm, err := NormalizeProxyURL(settings.CustomProxy)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, err.Error())
+				return
+			}
+			settings.CustomProxy = norm
+		}
+
+		if s.manager != nil {
+			if err := s.manager.SetNetworkSettings(settings); err != nil {
+				writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+				return
+			}
+		}
+
+		RecordLog("info", "network", fmt.Sprintf("Network settings updated via API: mode=%s, customProxy=%s", settings.ProxyMode, settings.CustomProxy), "", 0)
+
+		if app := s.manager.GetApp(); app != nil {
+			app.Event.Emit(NetworkSettingsChangedEvent, settings)
+		}
+		writeSuccess(w, settings)
+
+	default:
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+	}
+}
+
+// handleAPINetworkTest conducts a live connectivity test to the target URL through proxy settings.
+func (s *AssetServer) handleAPINetworkTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		TargetURL   string `json:"targetUrl"`
+		ProxyMode   string `json:"proxyMode,omitempty"`
+		CustomProxy string `json:"customProxy,omitempty"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	var settings NetworkSettings
+	if req.ProxyMode != "" {
+		settings = NetworkSettings{
+			ProxyMode:   req.ProxyMode,
+			CustomProxy: req.CustomProxy,
+		}
+	} else if s.manager != nil && s.manager.userData != nil {
+		settings = s.manager.userData.GetNetworkSettings()
+	} else {
+		settings = NetworkSettings{ProxyMode: ProxyModeSystem}
+	}
+
+	result := TestNetworkConnectivity(settings, req.TargetURL, 10*time.Second)
+	writeSuccess(w, result)
 }
