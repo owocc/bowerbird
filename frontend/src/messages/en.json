@@ -321,7 +321,22 @@
       "general": "General",
       "shortcuts": "Shortcuts & Capture",
       "plugins": "Plugins",
+      "data": "Data & Storage",
       "extension": "Browser Extension"
+    },
+    "data": {
+      "title": "Data & Storage Management",
+      "description": "Inspect and manage Bowerbird core application configuration, plugin directories, and diagnostics data.",
+      "pluginsFolderTitle": "Plugin Installation Directory",
+      "pluginsFolderDesc": "Stores all installed remote and community plugins, manifests, entry scripts, and cache.",
+      "openPluginsFolder": "Open Plugins Directory",
+      "appDataFolderTitle": "Application Data Directory",
+      "appDataFolderDesc": "Stores application preferences, installed plugin index, logs, and session metadata (Note: Does not contain image asset .library directories).",
+      "openAppDataFolder": "Open App Data Directory",
+      "openInFileManager": "Open in Finder",
+      "openInExplorer": "Open in File Explorer",
+      "copyPath": "Copy Path",
+      "pathCopied": "Path Copied!"
     },
     "extension": {
       "title": "Browser Extension & Open API",

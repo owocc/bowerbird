@@ -321,7 +321,22 @@
       "general": "通用设置",
       "shortcuts": "快捷键与截图",
       "plugins": "插件管理",
+      "data": "数据与存储",
       "extension": "浏览器插件"
+    },
+    "data": {
+      "title": "数据与存储管理",
+      "description": "查看并管理 Bowerbird 应用核心配置、插件安装目录及诊断日志存储位置。",
+      "pluginsFolderTitle": "插件安装目录",
+      "pluginsFolderDesc": "存储所有已安装官方与第三方远程插件的 manifest、代码文件及本地缓存。",
+      "openPluginsFolder": "打开插件目录",
+      "appDataFolderTitle": "应用数据存储目录",
+      "appDataFolderDesc": "存储应用全局偏好、插件索引配置、日志及会话状态（注意：此目录不包含素材资源库 .library 文件夹）。",
+      "openAppDataFolder": "打开应用数据目录",
+      "openInFileManager": "在访达中打开",
+      "openInExplorer": "在文件资源管理器中打开",
+      "copyPath": "复制路径",
+      "pathCopied": "路径已复制！"
     },
     "extension": {
       "title": "浏览器插件与开放 API",

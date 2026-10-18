@@ -29,6 +29,8 @@ import {
   Download,
   ArrowUpCircle,
   Loader2,
+  HardDrive,
+  FolderOpen,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
@@ -62,7 +64,7 @@ import {
 } from "@/plugins/preview/registry";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "shortcuts" | "plugins" | "extension";
+type SettingsSectionId = "general" | "shortcuts" | "plugins" | "data" | "extension";
 
 interface ThemeOption {
   value: Theme;
@@ -358,6 +360,47 @@ export function SettingsPage() {
   const [checkingUpdates, setCheckingUpdates] = useState(false);
   const [availableUpdates, setAvailableUpdates] = useState<Map<string, PluginUpdateInfo>>(new Map());
   const [upgradingId, setUpgradingId] = useState<string | null>(null);
+  const [systemPaths, setSystemPaths] = useState<{ userDataDir: string; pluginsDir: string }>({
+    userDataDir: "",
+    pluginsDir: "",
+  });
+  const [openingFolder, setOpeningFolder] = useState<string | null>(null);
+  const [copiedPathKey, setCopiedPathKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:41595/api/system/paths")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (json?.data) {
+          setSystemPaths(json.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleOpenFolder = async (type: "userData" | "plugins") => {
+    setOpeningFolder(type);
+    try {
+      const endpoint = type === "userData" ? "open-user-data" : "open-plugins";
+      const res = await fetch(`http://127.0.0.1:41595/api/system/${endpoint}`, { method: "POST" });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error(`Failed to open ${type} folder:`, err);
+      notifyError(err);
+    } finally {
+      setOpeningFolder(null);
+    }
+  };
+
+  const handleCopyPath = (pathText: string, key: string) => {
+    if (!pathText) return;
+    copyTextToClipboard(pathText);
+    setCopiedPathKey(key);
+    notifySuccess(t("settings.data.pathCopied"));
+    setTimeout(() => setCopiedPathKey(null), 2000);
+  };
   useEffect(() => {
     // If there is a pending install request, switch automatically to the plugins tab
     GetPendingPluginInstall().then((pending) => {
@@ -477,6 +520,11 @@ export function SettingsPage() {
       badge: installedPlugins.length,
     },
     {
+      id: "data",
+      label: t("settings.nav.data"),
+      icon: HardDrive,
+    },
+    {
       id: "extension",
       label: t("settings.nav.extension"),
       icon: Globe,
@@ -543,8 +591,12 @@ export function SettingsPage() {
           <h1 className="text-xs font-semibold tracking-tight text-foreground">
             {activeSection === "general"
               ? t("settings.nav.general")
+              : activeSection === "shortcuts"
+              ? t("settings.nav.shortcuts")
               : activeSection === "plugins"
               ? t("settings.nav.plugins")
+              : activeSection === "data"
+              ? t("settings.nav.data")
               : t("settings.nav.extension")}
           </h1>
         </header>
@@ -777,6 +829,119 @@ export function SettingsPage() {
               </div>
             </div>
           )}
+          {activeSection === "data" && (
+            <div className="max-w-2xl space-y-6">
+              <div className="space-y-0.5">
+                <h2 className="text-xs font-semibold">{t("settings.data.title")}</h2>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {t("settings.data.description")}
+                </p>
+              </div>
+
+              {/* Plugins Directory Card */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Puzzle className="size-4 text-primary" />
+                      <h3 className="text-xs font-semibold text-foreground">
+                        {t("settings.data.pluginsFolderTitle")}
+                      </h3>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.data.pluginsFolderDesc")}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={openingFolder === "plugins"}
+                    onClick={() => handleOpenFolder("plugins")}
+                    className="h-8 gap-1.5 text-xs font-medium cursor-pointer shrink-0"
+                  >
+                    {openingFolder === "plugins" ? (
+                      <Loader2 className="size-3.5 animate-spin text-primary" />
+                    ) : (
+                      <FolderOpen className="size-3.5 text-primary" />
+                    )}
+                    <span>
+                      {isMacOS()
+                        ? t("settings.data.openInFileManager")
+                        : t("settings.data.openInExplorer")}
+                    </span>
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/60 border border-border/50 text-xs font-mono text-muted-foreground">
+                  <span className="truncate select-all">{systemPaths.pluginsDir || "~/Library/Application Support/bowerbird/plugins"}</span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-6 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+                    title={t("settings.data.copyPath")}
+                    onClick={() => handleCopyPath(systemPaths.pluginsDir, "plugins")}
+                  >
+                    {copiedPathKey === "plugins" ? (
+                      <CheckCheck className="size-3 text-emerald-500" />
+                    ) : (
+                      <Copy className="size-3" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* App Data Directory Card */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <HardDrive className="size-4 text-primary" />
+                      <h3 className="text-xs font-semibold text-foreground">
+                        {t("settings.data.appDataFolderTitle")}
+                      </h3>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.data.appDataFolderDesc")}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={openingFolder === "userData"}
+                    onClick={() => handleOpenFolder("userData")}
+                    className="h-8 gap-1.5 text-xs font-medium cursor-pointer shrink-0"
+                  >
+                    {openingFolder === "userData" ? (
+                      <Loader2 className="size-3.5 animate-spin text-primary" />
+                    ) : (
+                      <FolderOpen className="size-3.5 text-primary" />
+                    )}
+                    <span>
+                      {isMacOS()
+                        ? t("settings.data.openInFileManager")
+                        : t("settings.data.openInExplorer")}
+                    </span>
+                  </Button>
+                </div>
+                <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/60 border border-border/50 text-xs font-mono text-muted-foreground">
+                  <span className="truncate select-all">{systemPaths.userDataDir || "~/Library/Application Support/bowerbird"}</span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-6 shrink-0 cursor-pointer text-muted-foreground hover:text-foreground"
+                    title={t("settings.data.copyPath")}
+                    onClick={() => handleCopyPath(systemPaths.userDataDir, "userData")}
+                  >
+                    {copiedPathKey === "userData" ? (
+                      <CheckCheck className="size-3 text-emerald-500" />
+                    ) : (
+                      <Copy className="size-3" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
 
           {activeSection === "extension" && (
             <div className="max-w-2xl space-y-6">
