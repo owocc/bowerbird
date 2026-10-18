@@ -673,7 +673,7 @@ var markdownPreviewPlugin = definePlugin({
 		"mdt"
 	],
 	mimePrefixes: ["text/markdown", "text/x-markdown"],
-	supportsZoom: true,
+	supportsZoom: false,
 	Viewport: MarkdownViewport,
 	InspectorPreview: MarkdownInspectorPreview
 });

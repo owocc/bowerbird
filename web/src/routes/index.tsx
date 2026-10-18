@@ -36,6 +36,8 @@ function getIconComponent(iconName: MarketplacePlugin["iconName"]) {
       return Table;
     case "camera":
       return Camera;
+    case "sparkles":
+      return Sparkles;
     default:
       return Box;
   }

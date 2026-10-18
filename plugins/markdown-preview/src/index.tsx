@@ -931,7 +931,7 @@ const markdownPreviewPlugin: PreviewPlugin = definePlugin({
   priority: 50,
   extensions: ["md", "markdown", "mdown", "mkd", "mdwn", "mdt"],
   mimePrefixes: ["text/markdown", "text/x-markdown"],
-  supportsZoom: true,
+  supportsZoom: false,
   Viewport: MarkdownViewport,
   InspectorPreview: MarkdownInspectorPreview,
 });

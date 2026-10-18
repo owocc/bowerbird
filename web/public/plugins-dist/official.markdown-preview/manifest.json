@@ -18,6 +18,6 @@
     "text/markdown",
     "text/x-markdown"
   ],
-  "supportsZoom": true,
+  "supportsZoom": false,
   "main": "index.js"
 }

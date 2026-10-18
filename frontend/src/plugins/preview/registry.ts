@@ -277,7 +277,6 @@ export class PreviewPluginRegistry {
 export const previewRegistry = new PreviewPluginRegistry([
   ImagePreviewPlugin,
   VideoPreviewPlugin,
-  PromptMetadataPlugin,
   FallbackPreviewPlugin,
 ]);
 

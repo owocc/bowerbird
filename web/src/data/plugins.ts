@@ -9,7 +9,7 @@ export interface PluginVersionHistory {
 export interface MarketplacePlugin extends PluginManifest {
   manifestUrl: string;
   downloadUrl: string;
-  iconName: "file-text" | "music" | "table" | "camera" | "box";
+  iconName: "file-text" | "music" | "table" | "camera" | "box" | "sparkles";
   longDescription: string;
   category: "preview" | "metadata";
   changelog: PluginVersionHistory[];
@@ -30,7 +30,7 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     priority: 50,
     extensions: ["md", "markdown", "mdown", "mkd", "mdwn", "mdt"],
     mimePrefixes: ["text/markdown", "text/x-markdown"],
-    supportsZoom: true,
+    supportsZoom: false,
     main: "index.js",
     license: "MIT",
     iconName: "file-text",
@@ -90,6 +90,42 @@ export const OFFICIAL_PLUGINS: MarketplacePlugin[] = [
           "Initial official release built with @bowerbird/plugin-sdk",
           "Smooth audio waveform scrubber and time display",
           "Variable playback speed and volume memory",
+        ],
+      },
+    ],
+  },
+  {
+    id: "official.prompt-metadata",
+    name: "AI Prompt Metadata",
+    version: "1.0.0",
+    description: "Extends asset metadata with a dedicated Prompt section for recording, managing, and searching AI generation prompts.",
+    author: "Bowerbird Team",
+    kind: "metadata",
+    category: "metadata",
+    priority: 50,
+    extensions: [],
+    supportsZoom: false,
+    main: "index.js",
+    license: "MIT",
+    iconName: "sparkles",
+    featured: true,
+    downloadsCount: 2310,
+    rating: 4.95,
+    manifestUrl: "/plugins-dist/official.prompt-metadata/manifest.json",
+    downloadUrl: "/plugins-dist/official.prompt-metadata/index.js",
+    longDescription: `### Key Features
+- **Dedicated AI Prompt Field**: Easily record Midjourney, Stable Diffusion, DALL-E, ComfyUI, or custom LLM generation prompts for any image or asset.
+- **One-Click Clipboard Copy**: Instantly copy full generation prompts with length statistics.
+- **Inspector Integration**: Beautiful, non-intrusive collapsible panel directly in Bowerbird's right inspector sidebar.
+- **Searchable Metadata**: Prompts are stored in the asset manifest and seamlessly indexed for keyword search across your entire library.`,
+    changelog: [
+      {
+        version: "1.0.0",
+        date: "2026-10-18",
+        notes: [
+          "Initial official release as a modular metadata extension",
+          "Auto-save with character and word counting",
+          "Clean Light and Dark mode adaptation",
         ],
       },
     ],

@@ -19,6 +19,11 @@ const plugins = [
     dir: path.resolve(rootDir, "plugins/audio-player"),
     entry: path.resolve(rootDir, "plugins/audio-player/src/index.tsx"),
   },
+  {
+    name: "official.prompt-metadata",
+    dir: path.resolve(rootDir, "plugins/prompt-metadata"),
+    entry: path.resolve(rootDir, "plugins/prompt-metadata/src/index.tsx"),
+  },
 ];
 
 async function run() {
