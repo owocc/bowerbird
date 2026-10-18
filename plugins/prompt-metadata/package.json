@@ -1,6 +1,6 @@
 {
   "name": "@bowerbird/plugin-prompt-metadata",
-  "version": "1.0.0",
+  "version": "1.0.0-alpha",
   "description": "AI Prompt Metadata extension plugin for Bowerbird",
   "type": "module",
   "scripts": {
