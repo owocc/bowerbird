@@ -567,7 +567,7 @@ function MarkdownViewport({
   const [text, setText] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [showOutline, setShowOutline] = useState<boolean>(false);
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Setup zoom controller
@@ -618,14 +618,6 @@ function MarkdownViewport({
   }, [item.id, api]);
 
   const { frontmatter, body } = useMemo(() => parseFrontmatterAndBody(text), [text]);
-  const outline = useMemo(() => extractOutline(body), [body]);
-
-  const stats = useMemo(() => {
-    const words = body.trim().split(/\s+/).filter(Boolean).length;
-    const chars = body.length;
-    const readTimeMinutes = Math.max(1, Math.ceil(words / 200));
-    return { words, chars, readTimeMinutes };
-  }, [body]);
 
   const handleLinkClick = useCallback(
     (url: string) => {
@@ -653,217 +645,95 @@ function MarkdownViewport({
         position: "relative",
       }}
     >
-      {/* Header bar */}
+      {/* Pure article content */}
       <div
         style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "2.5rem 2rem",
           display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0.5rem 1rem",
-          background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
-          borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-          fontSize: "0.75rem",
-          color: isDark ? "#94a3b8" : "#4b5563",
-          userSelect: "none",
+          justifyContent: "center",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <span style={{ fontWeight: 600, color: isDark ? "#f8fafc" : "#000000" }}>{item.name}</span>
-          <span>•</span>
-          <span>{stats.words.toLocaleString()} words</span>
-          <span>•</span>
-          <span>~{stats.readTimeMinutes} min read</span>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          {outline.length > 0 && (
-            <button
-              onClick={() => setShowOutline(!showOutline)}
-              style={{
-                background: isDark ? (showOutline ? "rgba(99, 102, 241, 0.2)" : "rgba(255, 255, 255, 0.06)") : (showOutline ? "#e0e7ff" : "#ffffff"),
-                border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
-                color: isDark ? (showOutline ? "#a5b4fc" : "#cbd5e1") : (showOutline ? "#3730a3" : "#000000"),
-                padding: "3px 8px",
-                borderRadius: "5px",
-                cursor: "pointer",
-                fontSize: "0.75rem",
-              }}
-            >
-              Outline ({outline.length})
-            </button>
-          )}
-          <button
-            onClick={() => api.openWithDefaultApp()}
-            style={{
-              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
-              color: isDark ? "#cbd5e1" : "#000000",
-              padding: "3px 8px",
-              borderRadius: "5px",
-              cursor: "pointer",
-              fontSize: "0.75rem",
-            }}
-          >
-            Open in Editor
-          </button>
-          <button
-            onClick={() => api.revealInFinder()}
-            style={{
-              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
-              border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
-              color: isDark ? "#cbd5e1" : "#000000",
-              padding: "3px 8px",
-              borderRadius: "5px",
-              cursor: "pointer",
-              fontSize: "0.75rem",
-            }}
-          >
-            Reveal
-          </button>
-        </div>
-      </div>
-
-      {/* Main content body with outline side-panel */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Table of contents outline */}
-        {showOutline && outline.length > 0 && (
-          <div
-            style={{
-              width: "240px",
-              borderRight: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-              background: isDark ? "rgba(15, 17, 23, 0.95)" : "#f8fafc",
-              overflowY: "auto",
-              padding: "1rem",
-              fontSize: "0.8rem",
-            }}
-          >
-            <div
-              style={{
-                fontWeight: 600,
-                color: isDark ? "#94a3b8" : "#4b5563",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                marginBottom: "0.75rem",
-                fontSize: "0.7rem",
-              }}
-            >
-              Document Outline
-            </div>
-            {outline.map((o, idx) => (
-              <a
-                key={idx}
-                href={`#${o.id}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleLinkClick(`#${o.id}`);
-                }}
-                style={{
-                  display: "block",
-                  padding: "0.25rem 0",
-                  paddingLeft: `${(o.level - 1) * 0.75}rem`,
-                  color: isDark ? "#cbd5e1" : "#000000",
-                  textDecoration: "none",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {o.text}
-              </a>
-            ))}
-          </div>
-        )}
-
-        {/* Article scrollable container */}
         <div
           style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "2rem",
-            display: "flex",
-            justifyContent: "center",
+            width: "100%",
+            maxWidth: "800px",
+            transform: scale !== 1 ? `scale(${scale})` : undefined,
+            transformOrigin: "top center",
+            transition: "transform 0.1s ease-out",
           }}
         >
-          <div
-            style={{
-              width: "100%",
-              maxWidth: "800px",
-              transform: scale !== 1 ? `scale(${scale})` : undefined,
-              transformOrigin: "top center",
-              transition: "transform 0.1s ease-out",
-            }}
-          >
-            {loading ? (
-              <div style={{ textAlign: "center", padding: "4rem 0", color: "#94a3b8" }}>
-                Loading Markdown...
-              </div>
-            ) : error ? (
-              <div
-                style={{
-                  padding: "1.5rem",
-                  borderRadius: "8px",
-                  background: "rgba(239, 68, 68, 0.1)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
-                  color: "#f87171",
-                }}
-              >
-                {error}
-              </div>
-            ) : (
-              <>
-                {/* Frontmatter card */}
-                {frontmatter && Object.keys(frontmatter).length > 0 && (
-                  <div
-                    style={{
-                      marginBottom: "1.5rem",
-                      padding: "1rem",
-                      borderRadius: "8px",
-                      background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
-                      border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-                      fontSize: "0.85rem",
-                    }}
-                  >
-                    {frontmatter.title && (
-                      <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem", color: isDark ? "#f8fafc" : "#000000" }}>
-                        {String(frontmatter.title)}
-                      </h1>
+          {loading ? (
+            <div style={{ textAlign: "center", padding: "4rem 0", color: isDark ? "#94a3b8" : "#64748b" }}>
+              Loading Markdown...
+            </div>
+          ) : error ? (
+            <div
+              style={{
+                padding: "1.5rem",
+                borderRadius: "8px",
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                color: "#f87171",
+              }}
+            >
+              {error}
+            </div>
+          ) : (
+            <>
+              {/* Frontmatter card if present */}
+              {frontmatter && Object.keys(frontmatter).length > 0 && (
+                <div
+                  style={{
+                    marginBottom: "1.5rem",
+                    padding: "1rem",
+                    borderRadius: "8px",
+                    background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
+                    border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+                    fontSize: "0.85rem",
+                  }}
+                >
+                  {frontmatter.title && (
+                    <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem", color: isDark ? "#f8fafc" : "#000000" }}>
+                      {String(frontmatter.title)}
+                    </h1>
+                  )}
+                  {frontmatter.description && (
+                    <p style={{ margin: "0 0 0.5rem 0", color: isDark ? "#94a3b8" : "#334155" }}>
+                      {String(frontmatter.description)}
+                    </p>
+                  )}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" }}>
+                    {frontmatter.author && (
+                      <span style={{ color: isDark ? "#64748b" : "#4b5563" }}>By {String(frontmatter.author)}</span>
                     )}
-                    {frontmatter.description && (
-                      <p style={{ margin: "0 0 0.5rem 0", color: isDark ? "#94a3b8" : "#334155" }}>
-                        {String(frontmatter.description)}
-                      </p>
+                    {frontmatter.date && (
+                      <span style={{ color: isDark ? "#64748b" : "#4b5563" }}>• {String(frontmatter.date)}</span>
                     )}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" }}>
-                      {frontmatter.author && (
-                        <span style={{ color: isDark ? "#64748b" : "#4b5563" }}>By {String(frontmatter.author)}</span>
-                      )}
-                      {frontmatter.date && (
-                        <span style={{ color: isDark ? "#64748b" : "#4b5563" }}>• {String(frontmatter.date)}</span>
-                      )}
-                      {Array.isArray(frontmatter.tags) &&
-                        frontmatter.tags.map((t, idx) => (
-                          <span
-                            key={idx}
-                            style={{
-                              background: "rgba(99, 102, 241, 0.15)",
-                              color: "#818cf8",
-                              borderRadius: "4px",
-                              padding: "1px 6px",
-                              fontSize: "0.75rem",
-                            }}
-                          >
-                            #{t}
-                          </span>
-                        ))}
-                    </div>
+                    {Array.isArray(frontmatter.tags) &&
+                      frontmatter.tags.map((t, idx) => (
+                        <span
+                          key={idx}
+                          style={{
+                            background: isDark ? "rgba(99, 102, 241, 0.15)" : "#e0e7ff",
+                            color: isDark ? "#818cf8" : "#4338ca",
+                            borderRadius: "4px",
+                            padding: "1px 6px",
+                            fontSize: "0.75rem",
+                          }}
+                        >
+                          #{t}
+                        </span>
+                      ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Markdown rendered body */}
-                <MarkdownRenderer body={body} onLinkClick={handleLinkClick} isDark={isDark} />
-              </>
-            )}
-          </div>
+              {/* Markdown rendered body */}
+              <MarkdownRenderer body={body} onLinkClick={handleLinkClick} isDark={isDark} />
+            </>
+          )}
         </div>
       </div>
     </div>

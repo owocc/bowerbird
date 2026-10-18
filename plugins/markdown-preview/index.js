@@ -38,30 +38,6 @@ function parseFrontmatterAndBody(raw) {
 		body
 	};
 }
-function extractOutline(text) {
-	const lines = text.split("\n");
-	const outline = [];
-	let inCode = false;
-	for (const line of lines) {
-		if (line.trim().startsWith("```")) {
-			inCode = !inCode;
-			continue;
-		}
-		if (inCode) continue;
-		const match = line.match(/^(#{1,6})\s+(.*)$/);
-		if (match) {
-			const level = match[1].length;
-			const text = match[2].trim().replace(/[#*`_~]/g, "");
-			const id = text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-			outline.push({
-				level,
-				text,
-				id
-			});
-		}
-	}
-	return outline;
-}
 function renderInlineMarkdown(text, onLinkClick, isDark = true) {
 	const nodes = [];
 	let remaining = text;
@@ -406,7 +382,6 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 	const [text, setText] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
-	const [showOutline, setShowOutline] = useState(false);
 	const containerRef = useRef(null);
 	useEffect(() => {
 		controllerRef.current = {
@@ -446,20 +421,11 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 		};
 	}, [item.id, api]);
 	const { frontmatter, body } = useMemo(() => parseFrontmatterAndBody(text), [text]);
-	const outline = useMemo(() => extractOutline(body), [body]);
-	const stats = useMemo(() => {
-		const words = body.trim().split(/\s+/).filter(Boolean).length;
-		return {
-			words,
-			chars: body.length,
-			readTimeMinutes: Math.max(1, Math.ceil(words / 200))
-		};
-	}, [body]);
 	const handleLinkClick = useCallback((url) => {
 		if (url.startsWith("#")) document.getElementById(url.slice(1))?.scrollIntoView({ behavior: "smooth" });
 		else api.openExternalURL(url);
 	}, [api]);
-	return /* @__PURE__ */ jsxs("div", {
+	return /* @__PURE__ */ jsx("div", {
 		ref: containerRef,
 		style: {
 			display: "flex",
@@ -471,230 +437,99 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 			overflow: "hidden",
 			position: "relative"
 		},
-		children: [/* @__PURE__ */ jsxs("div", {
+		children: /* @__PURE__ */ jsx("div", {
 			style: {
-				display: "flex",
-				alignItems: "center",
-				justifyContent: "space-between",
-				padding: "0.5rem 1rem",
-				background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
-				borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-				fontSize: "0.75rem",
-				color: isDark ? "#94a3b8" : "#4b5563",
-				userSelect: "none"
-			},
-			children: [/* @__PURE__ */ jsxs("div", {
-				style: {
-					display: "flex",
-					alignItems: "center",
-					gap: "0.75rem"
-				},
-				children: [
-					/* @__PURE__ */ jsx("span", {
-						style: {
-							fontWeight: 600,
-							color: isDark ? "#f8fafc" : "#000000"
-						},
-						children: item.name
-					}),
-					/* @__PURE__ */ jsx("span", { children: "•" }),
-					/* @__PURE__ */ jsxs("span", { children: [stats.words.toLocaleString(), " words"] }),
-					/* @__PURE__ */ jsx("span", { children: "•" }),
-					/* @__PURE__ */ jsxs("span", { children: [
-						"~",
-						stats.readTimeMinutes,
-						" min read"
-					] })
-				]
-			}), /* @__PURE__ */ jsxs("div", {
-				style: {
-					display: "flex",
-					alignItems: "center",
-					gap: "0.5rem"
-				},
-				children: [
-					outline.length > 0 && /* @__PURE__ */ jsxs("button", {
-						onClick: () => setShowOutline(!showOutline),
-						style: {
-							background: isDark ? showOutline ? "rgba(99, 102, 241, 0.2)" : "rgba(255, 255, 255, 0.06)" : showOutline ? "#e0e7ff" : "#ffffff",
-							border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
-							color: isDark ? showOutline ? "#a5b4fc" : "#cbd5e1" : showOutline ? "#3730a3" : "#000000",
-							padding: "3px 8px",
-							borderRadius: "5px",
-							cursor: "pointer",
-							fontSize: "0.75rem"
-						},
-						children: [
-							"Outline (",
-							outline.length,
-							")"
-						]
-					}),
-					/* @__PURE__ */ jsx("button", {
-						onClick: () => api.openWithDefaultApp(),
-						style: {
-							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
-							border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
-							color: isDark ? "#cbd5e1" : "#000000",
-							padding: "3px 8px",
-							borderRadius: "5px",
-							cursor: "pointer",
-							fontSize: "0.75rem"
-						},
-						children: "Open in Editor"
-					}),
-					/* @__PURE__ */ jsx("button", {
-						onClick: () => api.revealInFinder(),
-						style: {
-							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
-							border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
-							color: isDark ? "#cbd5e1" : "#000000",
-							padding: "3px 8px",
-							borderRadius: "5px",
-							cursor: "pointer",
-							fontSize: "0.75rem"
-						},
-						children: "Reveal"
-					})
-				]
-			})]
-		}), /* @__PURE__ */ jsxs("div", {
-			style: {
-				display: "flex",
 				flex: 1,
-				overflow: "hidden"
+				overflowY: "auto",
+				padding: "2.5rem 2rem",
+				display: "flex",
+				justifyContent: "center"
 			},
-			children: [showOutline && outline.length > 0 && /* @__PURE__ */ jsxs("div", {
+			children: /* @__PURE__ */ jsx("div", {
 				style: {
-					width: "240px",
-					borderRight: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-					background: isDark ? "rgba(15, 17, 23, 0.95)" : "#f8fafc",
-					overflowY: "auto",
-					padding: "1rem",
-					fontSize: "0.8rem"
+					width: "100%",
+					maxWidth: "800px",
+					transform: scale !== 1 ? `scale(${scale})` : void 0,
+					transformOrigin: "top center",
+					transition: "transform 0.1s ease-out"
 				},
-				children: [/* @__PURE__ */ jsx("div", {
+				children: loading ? /* @__PURE__ */ jsx("div", {
 					style: {
-						fontWeight: 600,
-						color: isDark ? "#94a3b8" : "#4b5563",
-						textTransform: "uppercase",
-						letterSpacing: "0.05em",
-						marginBottom: "0.75rem",
-						fontSize: "0.7rem"
+						textAlign: "center",
+						padding: "4rem 0",
+						color: isDark ? "#94a3b8" : "#64748b"
 					},
-					children: "Document Outline"
-				}), outline.map((o, idx) => /* @__PURE__ */ jsx("a", {
-					href: `#${o.id}`,
-					onClick: (e) => {
-						e.preventDefault();
-						handleLinkClick(`#${o.id}`);
-					},
+					children: "Loading Markdown..."
+				}) : error ? /* @__PURE__ */ jsx("div", {
 					style: {
-						display: "block",
-						padding: "0.25rem 0",
-						paddingLeft: `${(o.level - 1) * .75}rem`,
-						color: isDark ? "#cbd5e1" : "#000000",
-						textDecoration: "none",
-						whiteSpace: "nowrap",
-						overflow: "hidden",
-						textOverflow: "ellipsis"
+						padding: "1.5rem",
+						borderRadius: "8px",
+						background: "rgba(239, 68, 68, 0.1)",
+						border: "1px solid rgba(239, 68, 68, 0.3)",
+						color: "#f87171"
 					},
-					children: o.text
-				}, idx))]
-			}), /* @__PURE__ */ jsx("div", {
-				style: {
-					flex: 1,
-					overflowY: "auto",
-					padding: "2rem",
-					display: "flex",
-					justifyContent: "center"
-				},
-				children: /* @__PURE__ */ jsx("div", {
+					children: error
+				}) : /* @__PURE__ */ jsxs(Fragment, { children: [frontmatter && Object.keys(frontmatter).length > 0 && /* @__PURE__ */ jsxs("div", {
 					style: {
-						width: "100%",
-						maxWidth: "800px",
-						transform: scale !== 1 ? `scale(${scale})` : void 0,
-						transformOrigin: "top center",
-						transition: "transform 0.1s ease-out"
+						marginBottom: "1.5rem",
+						padding: "1rem",
+						borderRadius: "8px",
+						background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
+						border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+						fontSize: "0.85rem"
 					},
-					children: loading ? /* @__PURE__ */ jsx("div", {
-						style: {
-							textAlign: "center",
-							padding: "4rem 0",
-							color: "#94a3b8"
-						},
-						children: "Loading Markdown..."
-					}) : error ? /* @__PURE__ */ jsx("div", {
-						style: {
-							padding: "1.5rem",
-							borderRadius: "8px",
-							background: "rgba(239, 68, 68, 0.1)",
-							border: "1px solid rgba(239, 68, 68, 0.3)",
-							color: "#f87171"
-						},
-						children: error
-					}) : /* @__PURE__ */ jsxs(Fragment, { children: [frontmatter && Object.keys(frontmatter).length > 0 && /* @__PURE__ */ jsxs("div", {
-						style: {
-							marginBottom: "1.5rem",
-							padding: "1rem",
-							borderRadius: "8px",
-							background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
-							border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
-							fontSize: "0.85rem"
-						},
-						children: [
-							frontmatter.title && /* @__PURE__ */ jsx("h1", {
-								style: {
-									margin: "0 0 0.5rem 0",
-									fontSize: "1.5rem",
-									color: isDark ? "#f8fafc" : "#000000"
-								},
-								children: String(frontmatter.title)
-							}),
-							frontmatter.description && /* @__PURE__ */ jsx("p", {
-								style: {
-									margin: "0 0 0.5rem 0",
-									color: isDark ? "#94a3b8" : "#334155"
-								},
-								children: String(frontmatter.description)
-							}),
-							/* @__PURE__ */ jsxs("div", {
-								style: {
-									display: "flex",
-									flexWrap: "wrap",
-									gap: "0.5rem",
-									marginTop: "0.5rem"
-								},
-								children: [
-									frontmatter.author && /* @__PURE__ */ jsxs("span", {
-										style: { color: isDark ? "#64748b" : "#4b5563" },
-										children: ["By ", String(frontmatter.author)]
-									}),
-									frontmatter.date && /* @__PURE__ */ jsxs("span", {
-										style: { color: isDark ? "#64748b" : "#4b5563" },
-										children: ["• ", String(frontmatter.date)]
-									}),
-									Array.isArray(frontmatter.tags) && frontmatter.tags.map((t, idx) => /* @__PURE__ */ jsxs("span", {
-										style: {
-											background: "rgba(99, 102, 241, 0.15)",
-											color: "#818cf8",
-											borderRadius: "4px",
-											padding: "1px 6px",
-											fontSize: "0.75rem"
-										},
-										children: ["#", t]
-									}, idx))
-								]
-							})
-						]
-					}), /* @__PURE__ */ jsx(MarkdownRenderer, {
-						body,
-						onLinkClick: handleLinkClick,
-						isDark
-					})] })
-				})
-			})]
-		})]
+					children: [
+						frontmatter.title && /* @__PURE__ */ jsx("h1", {
+							style: {
+								margin: "0 0 0.5rem 0",
+								fontSize: "1.5rem",
+								color: isDark ? "#f8fafc" : "#000000"
+							},
+							children: String(frontmatter.title)
+						}),
+						frontmatter.description && /* @__PURE__ */ jsx("p", {
+							style: {
+								margin: "0 0 0.5rem 0",
+								color: isDark ? "#94a3b8" : "#334155"
+							},
+							children: String(frontmatter.description)
+						}),
+						/* @__PURE__ */ jsxs("div", {
+							style: {
+								display: "flex",
+								flexWrap: "wrap",
+								gap: "0.5rem",
+								marginTop: "0.5rem"
+							},
+							children: [
+								frontmatter.author && /* @__PURE__ */ jsxs("span", {
+									style: { color: isDark ? "#64748b" : "#4b5563" },
+									children: ["By ", String(frontmatter.author)]
+								}),
+								frontmatter.date && /* @__PURE__ */ jsxs("span", {
+									style: { color: isDark ? "#64748b" : "#4b5563" },
+									children: ["• ", String(frontmatter.date)]
+								}),
+								Array.isArray(frontmatter.tags) && frontmatter.tags.map((t, idx) => /* @__PURE__ */ jsxs("span", {
+									style: {
+										background: isDark ? "rgba(99, 102, 241, 0.15)" : "#e0e7ff",
+										color: isDark ? "#818cf8" : "#4338ca",
+										borderRadius: "4px",
+										padding: "1px 6px",
+										fontSize: "0.75rem"
+									},
+									children: ["#", t]
+								}, idx))
+							]
+						})
+					]
+				}), /* @__PURE__ */ jsx(MarkdownRenderer, {
+					body,
+					onLinkClick: handleLinkClick,
+					isDark
+				})] })
+			})
+		})
 	});
 }
 function usePluginTheme(propTheme, api) {
