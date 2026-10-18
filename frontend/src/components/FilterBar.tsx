@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
@@ -154,7 +154,7 @@ export function itemMatchesColorFilter(
 }
 
 export interface FilterBarProps {
-  items: Item[];
+  libraryTopColors?: string[];
   folders: Folder[];
   categoryFilter: WorkspaceCategory;
   colorFilter: string | null;
@@ -175,8 +175,8 @@ export interface FilterBarProps {
   onClearAll: () => void;
 }
 
-export function FilterBar({
-  items,
+export const FilterBar = React.memo(function FilterBar({
+  libraryTopColors = [],
   folders,
   categoryFilter,
   colorFilter,
@@ -274,20 +274,6 @@ export function FilterBar({
     return out;
   }, [folders]);
 
-  // Extract top library colors dynamically from items to supplement preset swatches
-  const libraryTopColors = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const it of items) {
-      if (it.dominantColor) {
-        const hex = it.dominantColor.toUpperCase();
-        counts[hex] = (counts[hex] || 0) + 1;
-      }
-    }
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([hex]) => hex);
-  }, [items]);
 
   const isCriterionActive = (id: FilterCriterionId): boolean => {
     switch (id) {
@@ -584,33 +570,34 @@ export function FilterBar({
 
                 {flatFolders.length > 0 && <div className="my-1 h-px bg-border/50" />}
 
-                {flatFolders.map((f) => {
-                  const isSelected = folderFilter === f.id;
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => {
-                        onFolderChange(isSelected ? null : f.id);
-                        setOpen(false);
-                      }}
-                      className={cn(
-                        "w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer",
-                        isSelected
-                          ? "bg-primary/10 text-primary font-semibold"
-                          : "hover:bg-accent text-foreground"
-                      )}
-                    >
-                      <span className="flex items-center gap-1.5 truncate">
-                        <FolderIcon className="size-3 text-muted-foreground shrink-0" />
-                        <span className="truncate">{f.name}</span>
-                      </span>
-                      <span className="text-[10px] font-mono text-muted-foreground shrink-0">
-                        {f.count}
-                      </span>
-                    </button>
-                  );
-                })}
+                {isOpen &&
+                  flatFolders.map((f) => {
+                    const isSelected = folderFilter === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => {
+                          onFolderChange(isSelected ? null : f.id);
+                          setOpen(false);
+                        }}
+                        className={cn(
+                          "w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer",
+                          isSelected
+                            ? "bg-primary/10 text-primary font-semibold"
+                            : "hover:bg-accent text-foreground"
+                        )}
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <FolderIcon className="size-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{f.name}</span>
+                        </span>
+                        <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                          {f.count}
+                        </span>
+                      </button>
+                    );
+                  })}
               </div>
             </PopoverContent>
           </Popover>
@@ -946,4 +933,15 @@ export function FilterBar({
       )}
     </div>
   );
-}
+}, (prev, next) =>
+  prev.libraryTopColors === next.libraryTopColors &&
+  prev.folders === next.folders &&
+  prev.categoryFilter === next.categoryFilter &&
+  prev.colorFilter === next.colorFilter &&
+  prev.folderFilter === next.folderFilter &&
+  prev.orientationFilter === next.orientationFilter &&
+  prev.sizeFilter === next.sizeFilter &&
+  prev.hasUrlFilter === next.hasUrlFilter &&
+  prev.hasNoteFilter === next.hasNoteFilter &&
+  prev.ratingFilter === next.ratingFilter
+);

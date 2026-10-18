@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   X,
@@ -83,7 +83,7 @@ export interface ItemDetailPanelProps {
   onItemUpdated?: (updated: Item) => void;
 }
 
-export function ItemDetailPanel({
+export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   item,
   currentFolder,
   allFolders,
@@ -131,6 +131,10 @@ export function ItemDetailPanel({
   const handleAddToFolder = async (folderId: string) => {
     if (!item) return;
     try {
+      const prevFolders = item.folders || [];
+      if (!prevFolders.includes(folderId)) {
+        onItemUpdated?.({ ...item, folders: [...prevFolders, folderId] });
+      }
       await AddItemToFolder(item.id, folderId);
       setShowFolderPicker(false);
       onFolderUpdated?.();
@@ -142,6 +146,11 @@ export function ItemDetailPanel({
   const handleRemoveFromFolder = async (folderId: string) => {
     if (!item) return;
     try {
+      const prevFolders = item.folders || [];
+      onItemUpdated?.({
+        ...item,
+        folders: prevFolders.filter((f) => f !== folderId),
+      });
       await RemoveItemFromFolder(item.id, folderId);
       onFolderUpdated?.();
     } catch (err) {
@@ -520,6 +529,10 @@ export function ItemDetailPanel({
                               );
                               if (!exactExisting) {
                                 e.preventDefault();
+                                const prevTags = item.tags || [];
+                                if (!prevTags.includes(clean)) {
+                                  onItemUpdated?.({ ...item, tags: [...prevTags, clean] });
+                                }
                                 await AddTagToItem(item.id, clean);
                                 setTagSearch("");
                                 onTagsUpdated?.();
@@ -535,6 +548,10 @@ export function ItemDetailPanel({
                                 onClick={async () => {
                                   const clean = tagSearch.trim();
                                   if (!clean) return;
+                                  const prevTags = item.tags || [];
+                                  if (!prevTags.includes(clean)) {
+                                    onItemUpdated?.({ ...item, tags: [...prevTags, clean] });
+                                  }
                                   await AddTagToItem(item.id, clean);
                                   setTagSearch("");
                                   onTagsUpdated?.();
@@ -564,6 +581,10 @@ export function ItemDetailPanel({
                                   onSelect={async () => {
                                     const clean = tagSearch.trim();
                                     if (!clean) return;
+                                    const prevTags = item.tags || [];
+                                    if (!prevTags.includes(clean)) {
+                                      onItemUpdated?.({ ...item, tags: [...prevTags, clean] });
+                                    }
                                     await AddTagToItem(item.id, clean);
                                     setTagSearch("");
                                     onTagsUpdated?.();
@@ -578,47 +599,57 @@ export function ItemDetailPanel({
                                   </span>
                                 </CommandItem>
                               )}
-                            {allTags.map((tg) => {
-                              const hasTag = (item.tags || []).includes(tg.name);
-                              const isFav = tg.name === FAVORITE_TAG;
-                              const displayLabel = isFav
-                                ? t("common.favorites")
-                                : tg.name;
-                              return (
-                                <CommandItem
-                                  key={tg.name}
-                                  value={`${displayLabel} ${tg.name}`}
-                                  onSelect={async () => {
-                                    if (hasTag) {
-                                      await RemoveTagFromItem(item.id, tg.name);
-                                    } else {
-                                      await AddTagToItem(item.id, tg.name);
-                                    }
-                                    onTagsUpdated?.();
-                                  }}
-                                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer"
-                                >
-                                  {isFav ? (
-                                    <Star
-                                      className={cn(
-                                        "size-3.5 shrink-0",
-                                        hasTag
-                                          ? "text-amber-500 fill-amber-500"
-                                          : "text-amber-500/80"
-                                      )}
-                                    />
-                                  ) : (
-                                    <TagIcon className="size-3.5 text-muted-foreground shrink-0" />
-                                  )}
-                                  <span className="truncate flex-1">
-                                    {displayLabel}
-                                  </span>
-                                  {hasTag && (
-                                    <Check className="size-3.5 text-primary shrink-0" />
-                                  )}
-                                </CommandItem>
-                              );
-                            })}
+                            {tagPopoverOpen &&
+                              allTags.map((tg) => {
+                                const hasTag = (item.tags || []).includes(tg.name);
+                                const isFav = tg.name === FAVORITE_TAG;
+                                const displayLabel = isFav
+                                  ? t("common.favorites")
+                                  : tg.name;
+                                return (
+                                  <CommandItem
+                                    key={tg.name}
+                                    value={`${displayLabel} ${tg.name}`}
+                                    onSelect={async () => {
+                                      const prevTags = item.tags || [];
+                                      if (hasTag) {
+                                        onItemUpdated?.({
+                                          ...item,
+                                          tags: prevTags.filter((t) => t !== tg.name),
+                                        });
+                                        await RemoveTagFromItem(item.id, tg.name);
+                                      } else {
+                                        onItemUpdated?.({
+                                          ...item,
+                                          tags: [...prevTags, tg.name],
+                                        });
+                                        await AddTagToItem(item.id, tg.name);
+                                      }
+                                      onTagsUpdated?.();
+                                    }}
+                                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs cursor-pointer"
+                                  >
+                                    {isFav ? (
+                                      <Star
+                                        className={cn(
+                                          "size-3.5 shrink-0",
+                                          hasTag
+                                            ? "text-amber-500 fill-amber-500"
+                                            : "text-amber-500/80"
+                                        )}
+                                      />
+                                    ) : (
+                                      <TagIcon className="size-3.5 text-muted-foreground shrink-0" />
+                                    )}
+                                    <span className="truncate flex-1">
+                                      {displayLabel}
+                                    </span>
+                                    {hasTag && (
+                                      <Check className="size-3.5 text-primary shrink-0" />
+                                    )}
+                                  </CommandItem>
+                                );
+                              })}
                           </CommandGroup>
                         </CommandList>
                       </Command>
@@ -658,6 +689,11 @@ export function ItemDetailPanel({
                         <button
                           type="button"
                           onClick={async () => {
+                            const prevTags = item.tags || [];
+                            onItemUpdated?.({
+                              ...item,
+                              tags: prevTags.filter((t) => t !== tag),
+                            });
                             await RemoveTagFromItem(item.id, tag);
                             onTagsUpdated?.();
                           }}
@@ -953,4 +989,14 @@ export function ItemDetailPanel({
       </div>
     </aside>
   );
-}
+}, (prev, next) =>
+  prev.item === next.item &&
+  prev.currentFolder === next.currentFolder &&
+  prev.allFolders === next.allFolders &&
+  prev.allTags === next.allTags &&
+  prev.isTrashView === next.isTrashView &&
+  prev.activeColorFilter === next.activeColorFilter &&
+  (prev.item !== null ||
+    (prev.totalItemCount === next.totalItemCount &&
+      prev.totalSizeBytes === next.totalSizeBytes))
+);

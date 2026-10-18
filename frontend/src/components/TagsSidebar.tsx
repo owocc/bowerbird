@@ -25,7 +25,7 @@ export interface TagsSidebarProps {
   onClose?: () => void;
 }
 
-export function TagsSidebar({
+export const TagsSidebar = React.memo(function TagsSidebar({
   tags,
   activeTag,
   onSelectTag,
@@ -224,4 +224,7 @@ export function TagsSidebar({
       </div>
     </aside>
   );
-}
+}, (prev, next) =>
+  prev.tags === next.tags &&
+  prev.activeTag === next.activeTag
+);

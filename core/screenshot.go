@@ -193,27 +193,45 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	rawTmpPath := filepath.Join(tmpDir, fmt.Sprintf("bb_raw_%d_%s", time.Now().UnixNano(), displayName))
 	defer func() {
 		_ = os.Remove(rawTmpPath)
+		if s.mgr != nil {
+			if w := s.mgr.getWindow(); w != nil {
+				w.Focus()
+			}
+		}
 	}()
+	tStart := time.Now()
+	RecordLog("info", "core", "[Pipeline 1/6] Screenshot capture started", fmt.Sprintf("mode=%s target=%s", m, displayName), 0)
 
+	tExecStart := time.Now()
 	if err := captureExecutor(m, rawTmpPath); err != nil {
 		if errors.Is(err, ErrScreenshotCancelled) {
 			log.Printf("[Capture] %s screenshot cancelled by user", m)
+			RecordLog("info", "core", "[Pipeline] Screenshot cancelled by user", fmt.Sprintf("mode=%s", m), time.Since(tExecStart).Milliseconds())
 			return nil, nil
 		}
 		log.Printf("[Capture] %s screenshot failed: %v", m, err)
+		RecordLog("error", "core", "[Pipeline] Screenshot OS command failed", fmt.Sprintf("mode=%s err=%v", m, err), time.Since(tExecStart).Milliseconds())
 		if app := s.getApp(); app != nil {
 			app.Event.Emit("capture-error", fmt.Sprintf("截图失败: %v", err))
 		}
 		return nil, err
 	}
+	osCaptureMs := time.Since(tExecStart).Milliseconds()
 
 	fi, err := os.Stat(rawTmpPath)
 	if err != nil || fi.Size() == 0 {
 		log.Printf("[Capture] screenshot was cancelled or file is empty")
 		return nil, nil
 	}
+	if s.mgr != nil {
+		if w := s.mgr.getWindow(); w != nil {
+			w.Focus()
+		}
+	}
+	RecordLog("perf", "core", "[Pipeline 2/6] Screenshot saved to temp disk by OS", fmt.Sprintf("mode=%s size=%dB path=%s", m, fi.Size(), rawTmpPath), osCaptureMs)
 
 	// Create an isolated staging folder for the display filename so ImportFiles assigns the nice name
+	tStageStart := time.Now()
 	importDir, err := os.MkdirTemp("", "bb_import_*")
 	if err != nil {
 		importDir = tmpDir
@@ -225,43 +243,52 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	if copyErr := copyScreenshotFile(rawTmpPath, namedPath); copyErr != nil {
 		namedPath = rawTmpPath
 	}
+	stageMs := time.Since(tStageStart).Milliseconds()
+	modeTag := "area-screenshot"
+	if m == ScreenshotWindow {
+		modeTag = "window-screenshot"
+	} else if m == ScreenshotFullscreen {
+		modeTag = "fullscreen-screenshot"
+	}
+	tags := []string{"screenshot", modeTag}
 
-	items, err := s.mgr.ImportFiles([]string{namedPath})
+	tImportStart := time.Now()
+	item, err := s.mgr.ImportSingleFileWithTags(namedPath, tags)
+	importMs := time.Since(tImportStart).Milliseconds()
 	if err != nil {
 		log.Printf("[Capture] import screenshot failed: %v", err)
+		RecordLog("error", "core", "[Pipeline] Screenshot library import failed", fmt.Sprintf("err=%v", err), importMs)
 		if app := s.getApp(); app != nil {
 			app.Event.Emit("capture-error", fmt.Sprintf("导入截图失败: %v", err))
 		}
 		return nil, err
 	}
 
-	if len(items) == 0 {
+	if item == nil {
 		return nil, fmt.Errorf("no item was imported")
 	}
 
-	item := &items[0]
-	_ = s.mgr.AddTagToItem(item.ID, "screenshot")
-	if m == ScreenshotArea {
-		_ = s.mgr.AddTagToItem(item.ID, "area-screenshot")
-	} else if m == ScreenshotWindow {
-		_ = s.mgr.AddTagToItem(item.ID, "window-screenshot")
-	} else if m == ScreenshotFullscreen {
-		_ = s.mgr.AddTagToItem(item.ID, "fullscreen-screenshot")
-	}
-
-	if updated, err := s.mgr.GetItem(item.ID); err == nil && updated != nil {
-		item = updated
-	}
-
+	tEmitStart := time.Now()
 	if app := s.getApp(); app != nil {
 		app.Event.Emit("import-completed", map[string]any{
-			"count": 1,
-			"ids":   []string{item.ID},
+			"count":    1,
+			"ids":      []string{item.ID},
+			"items":    []Item{*item},
+			"emitTsMs": time.Now().UnixMilli(),
 		})
-		app.Event.Emit("library-items-updated", 1)
 		app.Event.Emit("capture-completed", item)
 	}
+	emitMs := time.Since(tEmitStart).Milliseconds()
+	tagMs := int64(0)
 
+	RecordLog(
+		"perf",
+		"core",
+		"[Pipeline 5/6] Screenshot imported & emitted to frontend",
+		fmt.Sprintf("id=%s name=%q size=%dB stageMs=%d importMs=%d tagMs=%d emitMs=%d totalPostCaptureMs=%d",
+			item.ID[:12], item.Name, item.Size, stageMs, importMs, tagMs, emitMs, time.Since(tStageStart).Milliseconds()),
+		time.Since(tStart).Milliseconds(),
+	)
 	log.Printf("[Capture] successfully captured and imported %s screenshot: %s (%s)", m, item.Name, item.ID)
 	return item, nil
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import {
   Search,
@@ -145,6 +146,7 @@ export function LibraryWorkspace({
   const tagsSidebarOpen = ws.tags;
   const categoryFilter = ws.type;
   const sortOrder = ws.sort;
+  const layoutMode = ws.layout;
   const colorFilter = ws.color ?? null;
   const folderFilter = ws.filterFolder ?? null;
   const orientationFilter = ws.orientation;
@@ -179,7 +181,15 @@ export function LibraryWorkspace({
   const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
   const selectedItemIds = useMemo(() => new Set(selectedOrder), [selectedOrder]);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
-
+  const indexCacheRef = useRef<{
+    itemsRef: Item[];
+    byId: Map<string, Item>;
+    byFolder: Map<string, Item[]>;
+    untagged: number;
+    uncategorized: number;
+    totalActiveBytes: number;
+  } | null>(null);
+  const itemsVersionRef = useRef<number>(0);
   const galleryViewportRef = useRef<HTMLDivElement>(null);
 
   // Enable trackpad 2-finger pinch zoom on the main gallery viewport
@@ -311,7 +321,119 @@ export function LibraryWorkspace({
     },
     [refreshItems]
   );
+  // Merge newly imported or updated items directly into React state in O(N) without re-fetching 37k+ items over IPC
+  const handleItemsUpsertedInPlace = useCallback(
+    (upsertedList: Item[], extraFolderId?: string | null) => {
+      if (!upsertedList || upsertedList.length === 0) return;
+      const cleanFolderId =
+        extraFolderId &&
+        extraFolderId !== TRASH_FOLDER_ID &&
+        extraFolderId !== UNTAGGED_FOLDER_ID &&
+        extraFolderId !== UNCATEGORIZED_FOLDER_ID &&
+        extraFolderId !== HISTORY_FOLDER_ID
+          ? extraFolderId
+          : null;
 
+      const tUpsert0 = performance.now();
+      setItems((prev) => {
+        const byId = new Map<string, Item>();
+        for (const u of upsertedList) {
+          if (!u || !u.id || u.inTrash) continue;
+          const nextFolders = cleanFolderId
+            ? Array.from(new Set([...(u.folders || []), cleanFolderId]))
+            : u.folders || [];
+          byId.set(u.id, { ...u, folders: nextFolders });
+        }
+        if (byId.size === 0) return prev;
+
+        let anyUpdated = false;
+        let seen: Set<string> | null = null;
+        for (let i = 0; i < prev.length; i++) {
+          if (byId.has(prev[i].id)) {
+            anyUpdated = true;
+            break;
+          }
+        }
+
+        let baseList = prev;
+        if (anyUpdated) {
+          seen = new Set<string>();
+          baseList = prev.map((it) => {
+            const upd = byId.get(it.id);
+            if (upd) {
+              seen!.add(it.id);
+              const mergedFolders =
+                upd.folders && upd.folders.length > 0
+                  ? Array.from(new Set([...(it.folders || []), ...upd.folders]))
+                  : it.folders || [];
+              const mergedTags =
+                upd.tags && upd.tags.length > 0
+                  ? Array.from(new Set([...(it.tags || []), ...upd.tags]))
+                  : it.tags || [];
+              return { ...it, ...upd, folders: mergedFolders, tags: mergedTags };
+            }
+            return it;
+          });
+        }
+
+        const brandNew: Item[] = [];
+        for (const [id, it] of byId.entries()) {
+          if (!seen || !seen.has(id)) {
+            brandNew.push(it);
+          }
+        }
+        const nextList =
+          brandNew.length === 0
+            ? baseList
+            : sortOrder === "asc"
+            ? [...baseList, ...brandNew]
+            : [...brandNew, ...baseList];
+        logDiagnostic(
+          "perf",
+          "perf",
+          "React state handleItemsUpsertedInPlace",
+          `upserted=${upsertedList.length} brandNew=${brandNew.length} anyUpdated=${anyUpdated} totalItems=${nextList.length}`,
+          Math.round(performance.now() - tUpsert0)
+        );
+        return nextList;
+      });
+    },
+    [sortOrder]
+  );
+
+  // Optimistically move items from active list to trash in 0ms without re-fetching 37k+ items
+  const applyOptimisticMoveToTrash = useCallback((ids: string[]) => {
+    if (!ids || ids.length === 0) return;
+    const tTrash0 = performance.now();
+    const removeSet = new Set(ids);
+    setSelectedOrder((prev) => prev.filter((id) => !removeSet.has(id)));
+    setActiveItemId((prev) => (prev && removeSet.has(prev) ? null : prev));
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    const trashedNow: Item[] = [];
+    const byId = indexCacheRef.current?.byId;
+    for (const id of ids) {
+      const it = byId?.get(id);
+      if (it) {
+        trashedNow.push({ ...it, inTrash: true, trashedAt: nowSec });
+      }
+    }
+    if (trashedNow.length > 0) {
+      setTrashItems((tPrev) => [...trashedNow, ...tPrev]);
+      setTrashCount((c) => c + trashedNow.length);
+    }
+    setItems((prev) => {
+      const remaining = prev.filter((it) => !removeSet.has(it.id));
+      logDiagnostic(
+        "perf",
+        "perf",
+        "Optimistic move to trash state update",
+        `removed=${removeSet.size} remaining=${remaining.length}`,
+        Math.round(performance.now() - tTrash0)
+      );
+      return remaining;
+    });
+  }, []);
   const refreshFolders = useCallback(async () => {
     try {
       const data = await GetFolders();
@@ -430,22 +552,44 @@ export function LibraryWorkspace({
     }
   }, [activeFolderId]);
   const { state: dropState, importFileList, dragHandlers } = useFileDrop({
-    onRefresh: async (newlyImportedIds?: string[]) => {
+    onRefresh: async (newlyImportedIds?: string[], newlyImportedItems?: Item[]) => {
       const targetFolderId = activeFolderIdRef.current;
-      if (
-        isRealFolderId(targetFolderId) &&
-        newlyImportedIds &&
-        newlyImportedIds.length > 0
-      ) {
+      const validFolderId = isRealFolderId(targetFolderId) ? targetFolderId : null;
+      if (validFolderId && newlyImportedIds && newlyImportedIds.length > 0) {
         for (const id of newlyImportedIds) {
           try {
-            await AddItemToFolder(id, targetFolderId);
+            await AddItemToFolder(id, validFolderId);
           } catch (err) {
             console.error("Failed to add item to current folder:", err);
           }
         }
       }
+
+      if (newlyImportedItems && newlyImportedItems.length > 0) {
+        flushSync(() => {
+          handleItemsUpsertedInPlace(newlyImportedItems, validFolderId);
+        });
+        const hasAnyFolder =
+          newlyImportedItems.some((it) => it.folders && it.folders.length > 0);
+        const hasAnyTag = newlyImportedItems.some(
+          (it) => it.tags && it.tags.length > 0
+        );
+        if (hasAnyFolder || hasAnyTag) {
+          window.setTimeout(() => {
+            if (hasAnyFolder) void refreshFolders();
+            if (hasAnyTag) void refreshTags();
+          }, 120);
+        }
+        return;
+      }
       await handleFullRefresh();
+    },
+    onItemsUpserted: (upsertedItems) => {
+      handleItemsUpsertedInPlace(upsertedItems);
+    },
+    onItemsTrashed: (trashedIds) => {
+      applyOptimisticMoveToTrash(trashedIds);
+      void refreshFolders();
     },
   });
 
@@ -475,15 +619,213 @@ export function LibraryWorkspace({
     return () => window.removeEventListener("paste", handlePaste);
   }, [importFileList]);
 
-  const activeItemsById = useMemo(() => {
-    const map = new Map<string, Item>();
-    for (const it of items) {
-      map.set(it.id, it);
+  // Incremental O(1) index cache for 37,000+ / 100,000+ items:
+  // When a single screenshot/file is prepended, deleted, or updated, update the existing Map/counts
+  // in O(1) instead of rebuilding a 37,000-entry Map and 37,000-entry folder index from scratch!
+  const {
+    activeItemsById,
+    itemsByFolderId,
+    untaggedCount,
+    uncategorizedCount,
+    totalActiveBytes,
+  } = useMemo(() => {
+    const tIdx0 = performance.now();
+    const prev = indexCacheRef.current;
+    const len = items.length;
+
+    // Fast path: 1..16 new items prepended or 1..16 items deleted
+    if (prev && prev.itemsRef.length > 0) {
+      const delta = len - prev.itemsRef.length;
+      if (
+        delta > 0 &&
+        delta <= 16 &&
+        items[delta] === prev.itemsRef[0]
+      ) {
+        let canFastPrepend = true;
+        for (let i = 0; i < delta; i++) {
+          if (prev.byId.has(items[i].id)) {
+            canFastPrepend = false;
+            break;
+          }
+        }
+        if (canFastPrepend) {
+          const byId = prev.byId;
+          const byFolder = prev.byFolder;
+          let untagged = prev.untagged;
+          let uncategorized = prev.uncategorized;
+          let totalBytes = prev.totalActiveBytes;
+
+          for (let i = delta - 1; i >= 0; i--) {
+            const it = items[i];
+            byId.set(it.id, it);
+            totalBytes += it.size || 0;
+            if (!it.tags || it.tags.length === 0) untagged++;
+            const fids = it.folders;
+            if (!fids || fids.length === 0) {
+              uncategorized++;
+            } else {
+              for (let f = 0; f < fids.length; f++) {
+                const fid = fids[f];
+                const existingList = byFolder.get(fid);
+                byFolder.set(fid, existingList ? [it, ...existingList] : [it]);
+              }
+            }
+          }
+          indexCacheRef.current = {
+            itemsRef: items,
+            byId,
+            byFolder,
+            untagged,
+            uncategorized,
+            totalActiveBytes: totalBytes,
+          };
+          return {
+            activeItemsById: byId,
+            itemsByFolderId: byFolder,
+            untaggedCount: untagged,
+            uncategorizedCount: uncategorized,
+            totalActiveBytes: totalBytes,
+          };
+        }
+      } else if (delta < 0 && delta >= -16) {
+        // Fast path for deletion: identify the 1..16 removed items via two-pointer scan
+        let p1 = 0, p2 = 0;
+        const removedItems: Item[] = [];
+        while (p1 < prev.itemsRef.length && p2 < items.length) {
+          if (prev.itemsRef[p1] === items[p2]) {
+            p1++; p2++;
+          } else {
+            removedItems.push(prev.itemsRef[p1]);
+            p1++;
+          }
+        }
+        while (p1 < prev.itemsRef.length) {
+          removedItems.push(prev.itemsRef[p1++]);
+        }
+        if (removedItems.length === -delta) {
+          const byId = prev.byId;
+          const byFolder = prev.byFolder;
+          let untagged = prev.untagged;
+          let uncategorized = prev.uncategorized;
+          let totalBytes = prev.totalActiveBytes;
+
+          for (const rem of removedItems) {
+            byId.delete(rem.id);
+            totalBytes = Math.max(0, totalBytes - (rem.size || 0));
+            if (!rem.tags || rem.tags.length === 0) untagged = Math.max(0, untagged - 1);
+            const fids = rem.folders;
+            if (!fids || fids.length === 0) {
+              uncategorized = Math.max(0, uncategorized - 1);
+            } else {
+              for (let f = 0; f < fids.length; f++) {
+                const fid = fids[f];
+                const list = byFolder.get(fid);
+                if (list && list.length > 0) {
+                  byFolder.set(fid, list.filter((it) => it.id !== rem.id));
+                }
+              }
+            }
+          }
+          indexCacheRef.current = {
+            itemsRef: items,
+            byId,
+            byFolder,
+            untagged,
+            uncategorized,
+            totalActiveBytes: totalBytes,
+          };
+          return {
+            activeItemsById: byId,
+            itemsByFolderId: byFolder,
+            untaggedCount: untagged,
+            uncategorizedCount: uncategorized,
+            totalActiveBytes: totalBytes,
+          };
+        }
+      }
     }
-    return map;
+
+    const byId = new Map<string, Item>();
+    const byFolder = new Map<string, Item[]>();
+    let untagged = 0;
+    let uncategorized = 0;
+    let totalBytes = 0;
+
+    for (let i = 0; i < len; i++) {
+      const it = items[i];
+      byId.set(it.id, it);
+      totalBytes += it.size || 0;
+      const tgs = it.tags;
+      if (!tgs || tgs.length === 0) {
+        untagged++;
+      }
+
+      const fids = it.folders;
+      if (!fids || fids.length === 0) {
+        uncategorized++;
+      } else {
+        for (let f = 0; f < fids.length; f++) {
+          const fid = fids[f];
+          let list = byFolder.get(fid);
+          if (!list) {
+            list = [];
+            byFolder.set(fid, list);
+          }
+          list.push(it);
+        }
+      }
+    }
+
+    indexCacheRef.current = {
+      itemsRef: items,
+      byId,
+      byFolder,
+      untagged,
+      uncategorized,
+      totalActiveBytes: totalBytes,
+    };
+
+    const idxDur = performance.now() - tIdx0;
+    if (idxDur >= 10) {
+      logDiagnostic(
+        "perf",
+        "perf",
+        "Full item index rebuilt",
+        `items=${len} folders=${byFolder.size}`,
+        Math.round(idxDur)
+      );
+    }
+
+    return {
+      activeItemsById: byId,
+      itemsByFolderId: byFolder,
+      untaggedCount: untagged,
+      uncategorizedCount: uncategorized,
+      totalActiveBytes: totalBytes,
+    };
   }, [items]);
 
-  const currentViewItems = isTrashView ? trashItems : items;
+  // Extract top 8 dominant colors once per library/view switch (sampled on first 1,000 items)
+  // so FilterBar never receives the 37,000-element items array prop!
+  const libraryTopColors = useMemo(() => {
+    const source = isTrashView ? trashItems : items;
+    if (source.length === 0) return [];
+    const counts: Record<string, number> = {};
+    const limit = Math.min(source.length, 1000);
+    for (let i = 0; i < limit; i++) {
+      const hex = source[i]?.dominantColor;
+      if (hex) {
+        const upper = hex.toUpperCase();
+        counts[upper] = (counts[upper] || 0) + 1;
+      }
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([hex]) => hex);
+    // Only recompute when switching trash view or when library first loads / switches
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTrashView, library.path, items.length === 0]);
 
   // Fast lookup map for O(1) resolution of selectedOrder -> Item[] in current view
   const itemsById = useMemo(() => {
@@ -531,15 +873,7 @@ export function LibraryWorkspace({
     [searchQuery]
   );
 
-  const untaggedCount = useMemo(
-    () => items.filter((it) => !it.tags || it.tags.length === 0).length,
-    [items]
-  );
-
-  const uncategorizedCount = useMemo(
-    () => items.filter((it) => !it.folders || it.folders.length === 0).length,
-    [items]
-  );
+  // untaggedCount and uncategorizedCount are computed in the single-pass useMemo above
 
   const historyItems = useMemo(() => {
     const out: Item[] = [];
@@ -553,6 +887,7 @@ export function LibraryWorkspace({
   }, [historyEntries, activeItemsById]);
 
   const flatFolderList = useMemo(() => {
+    if (!folderPaletteOpen) return [];
     const out: { id: string; name: string; count: number }[] = [];
     const walk = (list: Folder[], prefix = "") => {
       for (const f of list) {
@@ -565,7 +900,7 @@ export function LibraryWorkspace({
     };
     walk(folders);
     return out;
-  }, [folders]);
+  }, [folders, folderPaletteOpen]);
   // Precompute O(1) folder lookup map and descendant folder ID sets once per folders tree change
   const folderTreeIndex = useMemo(() => {
     const byId = new Map<string, Folder>();
@@ -592,25 +927,7 @@ export function LibraryWorkspace({
     return { byId, descendantsById };
   }, [folders]);
 
-  // Precompute direct folderId -> Item[] inverted index once per items change
-  // so both folder switching and subfolder cover preview resolution are O(1)
-  const itemsByFolderId = useMemo(() => {
-    const map = new Map<string, Item[]>();
-    for (const it of items) {
-      const fids = it.folders;
-      if (!fids || fids.length === 0) continue;
-      for (let i = 0; i < fids.length; i++) {
-        const fid = fids[i];
-        let list = map.get(fid);
-        if (!list) {
-          list = [];
-          map.set(fid, list);
-        }
-        list.push(it);
-      }
-    }
-    return map;
-  }, [items]);
+  // itemsByFolderId is computed in the single-pass useMemo above
 
   const currentFolder = useMemo(
     () =>
@@ -861,6 +1178,23 @@ export function LibraryWorkspace({
     ratingFilter,
   ]);
 
+  // Wrap filteredItems in a shallow object with non-enumerable `items` so React 19 DEV Profiler
+  // (`logComponentRender -> addObjectDiffToProperties`) checks 1 integer (`version`) in O(1)
+  // instead of iterating 37,366 array keys (which blocked the main thread for ~2,300ms)!
+  const galleryItemsSource = useMemo(() => {
+    itemsVersionRef.current += 1;
+    const box = { version: itemsVersionRef.current } as {
+      items: Item[];
+      version: number;
+    };
+    Object.defineProperty(box, "items", {
+      value: filteredItems,
+      enumerable: false,
+      configurable: false,
+      writable: false,
+    });
+    return box;
+  }, [filteredItems]);
   useEffect(() => {
     if (navStartTsRef.current > 0) {
       const dur = performance.now() - navStartTsRef.current;
@@ -876,7 +1210,7 @@ export function LibraryWorkspace({
   }, [activeFolderId, filteredItems.length, currentSubfolders.length]);
 
   // Native OS & In-App Drag Start
-  const handleDragStart = (e: React.DragEvent, item: Item) => {
+  const handleDragStart = useCallback((e: React.DragEvent, item: Item) => {
     setIsInternalDragging(true);
     setInternalDragActive(true);
     const isMulti = selectedItemIds.has(item.id) && selectedItemIds.size > 1;
@@ -930,8 +1264,53 @@ export function LibraryWorkspace({
     }
 
     e.dataTransfer.effectAllowed = "copyMove";
-  };
+  }, [selectedItemIds, selectedItems, activeFolderId]);
 
+  const handleGallerySelectionChange = useCallback(
+    (nextOrder: string[], lastItem?: Item) => {
+      setSelectedOrder(nextOrder);
+      if (lastItem) {
+        setActiveItemId(lastItem.id);
+      } else if (nextOrder.length === 0) {
+        setActiveItemId(null);
+      } else {
+        setActiveItemId(nextOrder[nextOrder.length - 1]);
+      }
+    },
+    []
+  );
+
+  const handleGalleryDoubleClickItem = useCallback(
+    (item: Item) => {
+      setActiveItemId(item.id);
+      setSelectedOrder([item.id]);
+      previewPushedRef.current = !ws.preview;
+      ws.openPreview("inline", item.id);
+    },
+    [ws]
+  );
+
+  const handleGalleryItemContextMenu = useCallback(
+    (e: React.MouseEvent, item: Item) => {
+      setSelectedOrder((prev) => (prev.includes(item.id) ? prev : [item.id]));
+      setActiveItemId((prev) => (prev === item.id ? prev : item.id));
+      setContextMenu({
+        position: { x: e.clientX, y: e.clientY },
+        isItemContext: true,
+      });
+    },
+    []
+  );
+
+  const handleGalleryCanvasContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      setContextMenu({
+        position: { x: e.clientX, y: e.clientY },
+        isItemContext: false,
+      });
+    },
+    []
+  );
   // Delete Request Handler
   const handleRequestDelete = (targetItem?: Item, targetList?: Item[]) => {
     const targets = targetList || (targetItem ? [targetItem] : selectedItems);
@@ -961,17 +1340,44 @@ export function LibraryWorkspace({
     }
 
     (async () => {
+      const ids = targets.map((i) => i.id);
+      const tDeleteStart = performance.now();
+      logDiagnostic(
+        "perf",
+        "ui",
+        "[Pipeline-Delete 1/3] User initiated deletion",
+        `count=${ids.length} firstId=${ids[0]?.slice(0, 12)}`
+      );
+
+      // Synchronously flush optimistic deletion into DOM so card vanishes instantly (0ms)
+      flushSync(() => {
+        applyOptimisticMoveToTrash(ids);
+      });
+      const flushMs = Math.round(performance.now() - tDeleteStart);
+      logDiagnostic(
+        "perf",
+        "ui",
+        "[Pipeline-Delete 2/3] Frontend DOM painted deletion",
+        `count=${ids.length} via=flushSync`,
+        flushMs
+      );
+
       try {
-        const ids = targets.map((i) => i.id);
-        const removeSet = new Set(ids);
         await BatchMoveToTrash(ids);
-        setSelectedOrder((prev) => prev.filter((id) => !removeSet.has(id)));
-        if (activeItemId && removeSet.has(activeItemId)) {
-          setActiveItemId(null);
-        }
-        await handleFullRefresh();
+        const ipcDur = Math.round(performance.now() - tDeleteStart);
+        logDiagnostic(
+          "perf",
+          "ui",
+          "[Pipeline-Delete 3/3] Backend BatchMoveToTrash finished",
+          `count=${ids.length}`,
+          ipcDur
+        );
+        window.setTimeout(() => {
+          void refreshFolders();
+        }, 120);
       } catch (err) {
         console.error("Failed to move to trash:", err);
+        await handleFullRefresh();
       }
     })();
   };
@@ -979,17 +1385,23 @@ export function LibraryWorkspace({
   const handleRestore = async (targetItem?: Item) => {
     const targets = targetItem ? [targetItem] : selectedItems;
     if (targets.length === 0) return;
+    const ids = targets.map((i) => i.id);
+    const removeSet = new Set(ids);
+    const restoredItems = targets.map((it) => ({ ...it, inTrash: false, trashedAt: 0 }));
+    // Instant 0ms optimistic restore
+    setSelectedOrder((prev) => prev.filter((id) => !removeSet.has(id)));
+    if (activeItemId && removeSet.has(activeItemId)) {
+      setActiveItemId(null);
+    }
+    setTrashItems((prev) => prev.filter((it) => !removeSet.has(it.id)));
+    setTrashCount((c) => Math.max(0, c - restoredItems.length));
+    handleItemsUpsertedInPlace(restoredItems);
     try {
-      const ids = targets.map((i) => i.id);
-      const removeSet = new Set(ids);
       await BatchRestoreFromTrash(ids);
-      setSelectedOrder((prev) => prev.filter((id) => !removeSet.has(id)));
-      if (activeItemId && removeSet.has(activeItemId)) {
-        setActiveItemId(null);
-      }
-      await handleFullRefresh();
+      void Promise.all([refreshFolders(), refreshTrashCount()]);
     } catch (err) {
       console.error("Failed to restore from trash:", err);
+      await handleFullRefresh();
     }
   };
 
@@ -1002,12 +1414,14 @@ export function LibraryWorkspace({
     if (isEmptyingTrash) return;
     setIsEmptyingTrash(true);
     try {
-      await EmptyTrash();
       setEmptyTrashConfirmOpen(false);
       setSelectedOrder([]);
       setActiveItemId(null);
-      await handleFullRefresh();
+      setTrashItems([]);
+      setTrashCount(0);
+      await EmptyTrash();
       notifySuccess(SuccessCodes.EMPTY_TRASH);
+      setIsEmptyingTrash(false);
     } catch (err) {
       console.error("Failed to empty trash:", err);
       notifyError(err);
@@ -1120,58 +1534,99 @@ export function LibraryWorkspace({
   const handleToggleFavorite = async (targetItem?: Item) => {
     const item = targetItem || activeItem;
     if (!item) return;
+    const prevTags = item.tags || [];
+    const wasFav = prevTags.includes(FAVORITE_TAG);
+    const nextTags = wasFav
+      ? prevTags.filter((t) => t !== FAVORITE_TAG)
+      : [...prevTags, FAVORITE_TAG];
+    handleItemUpdatedInPlace({ ...item, tags: nextTags });
     try {
       const nowFav = await ToggleFavorite(item.id);
-      await handleFullRefresh();
+      void refreshTags();
       notifySuccess(
         nowFav ? SuccessCodes.FAVORITE_ADDED : SuccessCodes.FAVORITE_REMOVED
       );
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
+      await handleFullRefresh();
     }
   };
 
   const handleBatchAddToFolder = async (folderId: string) => {
+    const targetSet = new Set(selectedOrder);
+    setItems((prev) =>
+      prev.map((it) => {
+        if (!targetSet.has(it.id)) return it;
+        const fids = it.folders || [];
+        return fids.includes(folderId) ? it : { ...it, folders: [...fids, folderId] };
+      })
+    );
     try {
       for (const id of selectedOrder) {
         await AddItemToFolder(id, folderId);
       }
-      await handleFullRefresh();
+      await refreshFolders();
     } catch (err) {
       console.error("Failed to add items to folder:", err);
+      await handleFullRefresh();
     }
   };
 
   const handleBatchRemoveFromFolder = async (folderId: string) => {
+    const targetSet = new Set(selectedOrder);
+    setItems((prev) =>
+      prev.map((it) => {
+        if (!targetSet.has(it.id)) return it;
+        return { ...it, folders: (it.folders || []).filter((f) => f !== folderId) };
+      })
+    );
     try {
       for (const id of selectedOrder) {
         await RemoveItemFromFolder(id, folderId);
       }
-      await handleFullRefresh();
+      await refreshFolders();
     } catch (err) {
       console.error("Failed to remove items to folder:", err);
+      await handleFullRefresh();
     }
   };
 
   const handleBatchAddTag = async (tag: string) => {
+    const targetSet = new Set(selectedOrder);
+    setItems((prev) =>
+      prev.map((it) => {
+        if (!targetSet.has(it.id)) return it;
+        const tgs = it.tags || [];
+        return tgs.includes(tag) ? it : { ...it, tags: [...tgs, tag] };
+      })
+    );
     try {
       for (const id of selectedOrder) {
         await AddTagToItem(id, tag);
       }
-      await handleFullRefresh();
+      await refreshTags();
     } catch (err) {
       console.error("Failed to add tag to items:", err);
+      await handleFullRefresh();
     }
   };
 
   const handleBatchRemoveTag = async (tag: string) => {
+    const targetSet = new Set(selectedOrder);
+    setItems((prev) =>
+      prev.map((it) => {
+        if (!targetSet.has(it.id)) return it;
+        return { ...it, tags: (it.tags || []).filter((t) => t !== tag) };
+      })
+    );
     try {
       for (const id of selectedOrder) {
         await RemoveTagFromItem(id, tag);
       }
-      await handleFullRefresh();
+      await refreshTags();
     } catch (err) {
       console.error("Failed to remove tag from items:", err);
+      await handleFullRefresh();
     }
   };
 
@@ -1212,14 +1667,25 @@ export function LibraryWorkspace({
     fromFolderId: string,
     toFolderId: string
   ) => {
+    const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== itemId) return it;
+        const nextFolders = (it.folders || []).filter((f) => f !== cleanFrom);
+        if (toFolderId && !nextFolders.includes(toFolderId)) {
+          nextFolders.push(toFolderId);
+        }
+        return { ...it, folders: nextFolders };
+      })
+    );
     try {
-      const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
       await MoveItemToFolder(itemId, cleanFrom, toFolderId);
-      await handleFullRefresh();
+      await refreshFolders();
       notifySuccess(SuccessCodes.ITEM_MOVED);
     } catch (err) {
       console.error("Failed to move item:", err);
       notifyError(err);
+      await handleFullRefresh();
     }
   };
 
@@ -1230,16 +1696,28 @@ export function LibraryWorkspace({
   ) => {
     const uniqueIds = Array.from(new Set(itemIds.filter(Boolean)));
     if (uniqueIds.length === 0) return;
+    const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
+    const targetSet = new Set(uniqueIds);
+    setItems((prev) =>
+      prev.map((it) => {
+        if (!targetSet.has(it.id)) return it;
+        const nextFolders = (it.folders || []).filter((f) => f !== cleanFrom);
+        if (toFolderId && !nextFolders.includes(toFolderId)) {
+          nextFolders.push(toFolderId);
+        }
+        return { ...it, folders: nextFolders };
+      })
+    );
     try {
-      const cleanFrom = isRealFolderId(fromFolderId) ? fromFolderId : "";
       for (const id of uniqueIds) {
         await MoveItemToFolder(id, cleanFrom, toFolderId);
       }
-      await handleFullRefresh();
+      await refreshFolders();
       notifySuccess(SuccessCodes.ITEM_MOVED);
     } catch (err) {
       console.error("Failed to move items to folder:", err);
       notifyError(err);
+      await handleFullRefresh();
     }
   };
 
@@ -1379,11 +1857,17 @@ export function LibraryWorkspace({
   };
   const activeTagLabel =
     activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
-  const totalSizeBytes = useMemo(
-    () => filteredItems.reduce((acc, curr) => acc + (curr.size || 0), 0),
-    [filteredItems]
-  );
-
+  // Only compute totalSizeBytes when no item is selected (empty inspector state displays total library/folder size)
+  // Compute totalSizeBytes in O(1) when viewing all active items, or only when no item is selected
+  const totalSizeBytes = useMemo(() => {
+    if (selectedOrder.length > 0 || activeItemId !== null) return 0;
+    if (filteredItems === items) return totalActiveBytes;
+    let sum = 0;
+    for (let i = 0; i < filteredItems.length; i++) {
+      sum += filteredItems[i].size || 0;
+    }
+    return sum;
+  }, [filteredItems, items, totalActiveBytes, selectedOrder.length, activeItemId]);
   // Global Keyboard shortcuts & native copy event handler
   const lastCopyTsRef = useRef<number>(0);
   const triggerCopyShortcut = useCallback(() => {
@@ -1542,8 +2026,9 @@ export function LibraryWorkspace({
                   onMoveItemToFolder={handleMoveItemToFolder}
                   onDropFolderImport={handleDropFolderImport}
                   onDropItemOnTrash={async (ids) => {
+                    applyOptimisticMoveToTrash(ids);
                     await BatchMoveToTrash(ids);
-                    await handleFullRefresh();
+                    void refreshFolders();
                     notifySuccess(SuccessCodes.MOVED_TO_TRASH);
                   }}
                   onEmptyTrash={handleRequestEmptyTrash}
@@ -1731,7 +2216,7 @@ export function LibraryWorkspace({
                     )}
 
                     <FilterBar
-                      items={currentViewItems}
+                      libraryTopColors={libraryTopColors}
                       folders={folders}
                       categoryFilter={categoryFilter}
                       colorFilter={colorFilter}
@@ -1822,8 +2307,14 @@ export function LibraryWorkspace({
               {/* Center Main Scrollable Area with Justified Gallery & Trackpad Zoom */}
               <div
                 ref={galleryViewportRef}
-                style={{ scrollbarGutter: "stable" }}
-                className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 flex flex-col wails-no-drag"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextMenu({
+                    position: { x: e.clientX, y: e.clientY },
+                    isItemContext: false,
+                  });
+                }}
+                className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag"
               >
                 {loading ? (
                   <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">
@@ -2158,8 +2649,10 @@ export function LibraryWorkspace({
                       ) : null
                     ) : (
                       <JustifiedGallery
-                        items={filteredItems}
+                        items={galleryItemsSource}
                         selectedOrder={selectedOrder}
+                        layoutMode={layoutMode}
+                        scrollElementRef={galleryViewportRef}
                         keyboardNavEnabled={
                           !inlinePreviewOpen &&
                           !fullWindowPreviewOpen &&
@@ -2170,38 +2663,11 @@ export function LibraryWorkspace({
                           !renameDialog
                         }
                         targetRowHeight={rowHeight}
-                        onSelectionChange={(nextOrder, lastItem) => {
-                          setSelectedOrder(nextOrder);
-                          if (lastItem) {
-                            setActiveItemId(lastItem.id);
-                          } else if (nextOrder.length === 0) {
-                            setActiveItemId(null);
-                          } else {
-                            setActiveItemId(nextOrder[nextOrder.length - 1]);
-                          }
-                        }}
-                        onDoubleClickItem={(item) => {
-                          setActiveItemId(item.id);
-                          setSelectedOrder([item.id]);
-                          openPreview("inline", item.id);
-                        }}
+                        onSelectionChange={handleGallerySelectionChange}
+                        onDoubleClickItem={handleGalleryDoubleClickItem}
                         onDragStartItem={handleDragStart}
-                        onItemContextMenu={(e, item) => {
-                          if (!selectedItemIds.has(item.id)) {
-                            setSelectedOrder([item.id]);
-                            setActiveItemId(item.id);
-                          }
-                          setContextMenu({
-                            position: { x: e.clientX, y: e.clientY },
-                            isItemContext: true,
-                          });
-                        }}
-                        onCanvasContextMenu={(e) => {
-                          setContextMenu({
-                            position: { x: e.clientX, y: e.clientY },
-                            isItemContext: false,
-                          });
-                        }}
+                        onItemContextMenu={handleGalleryItemContextMenu}
+                        onCanvasContextMenu={handleGalleryCanvasContextMenu}
                       />
                     )}
                   </>
@@ -2218,7 +2684,7 @@ export function LibraryWorkspace({
                   open={inlinePreviewOpen}
                   mode="inline"
                   activeItem={previewActiveItem}
-                  items={filteredItems}
+                  items={galleryItemsSource}
                   onClose={closePreview}
                   onIndexChange={(newItem) => {
                     setActiveItemId(newItem.id);
@@ -2289,8 +2755,8 @@ export function LibraryWorkspace({
                     onToggleFavorite={() =>
                       activeItem && handleToggleFavorite(activeItem)
                     }
-                    onFolderUpdated={handleFullRefresh}
-                    onTagsUpdated={handleFullRefresh}
+                    onFolderUpdated={refreshFolders}
+                    onTagsUpdated={refreshTags}
                     onItemUpdated={handleItemUpdatedInPlace}
                   />
                 )}
@@ -2300,29 +2766,33 @@ export function LibraryWorkspace({
         </ResizablePanelGroup>
 
         {/* FULL-WINDOW POPUP PREVIEW (Space key) */}
-        <UnifiedPreviewModal
-          open={fullWindowPreviewOpen}
-          mode="full-window"
-          activeItem={previewActiveItem ?? activeItem}
-          items={filteredItems}
-          onClose={closePreview}
-          onIndexChange={(newItem) => {
-            setActiveItemId(newItem.id);
-            ws.setPreviewItem(newItem.id);
-          }}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={() => setSidebarOpen(true)}
-          onItemUpdated={handleItemUpdatedInPlace}
-        />
-
+        {fullWindowPreviewOpen && (
+          <UnifiedPreviewModal
+            open={fullWindowPreviewOpen}
+            mode="full-window"
+            activeItem={previewActiveItem ?? activeItem}
+            items={galleryItemsSource}
+            onClose={closePreview}
+            onIndexChange={(newItem) => {
+              setActiveItemId(newItem.id);
+              ws.setPreviewItem(newItem.id);
+            }}
+            sidebarOpen={sidebarOpen}
+            onToggleSidebar={() => setSidebarOpen(true)}
+            onItemUpdated={handleItemUpdatedInPlace}
+          />
+        )}
         {/* ENHANCED COMMAND CONTEXT MENU */}
-        <CustomContextMenu
-          position={contextMenu?.position || null}
-          onClose={() => setContextMenu(null)}
-          selectedCount={selectedOrder.length}
-          isItemContext={contextMenu?.isItemContext || false}
-          activeFolderId={activeFolderId}
-          targetItem={activeItem}
+        {contextMenu && (
+          <CustomContextMenu
+            position={contextMenu.position}
+            onClose={() => setContextMenu(null)}
+            selectedCount={selectedOrder.length}
+            isItemContext={contextMenu.isItemContext}
+            activeFolderId={activeFolderId}
+            targetItem={activeItem}
+          layoutMode={layoutMode}
+          onLayoutModeChange={(mode) => ws.setLayout(mode)}
           onPreview={() => openPreview("full")}
           onRename={() => activeItem && handleOpenRename(activeItem)}
           onReveal={handleBatchReveal}
@@ -2359,60 +2829,61 @@ export function LibraryWorkspace({
           }}
           onImportFiles={() => fileInputRef.current?.click()}
           onCreateFolder={() => handleCreateFolder(t("workspace.newFolder"))}
-        />
-
-        {/* COMMAND PALETTE FOR ADDING TO FOLDER */}
-        <CommandDialog
-          open={folderPaletteOpen}
-          onOpenChange={setFolderPaletteOpen}
-          title={t("contextMenu.addToFolder")}
-          description={t("contextMenu.searchFolderPlaceholder")}
-          className="max-w-sm rounded-xl! border border-border bg-popover text-popover-foreground shadow-2xl"
-        >
-          <Command className="rounded-xl bg-transparent p-0">
-            <CommandInput
-              placeholder={t("contextMenu.searchFolderPlaceholder")}
-              wrapperClassName="p-0"
-              groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-3 shadow-none ring-0!"
-              addonClassName="pl-0 pr-2 [&_svg]:size-3.5"
-              className="h-9 text-xs bg-transparent"
-            />
-            <CommandList className="max-h-64 p-1.5 overflow-y-auto">
-              <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
-                {flatFolderList.length === 0
-                  ? t("sidebar.noFolders")
-                  : t("contextMenu.noResults")}
-              </CommandEmpty>
-              <CommandGroup>
-                {flatFolderList.map((f) => {
-                  const allAssigned =
-                    selectedItems.length > 0 &&
-                    selectedItems.every((it) => (it.folders || []).includes(f.id));
-                  return (
-                    <CommandItem
-                      key={f.id}
-                      value={`${f.name} ${f.id}`}
-                      onSelect={async () => {
-                        setFolderPaletteOpen(false);
-                        await handleBatchAddToFolder(f.id);
-                      }}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer"
-                    >
-                      <FolderIcon className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate flex-1">{f.name}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground/70">
-                        {f.count}
-                      </span>
-                      {allAssigned && (
-                        <Check className="size-3.5 text-primary shrink-0" />
-                      )}
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </CommandDialog>
+          />
+        )}
+        {folderPaletteOpen && (
+          <CommandDialog
+            open={folderPaletteOpen}
+            onOpenChange={setFolderPaletteOpen}
+            title={t("contextMenu.addToFolder")}
+            description={t("contextMenu.searchFolderPlaceholder")}
+            className="max-w-sm rounded-xl! border border-border bg-popover text-popover-foreground shadow-2xl"
+          >
+            <Command className="rounded-xl bg-transparent p-0">
+              <CommandInput
+                placeholder={t("contextMenu.searchFolderPlaceholder")}
+                wrapperClassName="p-0"
+                groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-3 shadow-none ring-0!"
+                addonClassName="pl-0 pr-2 [&_svg]:size-3.5"
+                className="h-9 text-xs bg-transparent"
+              />
+              <CommandList className="max-h-64 p-1.5 overflow-y-auto">
+                <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
+                  {flatFolderList.length === 0
+                    ? t("sidebar.noFolders")
+                    : t("contextMenu.noResults")}
+                </CommandEmpty>
+                <CommandGroup>
+                  {flatFolderList.map((f) => {
+                    const allAssigned =
+                      selectedItems.length > 0 &&
+                      selectedItems.every((it) => (it.folders || []).includes(f.id));
+                    return (
+                      <CommandItem
+                        key={f.id}
+                        value={`${f.name} ${f.id}`}
+                        onSelect={async () => {
+                          setFolderPaletteOpen(false);
+                          await handleBatchAddToFolder(f.id);
+                        }}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer"
+                      >
+                        <FolderIcon className="size-3.5 text-muted-foreground shrink-0" />
+                        <span className="truncate flex-1">{f.name}</span>
+                        <span className="text-[10px] font-mono text-muted-foreground/70">
+                          {f.count}
+                        </span>
+                        {allAssigned && (
+                          <Check className="size-3.5 text-primary shrink-0" />
+                        )}
+                      </CommandItem>
+                    );
+                  })}
+                </CommandGroup>
+              </CommandList>
+            </Command>
+          </CommandDialog>
+        )}
 
         {/* MULTI-FOLDER DELETION & PERMANENT DELETION DIALOG */}
         {deleteConfirmDialog && (
@@ -2454,13 +2925,17 @@ export function LibraryWorkspace({
                     size="sm"
                     className="cursor-pointer"
                     onClick={async () => {
-                      for (const it of deleteConfirmDialog.items) {
-                        await PermanentDeleteItem(it.id);
-                      }
+                      const targetIds = deleteConfirmDialog.items.map((i) => i.id);
+                      const removeSet = new Set(targetIds);
                       setDeleteConfirmDialog(null);
                       setSelectedOrder([]);
                       setActiveItemId(null);
-                      await handleFullRefresh();
+                      setTrashItems((prev) => prev.filter((it) => !removeSet.has(it.id)));
+                      setTrashCount((c) => Math.max(0, c - targetIds.length));
+                      for (const it of deleteConfirmDialog.items) {
+                        await PermanentDeleteItem(it.id);
+                      }
+                      void refreshTrashCount();
                     }}
                   >
                     {t("workspace.deletePermanently")}
@@ -2472,15 +2947,25 @@ export function LibraryWorkspace({
                       size="sm"
                       className="cursor-pointer"
                       onClick={async () => {
-                        if (activeFolderId) {
-                          for (const it of deleteConfirmDialog.items) {
-                            await RemoveItemFromFolder(it.id, activeFolderId);
-                          }
-                        }
+                        const targetIds = deleteConfirmDialog.items.map((i) => i.id);
+                        const targetSet = new Set(targetIds);
+                        const folderToRemove = activeFolderId;
                         setDeleteConfirmDialog(null);
                         setSelectedOrder([]);
                         setActiveItemId(null);
-                        await handleFullRefresh();
+                        if (folderToRemove) {
+                          setItems((prev) =>
+                            prev.map((it) =>
+                              targetSet.has(it.id)
+                                ? { ...it, folders: (it.folders || []).filter((f) => f !== folderToRemove) }
+                                : it
+                            )
+                          );
+                          for (const it of deleteConfirmDialog.items) {
+                            await RemoveItemFromFolder(it.id, folderToRemove);
+                          }
+                        }
+                        void refreshFolders();
                       }}
                     >
                       {t("workspace.removeFromFolder")}
@@ -2491,11 +2976,10 @@ export function LibraryWorkspace({
                       className="cursor-pointer"
                       onClick={async () => {
                         const ids = deleteConfirmDialog.items.map((i) => i.id);
-                        await BatchMoveToTrash(ids);
                         setDeleteConfirmDialog(null);
-                        setSelectedOrder([]);
-                        setActiveItemId(null);
-                        await handleFullRefresh();
+                        applyOptimisticMoveToTrash(ids);
+                        await BatchMoveToTrash(ids);
+                        void refreshFolders();
                       }}
                     >
                       {t("workspace.moveToTrash")}
@@ -2508,10 +2992,11 @@ export function LibraryWorkspace({
         )}
 
         {/* EMPTY TRASH CONFIRMATION DIALOG */}
-        <Dialog
-          open={emptyTrashConfirmOpen}
-          onOpenChange={(open) => !isEmptyingTrash && setEmptyTrashConfirmOpen(open)}
-        >
+        {emptyTrashConfirmOpen && (
+          <Dialog
+            open={emptyTrashConfirmOpen}
+            onOpenChange={(open) => !isEmptyingTrash && setEmptyTrashConfirmOpen(open)}
+          >
           <DialogContent className="max-w-sm text-xs">
             <DialogHeader>
               <DialogTitle className="text-sm font-semibold flex items-center gap-2 text-destructive">
@@ -2548,9 +3033,9 @@ export function LibraryWorkspace({
                 {t("workspace.emptyTrash")}
               </Button>
             </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
+            </DialogContent>
+          </Dialog>
+        )}
         {/* FILE RENAME DIALOG */}
         {renameDialog && (
           <Dialog
@@ -2568,12 +3053,16 @@ export function LibraryWorkspace({
                   e.preventDefault();
                   if (!renameDialog.newName.trim() || !renameDialog.item) return;
                   try {
-                    await RenameItem(
+                    const updated = await RenameItem(
                       renameDialog.item.id,
                       renameDialog.newName.trim()
                     );
                     setRenameDialog(null);
-                    await handleFullRefresh();
+                    if (updated) {
+                      handleItemUpdatedInPlace(updated);
+                    } else {
+                      await refreshItems();
+                    }
                   } catch (err) {
                     console.error("Failed to rename item:", err);
                   }

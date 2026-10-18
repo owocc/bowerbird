@@ -17,10 +17,10 @@ export type WorkspaceCategory =
   | "other";
 export type WorkspaceSort = "desc" | "asc";
 export type PreviewMode = "inline" | "full";
+export type GalleryLayoutMode = "justified" | "waterfall" | "grid" | "list";
 export type WorkspaceOrientation = "all" | "landscape" | "portrait" | "square";
 export type WorkspaceSizeFilter = "all" | "small" | "medium" | "large";
 export type WorkspacePresenceFilter = "all" | "has" | "empty";
-
 export interface WorkspaceSearch {
   /** `all` = every asset, `trash` = the recycle bin. */
   view: WorkspaceView;
@@ -30,6 +30,8 @@ export interface WorkspaceSearch {
   tag?: string;
   type: WorkspaceCategory;
   sort: WorkspaceSort;
+  /** Gallery display layout mode (default: justified) */
+  layout: GalleryLayoutMode;
   /** Whether the secondary tags sidebar is open. */
   tags: boolean;
   /** Active color filter hex (e.g. "#EF4444") */
@@ -59,6 +61,7 @@ export const WORKSPACE_SEARCH_DEFAULTS = {
   view: "all",
   type: "all",
   sort: "desc",
+  layout: "justified",
   tags: false,
   orientation: "all",
   size: "all",
@@ -90,6 +93,29 @@ const SIZE_FILTERS: WorkspaceSizeFilter[] = [
 ];
 
 const PRESENCE_FILTERS: WorkspacePresenceFilter[] = ["all", "has", "empty"];
+const GALLERY_LAYOUTS: GalleryLayoutMode[] = [
+  "justified",
+  "waterfall",
+  "grid",
+  "list",
+];
+
+const LAYOUT_STORAGE_KEY = "bowerbird.gallery.layout";
+
+function getInitialGalleryLayout(): GalleryLayoutMode {
+  try {
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+      if (saved && GALLERY_LAYOUTS.includes(saved as GalleryLayoutMode)) {
+        return saved as GalleryLayoutMode;
+      }
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+  return "justified";
+}
+
 
 function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -123,6 +149,9 @@ export function validateWorkspaceSearch(
       ? (raw.type as WorkspaceCategory)
       : "all",
     sort: raw.sort === "asc" ? "asc" : "desc",
+    layout: GALLERY_LAYOUTS.includes(raw.layout as GalleryLayoutMode)
+      ? (raw.layout as GalleryLayoutMode)
+      : getInitialGalleryLayout(),
     tags: asBool(raw.tags),
     folder: asNonEmptyString(raw.folder),
     tag: asNonEmptyString(raw.tag),
@@ -171,6 +200,7 @@ export interface WorkspaceSearchApi extends WorkspaceSearch {
   selectTag: (tag: string | null) => void;
   setCategory: (type: WorkspaceCategory) => void;
   setSort: (sort: WorkspaceSort) => void;
+  setLayout: (layout: GalleryLayoutMode) => void;
   setColorFilter: (color: string | null) => void;
   setFolderFilter: (folderId: string | null) => void;
   setOrientationFilter: (orientation: WorkspaceOrientation) => void;
@@ -309,6 +339,14 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
       }),
     setCategory: (type) => patch({ type }),
     setSort: (sort) => patch({ sort }),
+    setLayout: (layout) => {
+      try {
+        window.localStorage.setItem(LAYOUT_STORAGE_KEY, layout);
+      } catch {
+        /* ignore storage errors */
+      }
+      patch({ layout });
+    },
     setColorFilter: (color) => patch({ color: color ?? undefined }),
     setFolderFilter: (folderId) => patch({ filterFolder: folderId ?? undefined }),
     setOrientationFilter: (orientation) => patch({ orientation }),

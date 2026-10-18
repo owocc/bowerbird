@@ -15,6 +15,11 @@ import {
   ExternalLink,
   Star,
   RotateCcw,
+  Check,
+  LayoutGrid,
+  LayoutList,
+  Columns3,
+  Rows3,
 } from "lucide-react";
 import {
   Command,
@@ -30,6 +35,7 @@ import type { Item } from "../../bindings/bowerbird/core/models";
 import { cn } from "cn";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { isMacOS } from "@/lib/macos";
+import type { GalleryLayoutMode } from "@/lib/workspace-search";
 
 export interface ContextMenuPosition {
   x: number;
@@ -44,6 +50,8 @@ export interface ContextMenuProps {
   isItemContext: boolean;
   activeFolderId: string | null;
   targetItem?: Item | null;
+  layoutMode?: GalleryLayoutMode;
+  onLayoutModeChange?: (mode: GalleryLayoutMode) => void;
   // Actions
   onPreview?: () => void;
   onRename?: () => void;
@@ -70,6 +78,8 @@ export function CustomContextMenu({
   isItemContext,
   activeFolderId,
   targetItem,
+  layoutMode = "justified",
+  onLayoutModeChange,
   onPreview,
   onRename,
   onReveal,
@@ -157,6 +167,33 @@ export function CustomContextMenu({
     onOpenAddToFolderPalette || (isRealFolder && onRemoveFromCurrentFolder)
   );
   const hasTrashAction = Boolean(onDelete);
+  const layoutOptions: {
+    mode: GalleryLayoutMode;
+    label: string;
+    icon: typeof Rows3;
+  }[] = [
+    {
+      mode: "justified",
+      label: t("contextMenu.layoutJustified"),
+      icon: Rows3,
+    },
+    {
+      mode: "waterfall",
+      label: t("contextMenu.layoutWaterfall"),
+      icon: Columns3,
+    },
+    {
+      mode: "grid",
+      label: t("contextMenu.layoutGrid"),
+      icon: LayoutGrid,
+    },
+    {
+      mode: "list",
+      label: t("contextMenu.layoutList"),
+      icon: LayoutList,
+    },
+  ];
+
   return (
     <div
       ref={menuRef}
@@ -229,50 +266,84 @@ export function CustomContextMenu({
                 )}
               </CommandGroup>
             ) : (
-              <CommandGroup>
-                {onSelectAll && (
-                  <CommandItem
-                    onSelect={() => {
-                      onSelectAll();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">{t("contextMenu.selectAll")}</span>
-                    <CommandShortcut className="text-[10px] font-mono tracking-normal">
-                      {selectAllShortcutLabel}
-                    </CommandShortcut>
-                  </CommandItem>
+              <>
+                <CommandGroup>
+                  {onSelectAll && (
+                    <CommandItem
+                      onSelect={() => {
+                        onSelectAll();
+                        onClose();
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                    >
+                      <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
+                      <span className="flex-1">{t("contextMenu.selectAll")}</span>
+                      <CommandShortcut className="text-[10px] font-mono tracking-normal">
+                        {selectAllShortcutLabel}
+                      </CommandShortcut>
+                    </CommandItem>
+                  )}
+                  {onClearSelection && selectedCount > 0 && (
+                    <CommandItem
+                      onSelect={() => {
+                        onClearSelection();
+                        onClose();
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                    >
+                      <Square className="size-3.5 text-muted-foreground shrink-0" />
+                      <span className="flex-1">{t("contextMenu.deselectAll")}</span>
+                      <CommandShortcut className="text-[10px] font-mono tracking-normal">
+                        Esc
+                      </CommandShortcut>
+                    </CommandItem>
+                  )}
+                  {onEmptyTrash && (
+                    <CommandItem
+                      onSelect={() => {
+                        onEmptyTrash();
+                        onClose();
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-3.5 shrink-0" />
+                      <span>{t("workspace.emptyTrash")}</span>
+                    </CommandItem>
+                  )}
+                </CommandGroup>
+
+                {onLayoutModeChange && (
+                  <>
+                    <CommandSeparator className="my-1" />
+                    <CommandGroup heading={t("contextMenu.layout")}>
+                      {layoutOptions.map(({ mode, label, icon: Icon }) => {
+                        const active = layoutMode === mode;
+                        return (
+                          <CommandItem
+                            key={mode}
+                            onSelect={() => {
+                              onLayoutModeChange(mode);
+                              onClose();
+                            }}
+                            className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                          >
+                            <Icon
+                              className={cn(
+                                "size-3.5 shrink-0",
+                                active ? "text-primary" : "text-muted-foreground"
+                              )}
+                            />
+                            <span className={cn("flex-1", active && "font-medium text-primary")}>
+                              {label}
+                            </span>
+                            {active && <Check className="size-3.5 text-primary shrink-0" />}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </>
                 )}
-                {onClearSelection && selectedCount > 0 && (
-                  <CommandItem
-                    onSelect={() => {
-                      onClearSelection();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <Square className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                    <CommandShortcut className="text-[10px] font-mono tracking-normal">
-                      Esc
-                    </CommandShortcut>
-                  </CommandItem>
-                )}
-                {onEmptyTrash && (
-                  <CommandItem
-                    onSelect={() => {
-                      onEmptyTrash();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="size-3.5 shrink-0" />
-                    <span>{t("workspace.emptyTrash")}</span>
-                  </CommandItem>
-                )}
-              </CommandGroup>
+              </>
             )
           ) : isItemContext ? (
             /* ================= ITEM CONTEXT ================= */
@@ -444,61 +515,95 @@ export function CustomContextMenu({
             </>
           ) : (
             /* ================= CANVAS / BACKGROUND CONTEXT ================= */
-            <CommandGroup>
-              {onSelectAll && (
-                <CommandItem
-                  onSelect={() => {
-                    onSelectAll();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                >
-                  <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex-1">{t("contextMenu.selectAll")}</span>
-                  <CommandShortcut className="text-[10px] font-mono tracking-normal">{selectAllShortcutLabel}</CommandShortcut>
-                </CommandItem>
-              )}
+            <>
+              <CommandGroup>
+                {onSelectAll && (
+                  <CommandItem
+                    onSelect={() => {
+                      onSelectAll();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1">{t("contextMenu.selectAll")}</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">{selectAllShortcutLabel}</CommandShortcut>
+                  </CommandItem>
+                )}
 
-              {onClearSelection && selectedCount > 0 && (
-                <CommandItem
-                  onSelect={() => {
-                    onClearSelection();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                >
-                  <Square className="size-3.5 text-muted-foreground shrink-0" />
-                  <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                  <CommandShortcut className="text-[10px] font-mono tracking-normal">Esc</CommandShortcut>
-                </CommandItem>
-              )}
+                {onClearSelection && selectedCount > 0 && (
+                  <CommandItem
+                    onSelect={() => {
+                      onClearSelection();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <Square className="size-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1">{t("contextMenu.deselectAll")}</span>
+                    <CommandShortcut className="text-[10px] font-mono tracking-normal">Esc</CommandShortcut>
+                  </CommandItem>
+                )}
 
-              {onImportFiles && (
-                <CommandItem
-                  onSelect={() => {
-                    onImportFiles();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                >
-                  <Upload className="size-3.5 text-muted-foreground shrink-0" />
-                  <span>{t("contextMenu.importLocalFiles")}</span>
-                </CommandItem>
-              )}
+                {onImportFiles && (
+                  <CommandItem
+                    onSelect={() => {
+                      onImportFiles();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <Upload className="size-3.5 text-muted-foreground shrink-0" />
+                    <span>{t("contextMenu.importLocalFiles")}</span>
+                  </CommandItem>
+                )}
 
-              {onCreateFolder && (
-                <CommandItem
-                  onSelect={() => {
-                    onCreateFolder();
-                    onClose();
-                  }}
-                  className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                >
-                  <FolderPlus className="size-3.5 text-muted-foreground shrink-0" />
-                  <span>{t("contextMenu.newFolder")}</span>
-                </CommandItem>
+                {onCreateFolder && (
+                  <CommandItem
+                    onSelect={() => {
+                      onCreateFolder();
+                      onClose();
+                    }}
+                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                  >
+                    <FolderPlus className="size-3.5 text-muted-foreground shrink-0" />
+                    <span>{t("contextMenu.newFolder")}</span>
+                  </CommandItem>
+                )}
+              </CommandGroup>
+
+              {onLayoutModeChange && (
+                <>
+                  <CommandSeparator className="my-1" />
+                  <CommandGroup heading={t("contextMenu.layout")}>
+                    {layoutOptions.map(({ mode, label, icon: Icon }) => {
+                      const active = layoutMode === mode;
+                      return (
+                        <CommandItem
+                          key={mode}
+                          onSelect={() => {
+                            onLayoutModeChange(mode);
+                            onClose();
+                          }}
+                          className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+                        >
+                          <Icon
+                            className={cn(
+                              "size-3.5 shrink-0",
+                              active ? "text-primary" : "text-muted-foreground"
+                            )}
+                          />
+                          <span className={cn("flex-1", active && "font-medium text-primary")}>
+                            {label}
+                          </span>
+                          {active && <Check className="size-3.5 text-primary shrink-0" />}
+                        </CommandItem>
+                      );
+                    })}
+                  </CommandGroup>
+                </>
               )}
-            </CommandGroup>
+            </>
           )}
         </CommandList>
       </Command>

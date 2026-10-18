@@ -121,7 +121,7 @@ export function UniversalThumbnail({
           draggable={false}
           onError={() => setImageError(true)}
           style={{ objectFit }}
-          className={`w-full h-full pointer-events-none ${borderless ? "object-contain" : "drop-shadow-2xs"}`}
+          className={`w-full h-full pointer-events-none ${borderless ? "object-contain" : ""}`}
         />
       ) : systemIconUrl && !iconLoadError ? (
         <div className="flex flex-col items-center justify-center p-2.5 w-full h-full pointer-events-none select-none">
@@ -132,7 +132,7 @@ export function UniversalThumbnail({
             decoding="async"
             draggable={false}
             onError={() => setIconLoadError(true)}
-            className="size-14 object-contain pointer-events-none drop-shadow-sm transition-transform group-hover:scale-105"
+            className="size-14 object-contain pointer-events-none transition-transform group-hover:scale-105"
           />
         </div>
       ) : (
@@ -148,7 +148,7 @@ export function UniversalThumbnail({
 
       {shouldShowFormatBadge && (
         <div className="absolute top-1.5 left-1.5 z-10 pointer-events-none">
-          <span className="px-1.5 py-0.5 rounded-xs text-[9px] leading-none font-mono uppercase font-bold tracking-wider bg-black/65 text-white backdrop-blur-xs border border-white/15 shadow-xs">
+          <span className="px-1.5 py-0.5 rounded-xs text-[9px] leading-none font-mono uppercase font-bold tracking-wider bg-black/75 text-white border border-white/15">
             {normalizedExt.toUpperCase()}
           </span>
         </div>

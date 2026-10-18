@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Folder as FolderIcon,
@@ -50,7 +50,7 @@ export interface MultiItemInspectorProps {
   onBatchRestore?: () => void;
 }
 
-export function MultiItemInspector({
+export const MultiItemInspector = React.memo(function MultiItemInspector({
   selectedItems,
   allFolders,
   allTags = [],
@@ -468,4 +468,9 @@ export function MultiItemInspector({
       </div>
     </aside>
   );
-}
+}, (prev, next) =>
+  prev.selectedItems === next.selectedItems &&
+  prev.allFolders === next.allFolders &&
+  prev.allTags === next.allTags &&
+  prev.activeFolderId === next.activeFolderId
+);

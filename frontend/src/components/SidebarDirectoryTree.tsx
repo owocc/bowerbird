@@ -110,7 +110,7 @@ type DragHoverTarget =
   | { kind: "folder"; id: string }
   | null;
 
-export function SidebarDirectoryTree({
+export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
   library,
   folders,
   activeFolderId,
@@ -134,6 +134,35 @@ export function SidebarDirectoryTree({
   onLibraryChanged,
   onToggleCollapse,
 }: SidebarDirectoryTreeProps) {
+  const onSelectFolderRef = useRef(onSelectFolder);
+  const onDeleteFolderRef = useRef(onDeleteFolder);
+  const onMoveItemToFolderRef = useRef(onMoveItemToFolder);
+  const onDropFolderImportRef = useRef(onDropFolderImport);
+  useEffect(() => {
+    onSelectFolderRef.current = onSelectFolder;
+    onDeleteFolderRef.current = onDeleteFolder;
+    onMoveItemToFolderRef.current = onMoveItemToFolder;
+    onDropFolderImportRef.current = onDropFolderImport;
+  }, [onSelectFolder, onDeleteFolder, onMoveItemToFolder, onDropFolderImport]);
+
+  const stableSelectFolder = useCallback((folderId: string) => {
+    onSelectFolderRef.current(folderId);
+  }, []);
+  const stableDeleteFolder = useCallback((folderId: string) => {
+    return onDeleteFolderRef.current(folderId);
+  }, []);
+  const stableMoveItemToFolder = useCallback(
+    (itemId: string, fromFolderId: string, toFolderId: string) => {
+      return onMoveItemToFolderRef.current?.(itemId, fromFolderId, toFolderId) ?? Promise.resolve();
+    },
+    []
+  );
+  const stableDropFolderImport = useCallback(
+    (e: React.DragEvent, targetFolderId?: string) => {
+      return onDropFolderImportRef.current?.(e, targetFolderId) ?? Promise.resolve();
+    },
+    []
+  );
   const { t } = useTranslation();
   const asideRef = useRef<HTMLElement>(null);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -793,12 +822,12 @@ export function SidebarDirectoryTree({
                       }
                       expandedMap={expandedFolders}
                       onToggleExpand={toggleFolderExpand}
-                      onSelectFolder={onSelectFolder}
+                      onSelectFolder={stableSelectFolder}
                       onCreateSubfolder={handleOpenCreateSub}
                       onRenameFolder={handleOpenRename}
-                      onDeleteFolder={onDeleteFolder}
-                      onMoveItemToFolder={onMoveItemToFolder}
-                      onDropFolderImport={onDropFolderImport}
+                      onDeleteFolder={stableDeleteFolder}
+                      onMoveItemToFolder={stableMoveItemToFolder}
+                      onDropFolderImport={stableDropFolderImport}
                       onClearDragTarget={handleClearDragTarget}
                       onOpenContextMenu={handleOpenFolderContextMenu}
                     />
@@ -968,7 +997,18 @@ export function SidebarDirectoryTree({
       )}
     </>
   );
-}
+}, (prev, next) =>
+  prev.library === next.library &&
+  prev.folders === next.folders &&
+  prev.activeFolderId === next.activeFolderId &&
+  prev.totalItemCount === next.totalItemCount &&
+  prev.untaggedCount === next.untaggedCount &&
+  prev.uncategorizedCount === next.uncategorizedCount &&
+  prev.historyCount === next.historyCount &&
+  prev.trashCount === next.trashCount &&
+  prev.tagsCount === next.tagsCount &&
+  prev.tagsSidebarOpen === next.tagsSidebarOpen
+);
 
 interface FolderTreeItemNodeProps {
   folder: Folder;
