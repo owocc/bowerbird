@@ -23,6 +23,8 @@ import {
   Keyboard,
   Crop,
   AppWindow,
+  Trash2,
+  Store,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
@@ -30,7 +32,7 @@ import { useTheme, type Theme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { GetAssetServerPort } from "../../bindings/bowerbird/core/service";
+import { GetAssetServerPort, OpenExternalURL } from "../../bindings/bowerbird/core/service";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   getLanguagePreference,
@@ -128,6 +130,20 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
 
   const extensions = plugin.extensions ?? [];
 
+  const handleUninstall = async () => {
+    try {
+      await fetch("http://127.0.0.1:41595/api/plugin/uninstall", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: plugin.id }),
+      });
+    } catch (err) {
+      console.warn("Uninstall error:", err);
+    }
+    previewRegistry.unregister(plugin.id);
+    notifySuccess(t("settings.plugins.uninstalledSuccess", { defaultValue: `Uninstalled ${displayName}` }));
+  };
+
   return (
     <div
       className={cn(
@@ -165,12 +181,19 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
                   v{plugin.version}
                 </Badge>
               )}
-              {plugin.builtin && (
+              {plugin.builtin ? (
                 <Badge
                   variant="outline"
                   className="h-4 px-1.5 text-[10px] border-primary/30 bg-primary/5 text-primary"
                 >
                   {t("settings.plugins.builtinBadge")}
+                </Badge>
+              ) : (
+                <Badge
+                  variant="secondary"
+                  className="h-4 px-1.5 text-[10px] bg-primary/10 text-primary border border-primary/20"
+                >
+                  Remote
                 </Badge>
               )}
               {plugin.kind === "metadata" && (
@@ -203,6 +226,17 @@ function PluginCard({ item }: { item: PreviewPluginStatus }) {
 
         {/* Enable / Disable Switch Control (Built-in core plugins are locked on) */}
         <div className="shrink-0 flex items-center gap-2.5 pt-0.5">
+          {!plugin.builtin && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleUninstall}
+              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+              title={t("settings.plugins.uninstall", { defaultValue: "Uninstall Plugin" })}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
           {!canDisable ? (
             <div
               title={t("settings.plugins.cannotDisableHint")}
@@ -571,11 +605,22 @@ export function SettingsPage() {
                     {t("settings.plugins.description")}
                   </p>
                 </div>
-                <Badge variant="secondary" className="text-[11px] font-mono">
-                  {t("settings.plugins.installedCount", {
-                    count: installedPlugins.length,
-                  })}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => OpenExternalURL("http://localhost:3000")}
+                    className="h-8 gap-1.5 text-xs cursor-pointer"
+                  >
+                    <Store className="size-3.5 text-primary" />
+                    <span>{t("settings.plugins.visitMarketplace", { defaultValue: "Visit Marketplace" })}</span>
+                  </Button>
+                  <Badge variant="secondary" className="text-[11px] font-mono">
+                    {t("settings.plugins.installedCount", {
+                      count: installedPlugins.length,
+                    })}
+                  </Badge>
+                </div>
               </div>
 
               <div className="space-y-3">

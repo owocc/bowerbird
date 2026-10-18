@@ -1,0 +1,21 @@
+{
+  "name": "@bowerbird/plugin-audio-player",
+  "version": "1.0.0",
+  "description": "Rich Audio player plugin for Bowerbird",
+  "type": "module",
+  "scripts": {
+    "build": "node ../../scripts/build-plugins.mjs",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bowerbird/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "react": "19.3.0",
+    "typescript": "^5.2.2"
+  }
+}

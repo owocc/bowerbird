@@ -1,0 +1,23 @@
+{
+  "id": "official.markdown-preview",
+  "name": "Markdown Preview",
+  "version": "1.0.0",
+  "description": "Rich Markdown preview with syntax highlighting, task lists, and metadata inspection",
+  "author": "Bowerbird Team",
+  "kind": "preview",
+  "priority": 50,
+  "extensions": [
+    "md",
+    "markdown",
+    "mdown",
+    "mkd",
+    "mdwn",
+    "mdt"
+  ],
+  "mimePrefixes": [
+    "text/markdown",
+    "text/x-markdown"
+  ],
+  "supportsZoom": true,
+  "main": "index.js"
+}

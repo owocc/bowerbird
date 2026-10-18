@@ -228,12 +228,33 @@ export function ImportFromURLWithOptions(rawURL: string, opts: $models.ImportIte
 }
 
 /**
+ * InstallPlugin is an alias for InstallPluginFromURL.
+ */
+export function InstallPlugin(manifestURL: string): $CancellablePromise<$models.InstalledPlugin | null> {
+    return $Call.ByID(3050083612, manifestURL);
+}
+
+/**
+ * InstallPluginFromURL downloads, extracts, and installs a plugin from a manifest or zip bundle URL.
+ */
+export function InstallPluginFromURL(pluginURL: string): $CancellablePromise<$models.InstalledPlugin | null> {
+    return $Call.ByID(1331406205, pluginURL);
+}
+
+/**
  * InvokeAppMenu executes an application-scoped menu action. Window-scoped
  * actions (reload, fullscreen, DevTools, zoom) are not handled here: they act on
  * one window and are executed by the webview that owns it.
  */
 export function InvokeAppMenu(action: string): $CancellablePromise<void> {
     return $Call.ByID(2638737248, action);
+}
+
+/**
+ * ListInstalledPlugins returns all plugins installed in the user data directory.
+ */
+export function ListInstalledPlugins(): $CancellablePromise<$models.InstalledPlugin[] | null> {
+    return $Call.ByID(2882129230);
 }
 
 /**
@@ -267,6 +288,13 @@ export function OpenLibrary(libraryPath: string): $CancellablePromise<$models.Li
  */
 export function OpenLogsWindow(): $CancellablePromise<void> {
     return $Call.ByID(358015975);
+}
+
+/**
+ * OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
+ */
+export function OpenMarketplace(): $CancellablePromise<void> {
+    return $Call.ByID(372301127);
 }
 
 /**
@@ -357,6 +385,13 @@ export function SetManager(mgr: $models.LibraryManager | null): $CancellableProm
 }
 
 /**
+ * SetPluginEnabled enables or disables the specified plugin.
+ */
+export function SetPluginEnabled(id: string, enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3653939148, id, enabled);
+}
+
+/**
  * SetTheme validates and persists the colour mode, then broadcasts the change
  * to every open window via the application event bus.
  */
@@ -370,6 +405,13 @@ export function StartDragItems(ids: string[] | null): $CancellablePromise<void> 
 
 export function ToggleFavorite(itemID: string): $CancellablePromise<boolean> {
     return $Call.ByID(2124554484, itemID);
+}
+
+/**
+ * UninstallPlugin removes the specified plugin directory and unregisters it.
+ */
+export function UninstallPlugin(id: string): $CancellablePromise<void> {
+    return $Call.ByID(235967937, id);
 }
 
 export function UpdateItemDetails(id: string, note: string, rawURL: string, rating: number, prompt: string): $CancellablePromise<$models.Item | null> {

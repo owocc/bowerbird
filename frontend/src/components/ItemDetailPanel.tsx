@@ -40,6 +40,7 @@ import {
   usePreviewPlugins,
   createPreviewPluginHostAPI,
 } from "@/plugins/preview/registry";
+import { PluginErrorBoundary } from "@/components/PluginErrorBoundary";
 import type {
   Item,
   Folder,
@@ -313,7 +314,9 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}
         <div className="w-full flex items-center justify-center">
           {PluginInspectorPreview && (
-            <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
+            <PluginErrorBoundary pluginId={plugin.id} pluginName={plugin.name}>
+              <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
+            </PluginErrorBoundary>
           )}
         </div>
 
@@ -714,12 +717,17 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
           {inspectorExtensions.map((extPlugin) => {
             const ExtComp = extPlugin.InspectorExtension!;
             return (
-              <ExtComp
+              <PluginErrorBoundary
                 key={extPlugin.id}
-                item={item}
-                isTrashView={isTrashView}
-                api={hostApi}
-              />
+                pluginId={extPlugin.id}
+                pluginName={extPlugin.name}
+              >
+                <ExtComp
+                  item={item}
+                  isTrashView={isTrashView}
+                  api={hostApi}
+                />
+              </PluginErrorBoundary>
             );
           })}
 

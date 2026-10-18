@@ -66,6 +66,10 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("/api/items", s.handleAPIItemList)
 	mux.HandleFunc("/api/item/list", s.handleAPIItemList)
+
+	mux.HandleFunc("/api/plugins", s.handleAPIPluginsList)
+	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
+	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
 }
 
 // handleAPIPing provides a lightweight check to determine if the desktop application is running.
@@ -544,4 +548,135 @@ func (s *AssetServer) handleAPIItemList(w http.ResponseWriter, r *http.Request) 
 		items = []Item{}
 	}
 	writeSuccess(w, items)
+}
+
+// handleAPIPluginsList returns the list of installed plugins and their enabled status.
+func (s *AssetServer) handleAPIPluginsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var plugins []InstalledPlugin
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		var err error
+		plugins, err = s.manager.GetPluginManager().ListInstalledPlugins()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+	}
+	if plugins == nil {
+		plugins = []InstalledPlugin{}
+	}
+	writeSuccess(w, plugins)
+}
+
+// APIPluginInstallRequest represents payload to install a plugin.
+type APIPluginInstallRequest struct {
+	ManifestURL string `json:"manifestUrl"`
+	ID          string `json:"id"`
+	Version     string `json:"version"`
+	Name        string `json:"name"`
+	AutoInstall bool   `json:"autoInstall"`
+}
+
+// handleAPIPluginInstall handles plugin installation request or emits event for user confirmation.
+func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req APIPluginInstallRequest
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ManifestURL == "" {
+		req.ManifestURL = r.URL.Query().Get("manifestUrl")
+		if req.ManifestURL == "" {
+			req.ManifestURL = r.URL.Query().Get("manifest")
+		}
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.Version == "" {
+		req.Version = r.URL.Query().Get("version")
+	}
+	if req.Name == "" {
+		req.Name = r.URL.Query().Get("name")
+	}
+
+	if req.ManifestURL == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "manifestUrl is required")
+		return
+	}
+
+	// Emit event to desktop application
+	if s.manager != nil {
+		if app := s.manager.GetApp(); app != nil {
+			app.Event.Emit("plugin:install-requested", map[string]any{
+				"manifestUrl": req.ManifestURL,
+				"id":          req.ID,
+				"version":     req.Version,
+				"name":        req.Name,
+			})
+		}
+		if win := s.manager.GetWindow(); win != nil {
+			win.Show()
+			win.Focus()
+		}
+	}
+
+	// If auto-install is explicitly specified or requested
+	auto := req.AutoInstall || r.URL.Query().Get("auto") == "true"
+	if auto && s.manager != nil && s.manager.GetPluginManager() != nil {
+		installed, err := s.manager.GetPluginManager().InstallPluginFromURL(req.ManifestURL)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodePluginInstallFailed, err.Error())
+			return
+		}
+		writeSuccess(w, installed)
+		return
+	}
+
+	writeSuccess(w, map[string]any{
+		"requested":   true,
+		"manifestUrl": req.ManifestURL,
+		"id":          req.ID,
+		"version":     req.Version,
+		"name":        req.Name,
+	})
+}
+
+// handleAPIPluginUninstall handles plugin uninstallation request.
+func (s *AssetServer) handleAPIPluginUninstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ID string `json:"id"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "id is required")
+		return
+	}
+
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		if err := s.manager.GetPluginManager().UninstallPlugin(req.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+	}
+
+	writeSuccess(w, map[string]any{"uninstalled": true, "id": req.ID})
 }

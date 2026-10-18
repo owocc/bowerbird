@@ -7,6 +7,7 @@ import { installDragTrace } from "./lib/drag-trace";
 import { installNativeDragOut } from "./lib/drag-out";
 import { installDragHistoryTracker } from "./lib/drag-history";
 import { installDiagnosticsMonitor } from "./lib/logger";
+import { initRemotePluginRuntime } from "./plugins/preview/remote-loader";
 
 // Native drag-out / drop tracing must be attached before any drag can start.
 installDragTrace();
@@ -14,6 +15,7 @@ installDragTrace();
 installNativeDragOut();
 installDragHistoryTracker();
 installDiagnosticsMonitor();
+initRemotePluginRuntime();
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />

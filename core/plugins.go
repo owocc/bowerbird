@@ -1,0 +1,667 @@
+package core
+
+import (
+	"archive/zip"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+var (
+	validPluginIDRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-.]+$`)
+)
+
+// PluginManifest defines the schema for remote Bowerbird plugin manifests.
+type PluginManifest struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version"`
+	Description  string   `json:"description"`
+	Author       string   `json:"author"`
+	Kind         string   `json:"kind"` // "preview" | "metadata"
+	Priority     int      `json:"priority"`
+	Extensions   []string `json:"extensions"`
+	MimePrefixes []string `json:"mimePrefixes,omitempty"`
+	SupportsZoom bool     `json:"supportsZoom,omitempty"`
+	Main         string   `json:"main,omitempty"` // default "index.js"
+	Style        string   `json:"style,omitempty"`
+	Icon         string   `json:"icon,omitempty"`
+	Homepage     string   `json:"homepage,omitempty"`
+	Repository   string   `json:"repository,omitempty"`
+	License      string   `json:"license,omitempty"`
+}
+
+// InstalledPlugin represents an installed plugin persisted in installed.json.
+type InstalledPlugin struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Version      string   `json:"version"`
+	Description  string   `json:"description"`
+	Author       string   `json:"author"`
+	Kind         string   `json:"kind"`
+	Priority     int      `json:"priority"`
+	Extensions   []string `json:"extensions"`
+	MimePrefixes []string `json:"mimePrefixes,omitempty"`
+	SupportsZoom bool     `json:"supportsZoom,omitempty"`
+	Main         string   `json:"main"`
+	Style        string   `json:"style,omitempty"`
+	Enabled      bool     `json:"enabled"`
+	InstalledAt  string   `json:"installedAt"`
+	SourceURL    string   `json:"sourceUrl"`
+}
+
+// PluginManager manages plugin installation, validation, storage, and persistence.
+type PluginManager struct {
+	mu         sync.RWMutex
+	baseDir    string // <UserDataDir>/plugins
+	indexPath  string // <UserDataDir>/plugins/installed.json
+	plugins    map[string]*InstalledPlugin
+	httpClient *http.Client
+	app        *application.App
+}
+
+// NewPluginManager creates a PluginManager with default path in UserDataDir()/plugins.
+func NewPluginManager() *PluginManager {
+	return NewPluginManagerWithDir(filepath.Join(UserDataDir(), "plugins"))
+}
+
+// NewPluginManagerWithDir creates a PluginManager rooted at a custom directory.
+func NewPluginManagerWithDir(baseDir string) *PluginManager {
+	pm := &PluginManager{
+		baseDir:   baseDir,
+		indexPath: filepath.Join(baseDir, "installed.json"),
+		plugins:   make(map[string]*InstalledPlugin),
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
+	}
+	_ = os.MkdirAll(baseDir, 0755)
+	pm.loadIndexLocked()
+	return pm
+}
+
+// SetApp sets the Wails application reference for event emission.
+func (pm *PluginManager) SetApp(app *application.App) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.app = app
+}
+
+// GetBaseDir returns the base plugins directory.
+func (pm *PluginManager) GetBaseDir() string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.baseDir
+}
+
+// GetPluginDir returns the absolute directory for a specific plugin.
+func (pm *PluginManager) GetPluginDir(id string) string {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return filepath.Join(pm.baseDir, id)
+}
+
+// ValidateManifest validates plugin manifest fields and prevents path traversal.
+func ValidateManifest(m *PluginManifest) error {
+	if m == nil {
+		return errors.New("manifest is nil")
+	}
+	id := strings.TrimSpace(m.ID)
+	if id == "" {
+		return errors.New("missing or empty plugin id")
+	}
+	if !validPluginIDRegex.MatchString(id) {
+		return fmt.Errorf("invalid plugin id %q: only alphanumeric, dots, dashes, and underscores allowed", id)
+	}
+	if strings.Contains(id, "..") {
+		return errors.New("plugin id cannot contain path traversal")
+	}
+	m.ID = id
+
+	if strings.TrimSpace(m.Name) == "" {
+		return errors.New("missing or empty plugin name")
+	}
+	if strings.TrimSpace(m.Version) == "" {
+		return errors.New("missing or empty plugin version")
+	}
+	if strings.TrimSpace(m.Author) == "" {
+		return errors.New("missing or empty plugin author")
+	}
+	if m.Kind != "preview" && m.Kind != "metadata" {
+		return fmt.Errorf("invalid kind %q: must be 'preview' or 'metadata'", m.Kind)
+	}
+	if m.Priority < 0 || m.Priority > 100 {
+		return fmt.Errorf("invalid priority %d: must be between 0 and 100", m.Priority)
+	}
+	if m.Priority == 0 {
+		m.Priority = 50
+	}
+
+	if m.Main == "" {
+		m.Main = "index.js"
+	}
+	cleanMain := filepath.Clean(m.Main)
+	if strings.HasPrefix(cleanMain, "..") || filepath.IsAbs(cleanMain) || strings.HasPrefix(cleanMain, "/") || strings.HasPrefix(cleanMain, "\\") {
+		return fmt.Errorf("invalid main file path %q: path traversal or absolute paths not allowed", m.Main)
+	}
+	m.Main = filepath.ToSlash(cleanMain)
+
+	if m.Style != "" {
+		cleanStyle := filepath.Clean(m.Style)
+		if strings.HasPrefix(cleanStyle, "..") || filepath.IsAbs(cleanStyle) || strings.HasPrefix(cleanStyle, "/") || strings.HasPrefix(cleanStyle, "\\") {
+			return fmt.Errorf("invalid style file path %q: path traversal or absolute paths not allowed", m.Style)
+		}
+		m.Style = filepath.ToSlash(cleanStyle)
+	}
+
+	normExtensions := make([]string, 0, len(m.Extensions))
+	for _, ext := range m.Extensions {
+		cleaned := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(ext), "."))
+		if cleaned != "" {
+			normExtensions = append(normExtensions, cleaned)
+		}
+	}
+	m.Extensions = normExtensions
+
+	return nil
+}
+
+// loadIndexLocked reads installed.json if present.
+func (pm *PluginManager) loadIndexLocked() {
+	data, err := os.ReadFile(pm.indexPath)
+	if err != nil {
+		return
+	}
+
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return
+	}
+
+	var list []InstalledPlugin
+	if trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &list); err != nil {
+			return
+		}
+	} else if trimmed[0] == '{' {
+		var wrapper struct {
+			Plugins []InstalledPlugin `json:"plugins"`
+		}
+		if err := json.Unmarshal(trimmed, &wrapper); err == nil {
+			list = wrapper.Plugins
+		}
+	}
+
+	for _, p := range list {
+		copyP := p
+		pm.plugins[copyP.ID] = &copyP
+	}
+}
+
+// saveIndexLocked atomically writes installed.json.
+func (pm *PluginManager) saveIndexLocked() error {
+	list := make([]InstalledPlugin, 0, len(pm.plugins))
+	for _, p := range pm.plugins {
+		list = append(list, *p)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Priority != list[j].Priority {
+			return list[i].Priority > list[j].Priority
+		}
+		return list[i].ID < list[j].ID
+	})
+
+	bytesData, err := json.MarshalIndent(list, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	tmpFile := fmt.Sprintf("%s.tmp.%d", pm.indexPath, time.Now().UnixNano())
+	if err := os.WriteFile(tmpFile, bytesData, 0644); err != nil {
+		return err
+	}
+
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(pm.indexPath)
+	}
+	return os.Rename(tmpFile, pm.indexPath)
+}
+
+// ListInstalledPlugins returns a list of installed plugins.
+func (pm *PluginManager) ListInstalledPlugins() ([]InstalledPlugin, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	result := make([]InstalledPlugin, 0, len(pm.plugins))
+	for _, p := range pm.plugins {
+		result = append(result, *p)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Priority != result[j].Priority {
+			return result[i].Priority > result[j].Priority
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result, nil
+}
+
+// GetInstalledPlugin returns details of an installed plugin by ID.
+func (pm *PluginManager) GetInstalledPlugin(id string) (*InstalledPlugin, error) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	p, exists := pm.plugins[id]
+	if !exists {
+		return nil, fmt.Errorf("plugin %q not found", id)
+	}
+	copyP := *p
+	return &copyP, nil
+}
+
+// InstallPlugin is an alias for InstallPluginFromURL.
+func (pm *PluginManager) InstallPlugin(pluginURL string) (*InstalledPlugin, error) {
+	return pm.InstallPluginFromURL(pluginURL)
+}
+
+// InstallPluginFromURL downloads, extracts, validates, and installs a plugin atomically.
+func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugin, error) {
+	if strings.TrimSpace(pluginURL) == "" {
+		return nil, errors.New("plugin URL is required")
+	}
+
+	// Create a unique staging directory within baseDir
+	stagingName := fmt.Sprintf(".staging-%d-%d", time.Now().UnixNano(), os.Getpid())
+	stagingDir := filepath.Join(pm.baseDir, stagingName)
+	if err := os.MkdirAll(stagingDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create staging directory: %w", err)
+	}
+	defer func() {
+		_ = os.RemoveAll(stagingDir)
+	}()
+
+	manifest, err := pm.downloadAndExtract(pluginURL, stagingDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download plugin: %w", err)
+	}
+
+	if err := ValidateManifest(manifest); err != nil {
+		return nil, fmt.Errorf("invalid plugin manifest: %w", err)
+	}
+
+	// Verify main entry file exists in stagingDir
+	mainPath := filepath.Join(stagingDir, filepath.FromSlash(manifest.Main))
+	if info, err := os.Stat(mainPath); err != nil || info.IsDir() {
+		return nil, fmt.Errorf("plugin main file %q not found or is a directory", manifest.Main)
+	}
+
+	// Verify style file if specified
+	if manifest.Style != "" {
+		stylePath := filepath.Join(stagingDir, filepath.FromSlash(manifest.Style))
+		if info, err := os.Stat(stylePath); err != nil || info.IsDir() {
+			return nil, fmt.Errorf("plugin style file %q not found", manifest.Style)
+		}
+	}
+
+	destDir := filepath.Join(pm.baseDir, manifest.ID)
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Atomically replace destination directory
+	if _, err := os.Stat(destDir); err == nil {
+		_ = os.RemoveAll(destDir)
+	}
+	if err := os.Rename(stagingDir, destDir); err != nil {
+		return nil, fmt.Errorf("failed to move plugin to destination directory: %w", err)
+	}
+
+	installed := &InstalledPlugin{
+		ID:           manifest.ID,
+		Name:         manifest.Name,
+		Version:      manifest.Version,
+		Description:  manifest.Description,
+		Author:       manifest.Author,
+		Kind:         manifest.Kind,
+		Priority:     manifest.Priority,
+		Extensions:   manifest.Extensions,
+		MimePrefixes: manifest.MimePrefixes,
+		SupportsZoom: manifest.SupportsZoom,
+		Main:         manifest.Main,
+		Style:        manifest.Style,
+		Enabled:      true,
+		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+		SourceURL:    pluginURL,
+	}
+
+	pm.plugins[manifest.ID] = installed
+	if err := pm.saveIndexLocked(); err != nil {
+		return nil, fmt.Errorf("failed to save installed.json: %w", err)
+	}
+
+	if pm.app != nil {
+		pm.app.Event.Emit("plugin:changed", map[string]any{
+			"action": "installed",
+			"id":     manifest.ID,
+		})
+	}
+
+	copyP := *installed
+	return &copyP, nil
+}
+
+// downloadAndExtract handles both zip bundle archives and standalone JSON manifests.
+func (pm *PluginManager) downloadAndExtract(rawURL string, stagingDir string) (*PluginManifest, error) {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+
+	var bodyBytes []byte
+	if parsedURL.Scheme == "file" {
+		filePath := parsedURL.Path
+		if runtime.GOOS == "windows" && strings.HasPrefix(filePath, "/") {
+			filePath = strings.TrimPrefix(filePath, "/")
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return nil, err
+		}
+		bodyBytes = data
+	} else {
+		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "Bowerbird-Plugin-Installer/1.0")
+
+		resp, err := pm.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("HTTP error %d downloading plugin from %s", resp.StatusCode, rawURL)
+		}
+
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		bodyBytes = data
+	}
+
+	// Check if this payload is a zip archive
+	isZip := strings.HasSuffix(strings.ToLower(parsedURL.Path), ".zip") ||
+		(len(bodyBytes) >= 4 && bodyBytes[0] == 0x50 && bodyBytes[1] == 0x4B && bodyBytes[2] == 0x03 && bodyBytes[3] == 0x04)
+
+	if isZip {
+		zipReader, err := zip.NewReader(bytes.NewReader(bodyBytes), int64(len(bodyBytes)))
+		if err != nil {
+			return nil, fmt.Errorf("invalid zip archive: %w", err)
+		}
+		if err := extractZipSafely(zipReader, stagingDir); err != nil {
+			return nil, fmt.Errorf("failed to extract zip archive: %w", err)
+		}
+		if err := flattenIfSingleFolder(stagingDir); err != nil {
+			return nil, fmt.Errorf("failed to reorganize archive structure: %w", err)
+		}
+
+		manifestPath := filepath.Join(stagingDir, "manifest.json")
+		manifestBytes, err := os.ReadFile(manifestPath)
+		if err != nil {
+			return nil, errors.New("manifest.json not found in plugin archive")
+		}
+
+		var m PluginManifest
+		if err := json.Unmarshal(manifestBytes, &m); err != nil {
+			return nil, fmt.Errorf("failed to parse manifest.json: %w", err)
+		}
+		return &m, nil
+	}
+
+	// Treat as JSON manifest
+	var m PluginManifest
+	if err := json.Unmarshal(bodyBytes, &m); err != nil {
+		return nil, fmt.Errorf("failed to parse plugin manifest from %s: %w", rawURL, err)
+	}
+	if err := ValidateManifest(&m); err != nil {
+		return nil, err
+	}
+
+	// Save manifest.json in stagingDir
+	if err := os.WriteFile(filepath.Join(stagingDir, "manifest.json"), bodyBytes, 0644); err != nil {
+		return nil, err
+	}
+
+	// Resolve asset base URL
+	// E.g. http://example.com/plugins/my-plugin/manifest.json -> http://example.com/plugins/my-plugin/
+	baseURL := *parsedURL
+	if !strings.HasSuffix(baseURL.Path, "/") {
+		baseURL.Path = path.Dir(baseURL.Path) + "/"
+	}
+
+	// Download main JS
+	if m.Main != "" {
+		if err := pm.downloadAssetToStaging(&baseURL, m.Main, stagingDir); err != nil {
+			return nil, fmt.Errorf("failed to download main file %q: %w", m.Main, err)
+		}
+	}
+
+	// Download style CSS if specified
+	if m.Style != "" {
+		if err := pm.downloadAssetToStaging(&baseURL, m.Style, stagingDir); err != nil {
+			return nil, fmt.Errorf("failed to download style file %q: %w", m.Style, err)
+		}
+	}
+
+	// Download icon if relative
+	if m.Icon != "" && !strings.HasPrefix(m.Icon, "data:") && !strings.Contains(m.Icon, "://") {
+		_ = pm.downloadAssetToStaging(&baseURL, m.Icon, stagingDir)
+	}
+
+	return &m, nil
+}
+
+// downloadAssetToStaging downloads a relative asset referenced by the manifest into stagingDir.
+func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath string, stagingDir string) error {
+	destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return err
+	}
+
+	assetURL := baseURL.ResolveReference(&url.URL{Path: relativePath})
+
+	if assetURL.Scheme == "file" {
+		filePath := assetURL.Path
+		if runtime.GOOS == "windows" && strings.HasPrefix(filePath, "/") {
+			filePath = strings.TrimPrefix(filePath, "/")
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destPath, data, 0644)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, assetURL.String(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", "Bowerbird-Plugin-Installer/1.0")
+
+	resp, err := pm.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP error %d downloading %s", resp.StatusCode, assetURL.String())
+	}
+
+	outFile, err := os.Create(destPath)
+	if err != nil {
+		return err
+	}
+	defer outFile.Close()
+
+	_, err = io.Copy(outFile, resp.Body)
+	return err
+}
+
+// extractZipSafely unpacks all entries from a zip reader while preventing Zip Slip attacks.
+func extractZipSafely(zipReader *zip.Reader, destDir string) error {
+	destClean := filepath.Clean(destDir)
+	for _, f := range zipReader.File {
+		cleanName := filepath.Clean(f.Name)
+		targetPath := filepath.Join(destClean, cleanName)
+
+		// Guard against Zip Slip directory traversal
+		if !strings.HasPrefix(targetPath, destClean+string(filepath.Separator)) && targetPath != destClean {
+			return fmt.Errorf("illegal file path in zip archive: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(targetPath, 0755); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode()&0755)
+		if err != nil {
+			_ = rc.Close()
+			return err
+		}
+
+		_, copyErr := io.Copy(outFile, rc)
+		closeErr := outFile.Close()
+		_ = rc.Close()
+
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
+}
+
+// flattenIfSingleFolder reorganizes extracted contents if the archive wrapped all files inside one folder.
+func flattenIfSingleFolder(dir string) error {
+	manifestPath := filepath.Join(dir, "manifest.json")
+	if _, err := os.Stat(manifestPath); err == nil {
+		return nil
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	var dirs []os.DirEntry
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), ".") {
+			dirs = append(dirs, e)
+		}
+	}
+
+	if len(dirs) == 1 && dirs[0].IsDir() {
+		subDir := filepath.Join(dir, dirs[0].Name())
+		subManifest := filepath.Join(subDir, "manifest.json")
+		if _, err := os.Stat(subManifest); err == nil {
+			subEntries, err := os.ReadDir(subDir)
+			if err != nil {
+				return err
+			}
+			for _, se := range subEntries {
+				src := filepath.Join(subDir, se.Name())
+				dst := filepath.Join(dir, se.Name())
+				if err := os.Rename(src, dst); err != nil {
+					return err
+				}
+			}
+			_ = os.Remove(subDir)
+		}
+	}
+	return nil
+}
+
+// UninstallPlugin removes the plugin folder and updates installed.json.
+func (pm *PluginManager) UninstallPlugin(id string) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	if _, exists := pm.plugins[id]; !exists {
+		return fmt.Errorf("plugin %q is not installed", id)
+	}
+
+	destDir := filepath.Join(pm.baseDir, id)
+	_ = os.RemoveAll(destDir)
+
+	delete(pm.plugins, id)
+	if err := pm.saveIndexLocked(); err != nil {
+		return fmt.Errorf("failed to update installed.json: %w", err)
+	}
+
+	if pm.app != nil {
+		pm.app.Event.Emit("plugin:changed", map[string]any{
+			"action": "uninstalled",
+			"id":     id,
+		})
+	}
+	return nil
+}
+
+// SetPluginEnabled toggles whether a plugin is enabled.
+func (pm *PluginManager) SetPluginEnabled(id string, enabled bool) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	p, exists := pm.plugins[id]
+	if !exists {
+		return fmt.Errorf("plugin %q is not installed", id)
+	}
+
+	p.Enabled = enabled
+	if err := pm.saveIndexLocked(); err != nil {
+		return fmt.Errorf("failed to update installed.json: %w", err)
+	}
+
+	action := "enabled"
+	if !enabled {
+		action = "disabled"
+	}
+	if pm.app != nil {
+		pm.app.Event.Emit("plugin:changed", map[string]any{
+			"action": action,
+			"id":     id,
+		})
+	}
+	return nil
+}

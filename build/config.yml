@@ -82,6 +82,11 @@ fileAssociations:
 #    role: Editor
 #    mimeType: image/jpeg  # (optional)
 
+
+# Protocol Associations
+protocols:
+  - scheme: bowerbird
+    description: Bowerbird Protocol
 # Other data
 other:
   - name: My Other Data

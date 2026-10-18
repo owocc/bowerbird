@@ -11,6 +11,7 @@ export type {
     Folder,
     ImageMeta,
     ImportItemOptions,
+    InstalledPlugin,
     Item,
     LibraryInfo,
     LibraryManager,

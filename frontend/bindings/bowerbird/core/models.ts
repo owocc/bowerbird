@@ -95,6 +95,27 @@ export interface ImportItemOptions {
 }
 
 /**
+ * InstalledPlugin represents an installed plugin persisted in installed.json.
+ */
+export interface InstalledPlugin {
+    "id": string;
+    "name": string;
+    "version": string;
+    "description": string;
+    "author": string;
+    "kind": string;
+    "priority": number;
+    "extensions": string[] | null;
+    "mimePrefixes"?: string[] | null;
+    "supportsZoom"?: boolean;
+    "main": string;
+    "style"?: string;
+    "enabled": boolean;
+    "installedAt": string;
+    "sourceUrl": string;
+}
+
+/**
  * Item represents a single managed asset in the library.
  */
 export interface Item {

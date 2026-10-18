@@ -17,6 +17,7 @@ import {
   createPreviewPluginHostAPI,
   type PreviewZoomController,
 } from "@/plugins/preview/registry";
+import { PluginErrorBoundary } from "@/components/PluginErrorBoundary";
 export interface UnifiedPreviewModalProps {
   open: boolean;
   mode: "inline" | "full-window";
@@ -247,14 +248,16 @@ export function UnifiedPreviewModal({
 
       <div className="flex-1 min-h-0 w-full relative overflow-hidden flex items-center justify-center">
         {PluginViewport && (
-          <PluginViewport
-            item={activeItem}
-            mode={mode}
-            scale={scale}
-            onScaleChange={setScale}
-            controllerRef={controllerRef}
-            api={hostApi}
-          />
+          <PluginErrorBoundary pluginId={plugin.id} pluginName={plugin.name}>
+            <PluginViewport
+              item={activeItem}
+              mode={mode}
+              scale={scale}
+              onScaleChange={setScale}
+              controllerRef={controllerRef}
+              api={hostApi}
+            />
+          </PluginErrorBoundary>
         )}
       </div>
 

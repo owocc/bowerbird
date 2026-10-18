@@ -51,8 +51,8 @@ type LibraryManager struct {
 	activeLib   *LibraryInfo
 	db          *sql.DB
 	userData    *UserDataStore
+	pluginMgr   *PluginManager
 	assetServer *AssetServer
-
 	// High-speed in-memory index for sub-millisecond queries and searches
 	cacheMu     sync.RWMutex
 	cacheLoaded bool
@@ -84,7 +84,7 @@ func NewLibraryManager() *LibraryManager {
 		log.Printf("[Core] failed to initialize user data store: %v", err)
 	}
 	mgr.userData = store
-
+	mgr.pluginMgr = NewPluginManager()
 	// Start internal HTTP asset streaming server
 	mgr.assetServer = newAssetServer(mgr)
 
@@ -107,6 +107,17 @@ func NewLibraryManager() *LibraryManager {
 
 func (m *LibraryManager) SetApp(app *application.App) {
 	m.app = app
+	if m.pluginMgr != nil {
+		m.pluginMgr.SetApp(app)
+	}
+}
+
+func (m *LibraryManager) GetPluginManager() *PluginManager {
+	return m.pluginMgr
+}
+
+func (m *LibraryManager) GetWindow() application.Window {
+	return m.getWindow()
 }
 
 func (m *LibraryManager) GetApp() *application.App {

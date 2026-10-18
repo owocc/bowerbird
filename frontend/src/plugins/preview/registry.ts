@@ -252,6 +252,23 @@ export class PreviewPluginRegistry {
 
     return matched;
   }
+  /**
+   * Dynamically loads and registers a remote plugin from an ES module URL.
+   */
+  async loadPluginFromUrl(moduleUrl: string): Promise<PreviewPlugin | null> {
+    try {
+      const mod = await import(/* @vite-ignore */ moduleUrl);
+      const plugin: PreviewPlugin = mod.default || mod.plugin || mod;
+      if (plugin && plugin.id && plugin.name) {
+        this.register(plugin);
+        return plugin;
+      }
+      return null;
+    } catch (err) {
+      console.error(`Failed to load plugin from ${moduleUrl}:`, err);
+      return null;
+    }
+  }
 }
 
 /**

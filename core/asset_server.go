@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -51,7 +52,7 @@ func (s *AssetServer) start() {
 	mux.HandleFunc("/asset/item/", s.handleAssetRequest)
 	mux.HandleFunc("/asset/download/", s.handleDownloadRequest)
 	mux.HandleFunc("/asset/icon/", s.handleSystemIconRequest)
-
+	mux.HandleFunc("/asset/plugins/", s.handlePluginAssetRequest)
 	// Register REST Open API routes for browser extensions and external tools
 	s.registerAPIRoutes(mux)
 
@@ -214,4 +215,119 @@ func (s *AssetServer) handleSystemIconRequest(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(pngBytes)
+}
+
+// handlePluginAssetRequest serves files from <UserDataDir>/plugins/<pluginId>/<relative_file>.
+func (s *AssetServer) handlePluginAssetRequest(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	rel := strings.TrimPrefix(r.URL.Path, "/asset/plugins/")
+	rel = strings.TrimPrefix(rel, "/")
+	parts := strings.SplitN(rel, "/", 2)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		http.Error(w, "invalid plugin asset path", http.StatusBadRequest)
+		return
+	}
+
+	pluginID := parts[0]
+	filePath := parts[1]
+
+	// Prevent path traversal
+	if strings.Contains(pluginID, "..") || strings.Contains(pluginID, "/") || strings.Contains(pluginID, "\\") {
+		http.Error(w, "invalid plugin id", http.StatusBadRequest)
+		return
+	}
+
+	cleanFile := filepath.Clean(filePath)
+	if strings.HasPrefix(cleanFile, "..") || filepath.IsAbs(cleanFile) || strings.HasPrefix(cleanFile, "/") || strings.HasPrefix(cleanFile, "\\") {
+		http.Error(w, "invalid file path", http.StatusBadRequest)
+		return
+	}
+
+	var baseDir string
+	if s.manager != nil && s.manager.GetPluginManager() != nil {
+		baseDir = s.manager.GetPluginManager().GetBaseDir()
+	} else {
+		baseDir = filepath.Join(UserDataDir(), "plugins")
+	}
+
+	fullPath := filepath.Join(baseDir, pluginID, filepath.FromSlash(cleanFile))
+	expectedPrefix := filepath.Join(baseDir, pluginID)
+	if !strings.HasPrefix(fullPath, expectedPrefix) {
+		http.Error(w, "forbidden path traversal", http.StatusForbidden)
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "cannot serve directory", http.StatusForbidden)
+		return
+	}
+
+	// Determine proper Content-Type
+	ext := strings.ToLower(filepath.Ext(fullPath))
+	var contentType string
+	switch ext {
+	case ".js", ".mjs":
+		contentType = "application/javascript; charset=utf-8"
+	case ".css":
+		contentType = "text/css; charset=utf-8"
+	case ".json":
+		contentType = "application/json; charset=utf-8"
+	case ".svg":
+		contentType = "image/svg+xml"
+	case ".png":
+		contentType = "image/png"
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	case ".webp":
+		contentType = "image/webp"
+	case ".gif":
+		contentType = "image/gif"
+	case ".woff2":
+		contentType = "font/woff2"
+	case ".woff":
+		contentType = "font/woff"
+	case ".ttf":
+		contentType = "font/ttf"
+	case ".html", ".htm":
+		contentType = "text/html; charset=utf-8"
+	default:
+		contentType = mime.TypeByExtension(ext)
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+	}
+
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "no-cache")
+
+	file, err := os.Open(fullPath)
+	if err != nil {
+		http.Error(w, "failed to open file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	http.ServeContent(w, r, filepath.Base(fullPath), info.ModTime(), file)
 }
