@@ -120,6 +120,8 @@ export interface OriginalFileHandle {
   fetchText?: (rangeHeader?: string) => Promise<string>;
 }
 
+export type ThemeMode = "dark" | "light";
+
 /**
  * Host capabilities exposed to every PreviewPlugin in Viewport, InspectorPreview, and InspectorExtension.
  */
@@ -146,6 +148,10 @@ export interface PreviewPluginHostAPI<TItem = PluginItem> {
   updateItemDetails: (patch: ItemDetailsPatch) => Promise<TItem | null>;
   /** Notifies the host workspace to refresh item state */
   onItemUpdated?: (updated: TItem) => void;
+  /** Returns current resolved theme mode ("dark" or "light") */
+  getTheme?: () => ThemeMode;
+  /** Subscribes to theme changes, returning an unsubscribe callback */
+  subscribeTheme?: (callback: (theme: ThemeMode) => void) => () => void;
 }
 
 export interface PreviewViewportProps<TItem = PluginItem> {
@@ -155,6 +161,7 @@ export interface PreviewViewportProps<TItem = PluginItem> {
   onScaleChange: (scale: number) => void;
   controllerRef: { current: PreviewZoomController | null };
   api: PreviewPluginHostAPI<TItem>;
+  theme?: ThemeMode;
 }
 
 export interface PreviewInspectorProps<TItem = PluginItem> {
@@ -162,12 +169,14 @@ export interface PreviewInspectorProps<TItem = PluginItem> {
   onOpenPreview?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   api: PreviewPluginHostAPI<TItem>;
+  theme?: ThemeMode;
 }
 
 export interface InspectorExtensionProps<TItem = PluginItem> {
   item: TItem;
   isTrashView?: boolean;
   api: PreviewPluginHostAPI<TItem>;
+  theme?: ThemeMode;
 }
 
 export type PluginKind = "preview" | "metadata";

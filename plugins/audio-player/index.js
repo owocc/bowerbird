@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { jsx, jsxs } from "react/jsx-runtime";
-//#region ../../packages/plugin-sdk/src/helper.ts
+//#region packages/plugin-sdk/src/helper.ts
 /**
 * Type-safe helper to define a Bowerbird preview or metadata plugin.
 */
@@ -8,7 +8,7 @@ function definePlugin(plugin) {
 	return plugin;
 }
 //#endregion
-//#region src/index.tsx
+//#region plugins/audio-player/src/index.tsx
 function formatTime(seconds) {
 	if (isNaN(seconds) || seconds < 0) return "0:00";
 	const mins = Math.floor(seconds / 60);

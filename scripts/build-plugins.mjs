@@ -1,10 +1,11 @@
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-const vitePath = require.resolve("vite", { paths: [path.resolve(__dirname, "../frontend")] });
-const { build } = require(vitePath);
+const req = createRequire(import.meta.url);
+const vitePath = req.resolve("vite", { paths: [path.resolve(__dirname, "../frontend")] });
+const { build } = req(vitePath);
 const rootDir = path.resolve(__dirname, "..");
 
 const plugins = [
@@ -20,7 +21,8 @@ const plugins = [
   },
 ];
 
-for (const plugin of plugins) {
+async function run() {
+  for (const plugin of plugins) {
   console.log(`Building plugin ${plugin.name}...`);
   await build({
     configFile: false,
@@ -47,4 +49,17 @@ for (const plugin of plugins) {
     },
   });
   console.log(`Successfully built ${plugin.name} -> ${plugin.dir}/index.js`);
+
+  // Also copy to web/public/plugins-dist for marketplace hosting
+  const webDistDir = path.resolve(rootDir, `web/public/plugins-dist/${plugin.name}`);
+  fs.mkdirSync(webDistDir, { recursive: true });
+  fs.copyFileSync(path.resolve(plugin.dir, "index.js"), path.resolve(webDistDir, "index.js"));
+  fs.copyFileSync(path.resolve(plugin.dir, "manifest.json"), path.resolve(webDistDir, "manifest.json"));
+  console.log(`Synced to web/public/plugins-dist/${plugin.name}`);
+  }
 }
+
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -156,6 +156,24 @@ export function createPreviewPluginHostAPI(
         return null;
       }
     },
+    getTheme: () => {
+      if (typeof document !== "undefined") {
+        return document.documentElement.classList.contains("dark") ? "dark" : "light";
+      }
+      return "dark";
+    },
+    subscribeTheme: (cb) => {
+      if (typeof window === "undefined" || typeof document === "undefined") {
+        return () => {};
+      }
+      const notify = () => {
+        const mode = document.documentElement.classList.contains("dark") ? "dark" : "light";
+        cb(mode);
+      };
+      const observer = new MutationObserver(() => notify());
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+      return () => observer.disconnect();
+    },
     onItemUpdated,
   };
 }

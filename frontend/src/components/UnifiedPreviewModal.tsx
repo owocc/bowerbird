@@ -18,6 +18,7 @@ import {
   type PreviewZoomController,
 } from "@/plugins/preview/registry";
 import { PluginErrorBoundary } from "@/components/PluginErrorBoundary";
+import { useTheme } from "@/components/theme-provider";
 export interface UnifiedPreviewModalProps {
   open: boolean;
   mode: "inline" | "full-window";
@@ -51,6 +52,13 @@ export function UnifiedPreviewModal({
   const items = Array.isArray(rawItemsProp) ? rawItemsProp : rawItemsProp.items;
   const { t } = useTranslation();
   usePreviewPlugins();
+  const { theme } = useTheme();
+  const isDark =
+    theme === "dark" ||
+    (theme === "system" &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const resolvedTheme = isDark ? "dark" : "light";
   const controllerRef = useRef<PreviewZoomController | null>(null);
   const [scale, setScale] = useState<number>(1);
 
@@ -256,6 +264,7 @@ export function UnifiedPreviewModal({
               onScaleChange={setScale}
               controllerRef={controllerRef}
               api={hostApi}
+              theme={resolvedTheme}
             />
           </PluginErrorBoundary>
         )}

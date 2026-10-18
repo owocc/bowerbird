@@ -135,7 +135,7 @@ function renderInlineMarkdown(text, onLinkClick) {
 	}
 	return nodes;
 }
-function MarkdownRenderer({ body, onLinkClick }) {
+function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 	const [copiedIndex, setCopiedIndex] = useState(null);
 	const lines = useMemo(() => body.split("\n"), [body]);
 	const elements = [];
@@ -164,8 +164,8 @@ function MarkdownRenderer({ body, onLinkClick }) {
 					margin: "1rem 0",
 					borderRadius: "8px",
 					overflow: "hidden",
-					border: "1px solid rgba(255, 255, 255, 0.1)",
-					background: "rgba(18, 18, 22, 0.8)"
+					border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
+					background: isDark ? "rgba(18, 18, 22, 0.8)" : "#f8fafc"
 				},
 				children: [/* @__PURE__ */ jsxs("div", {
 					style: {
@@ -173,10 +173,10 @@ function MarkdownRenderer({ body, onLinkClick }) {
 						alignItems: "center",
 						justifyContent: "space-between",
 						padding: "0.4rem 0.8rem",
-						background: "rgba(255, 255, 255, 0.04)",
-						borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+						background: isDark ? "rgba(255, 255, 255, 0.04)" : "#f1f5f9",
+						borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
 						fontSize: "0.75rem",
-						color: "#94a3b8",
+						color: isDark ? "#94a3b8" : "#64748b",
 						fontFamily: "monospace"
 					},
 					children: [/* @__PURE__ */ jsx("span", { children: lang }), /* @__PURE__ */ jsx("button", {
@@ -385,7 +385,8 @@ function MarkdownRenderer({ body, onLinkClick }) {
 	}
 	return /* @__PURE__ */ jsx("div", { children: elements });
 }
-function MarkdownViewport({ item, scale, controllerRef, api }) {
+function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme }) {
+	const isDark = usePluginTheme(propTheme, api) === "dark";
 	const [text, setText] = useState("");
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
@@ -449,8 +450,8 @@ function MarkdownViewport({ item, scale, controllerRef, api }) {
 			flexDirection: "column",
 			height: "100%",
 			width: "100%",
-			background: "#0c0d11",
-			color: "#f1f5f9",
+			background: isDark ? "#0c0d11" : "#ffffff",
+			color: isDark ? "#f1f5f9" : "#1e293b",
 			overflow: "hidden",
 			position: "relative"
 		},
@@ -460,10 +461,10 @@ function MarkdownViewport({ item, scale, controllerRef, api }) {
 				alignItems: "center",
 				justifyContent: "space-between",
 				padding: "0.5rem 1rem",
-				background: "rgba(255, 255, 255, 0.03)",
-				borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+				background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
+				borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
 				fontSize: "0.75rem",
-				color: "#94a3b8",
+				color: isDark ? "#94a3b8" : "#64748b",
 				userSelect: "none"
 			},
 			children: [/* @__PURE__ */ jsxs("div", {
@@ -476,7 +477,7 @@ function MarkdownViewport({ item, scale, controllerRef, api }) {
 					/* @__PURE__ */ jsx("span", {
 						style: {
 							fontWeight: 600,
-							color: "#f8fafc"
+							color: isDark ? "#f8fafc" : "#0f172a"
 						},
 						children: item.name
 					}),
@@ -672,14 +673,58 @@ function MarkdownViewport({ item, scale, controllerRef, api }) {
 						]
 					}), /* @__PURE__ */ jsx(MarkdownRenderer, {
 						body,
-						onLinkClick: handleLinkClick
+						onLinkClick: handleLinkClick,
+						isDark
 					})] })
 				})
 			})]
 		})]
 	});
 }
-function MarkdownInspectorPreview({ item, api }) {
+function usePluginTheme(propTheme, api) {
+	const [theme, setTheme] = useState(() => {
+		if (api?.getTheme) return api.getTheme();
+		if (typeof document !== "undefined") return document.documentElement.classList.contains("dark") ? "dark" : "light";
+		return "dark";
+	});
+	useEffect(() => {
+		if (propTheme) {
+			setTheme(propTheme);
+			return;
+		}
+		if (api?.subscribeTheme) return api.subscribeTheme((t) => setTheme(t));
+		if (typeof window !== "undefined" && typeof MutationObserver !== "undefined") {
+			const observer = new MutationObserver(() => {
+				const isDark = document.documentElement.classList.contains("dark");
+				setTheme(isDark ? "dark" : "light");
+			});
+			observer.observe(document.documentElement, {
+				attributes: true,
+				attributeFilter: ["class"]
+			});
+			return () => observer.disconnect();
+		}
+	}, [propTheme, api]);
+	return theme;
+}
+function stripMarkdown(raw) {
+	return raw.replace(/^---[\s\S]*?---\s*/m, "").replace(/^#+\s+/gm, "").replace(/```[\s\S]*?```/g, "").replace(/`([^`]+)`/g, "$1").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/\*([^*]+)\*/g, "$1").replace(/~~([^~]+)~~/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/!\[([^\]]*)\]\([^)]+\)/g, "").replace(/^>\s*/gm, "").replace(/^[-*+]\s+/gm, "").replace(/^\d+\.\s+/gm, "").replace(/<[^>]+>/g, "").replace(/\r\n/g, "\n").replace(/\n{2,}/g, " ").replace(/\s+/g, " ").trim();
+}
+function extractDocumentTitle(text, fallback) {
+	const { frontmatter, body } = parseFrontmatterAndBody(text);
+	if (frontmatter?.title && typeof frontmatter.title === "string") return frontmatter.title;
+	const lines = body.split("\n");
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (trimmed.startsWith("# ")) return trimmed.replace(/^#\s+/, "").trim();
+		if (trimmed.startsWith("## ")) return trimmed.replace(/^##\s+/, "").trim();
+	}
+	return fallback;
+}
+function MarkdownInspectorPreview({ item, api, theme: propTheme, onOpenPreview, onDragStart }) {
+	const isDark = usePluginTheme(propTheme, api) === "dark";
+	const [loading, setLoading] = useState(true);
+	const [docTitle, setDocTitle] = useState(item.name);
 	const [snippet, setSnippet] = useState("");
 	const [stats, setStats] = useState({
 		words: 0,
@@ -689,31 +734,56 @@ function MarkdownInspectorPreview({ item, api }) {
 		let active = true;
 		const fetchSnippet = async () => {
 			try {
+				setLoading(true);
 				const fileHandle = api.getOriginalFile();
 				const text = fileHandle.fetchText ? await fileHandle.fetchText() : await (await fileHandle.fetchBlob()).text();
 				if (active) {
+					const title = extractDocumentTitle(text, item.name);
+					const clean = stripMarkdown(text);
 					const lines = text.split("\n");
 					const words = text.trim().split(/\s+/).filter(Boolean).length;
+					setDocTitle(title);
+					setSnippet(clean.slice(0, 160));
 					setStats({
 						words,
 						lines: lines.length
 					});
-					setSnippet(lines.slice(0, 8).join("\n"));
+					setLoading(false);
 				}
-			} catch {}
+			} catch {
+				if (active) setLoading(false);
+			}
 		};
 		fetchSnippet();
 		return () => {
 			active = false;
 		};
-	}, [item.id, api]);
+	}, [
+		item.id,
+		api,
+		item.name
+	]);
+	const ext = (item.extension || "md").toUpperCase();
 	return /* @__PURE__ */ jsxs("div", {
+		onDoubleClick: onOpenPreview,
+		onClick: onOpenPreview,
+		onDragStart,
+		draggable: Boolean(onDragStart),
+		title: "双击全屏预览",
 		style: {
-			padding: "0.85rem",
-			background: "rgba(255, 255, 255, 0.02)",
-			borderRadius: "8px",
-			border: "1px solid rgba(255, 255, 255, 0.08)",
-			fontSize: "0.8rem"
+			width: "100%",
+			borderRadius: "10px",
+			background: isDark ? "linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.015) 100%)" : "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+			border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(0, 0, 0, 0.08)",
+			boxShadow: isDark ? "0 2px 8px rgba(0, 0, 0, 0.25)" : "0 1px 3px rgba(0, 0, 0, 0.05)",
+			padding: "0.75rem 0.85rem",
+			cursor: "pointer",
+			userSelect: "none",
+			transition: "all 0.15s ease",
+			display: "flex",
+			flexDirection: "column",
+			gap: "0.5rem",
+			boxSizing: "border-box"
 		},
 		children: [
 			/* @__PURE__ */ jsxs("div", {
@@ -721,79 +791,180 @@ function MarkdownInspectorPreview({ item, api }) {
 					display: "flex",
 					alignItems: "center",
 					justifyContent: "space-between",
-					marginBottom: "0.5rem"
+					fontSize: "0.7rem"
 				},
-				children: [/* @__PURE__ */ jsx("span", {
+				children: [/* @__PURE__ */ jsxs("div", {
 					style: {
-						fontWeight: 600,
-						textTransform: "uppercase",
-						fontSize: "0.7rem",
-						color: "#818cf8",
-						letterSpacing: "0.05em"
-					},
-					children: "Markdown Document"
-				}), /* @__PURE__ */ jsxs("span", {
-					style: {
-						color: "#64748b",
-						fontSize: "0.75rem"
+						display: "flex",
+						alignItems: "center",
+						gap: "0.4rem"
 					},
 					children: [
-						stats.words,
-						" words • ",
-						stats.lines,
-						" lines"
+						/* @__PURE__ */ jsx("div", {
+							style: {
+								width: "20px",
+								height: "20px",
+								borderRadius: "5px",
+								background: isDark ? "rgba(99, 102, 241, 0.15)" : "#eef2ff",
+								color: isDark ? "#818cf8" : "#4f46e5",
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								flexShrink: 0
+							},
+							children: /* @__PURE__ */ jsxs("svg", {
+								width: "12",
+								height: "12",
+								viewBox: "0 0 24 24",
+								fill: "none",
+								stroke: "currentColor",
+								strokeWidth: "2.2",
+								strokeLinecap: "round",
+								strokeLinejoin: "round",
+								children: [
+									/* @__PURE__ */ jsx("path", { d: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" }),
+									/* @__PURE__ */ jsx("polyline", { points: "14 2 14 8 20 8" }),
+									/* @__PURE__ */ jsx("line", {
+										x1: "16",
+										y1: "13",
+										x2: "8",
+										y2: "13"
+									}),
+									/* @__PURE__ */ jsx("line", {
+										x1: "16",
+										y1: "17",
+										x2: "8",
+										y2: "17"
+									}),
+									/* @__PURE__ */ jsx("polyline", { points: "10 9 9 9 8 9" })
+								]
+							})
+						}),
+						/* @__PURE__ */ jsx("span", {
+							style: {
+								fontWeight: 600,
+								fontSize: "0.72rem",
+								color: isDark ? "#e2e8f0" : "#1e293b",
+								letterSpacing: "0.02em"
+							},
+							children: "Markdown"
+						}),
+						/* @__PURE__ */ jsxs("span", {
+							style: {
+								fontSize: "0.65rem",
+								padding: "1px 5px",
+								borderRadius: "4px",
+								background: isDark ? "rgba(255, 255, 255, 0.08)" : "#f1f5f9",
+								color: isDark ? "#94a3b8" : "#64748b",
+								fontFamily: "ui-monospace, monospace"
+							},
+							children: [".", ext.toLowerCase()]
+						})
 					]
+				}), /* @__PURE__ */ jsx("span", {
+					style: {
+						fontSize: "0.68rem",
+						color: isDark ? "#64748b" : "#94a3b8",
+						display: "flex",
+						alignItems: "center",
+						gap: "0.3rem"
+					},
+					children: loading ? "..." : `${stats.words.toLocaleString()} 字 · ${stats.lines} 行`
 				})]
 			}),
-			/* @__PURE__ */ jsx("pre", {
+			/* @__PURE__ */ jsx("div", {
 				style: {
-					margin: "0.5rem 0",
-					padding: "0.6rem",
-					background: "rgba(0, 0, 0, 0.3)",
-					borderRadius: "6px",
-					color: "#94a3b8",
-					fontSize: "0.75rem",
-					fontFamily: "monospace",
+					fontWeight: 600,
+					fontSize: "0.8rem",
+					color: isDark ? "#f8fafc" : "#0f172a",
 					overflow: "hidden",
-					lineHeight: 1.4,
-					maxHeight: "130px",
-					maskImage: "linear-gradient(to bottom, black 70%, transparent 100%)",
-					WebkitMaskImage: "linear-gradient(to bottom, black 70%, transparent 100%)"
+					textOverflow: "ellipsis",
+					whiteSpace: "nowrap",
+					lineHeight: "1.3"
 				},
-				children: snippet || "Loading preview..."
+				title: docTitle,
+				children: docTitle
+			}),
+			/* @__PURE__ */ jsx("div", {
+				style: {
+					fontSize: "0.72rem",
+					lineHeight: "1.45",
+					color: isDark ? "#94a3b8" : "#475569",
+					minHeight: "44px",
+					maxHeight: "56px",
+					overflow: "hidden",
+					display: "-webkit-box",
+					WebkitLineClamp: 3,
+					WebkitBoxOrient: "vertical",
+					wordBreak: "break-word",
+					fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+				},
+				children: loading ? /* @__PURE__ */ jsx("span", {
+					style: { color: isDark ? "#475569" : "#94a3b8" },
+					children: "正在加载文档..."
+				}) : snippet ? snippet : /* @__PURE__ */ jsx("span", {
+					style: {
+						fontStyle: "italic",
+						color: isDark ? "#475569" : "#94a3b8"
+					},
+					children: "(空文档)"
+				})
 			}),
 			/* @__PURE__ */ jsxs("div", {
 				style: {
 					display: "flex",
-					gap: "0.5rem",
-					marginTop: "0.75rem"
+					alignItems: "center",
+					justifyContent: "space-between",
+					paddingTop: "0.35rem",
+					borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.06)" : "1px solid rgba(0, 0, 0, 0.05)",
+					fontSize: "0.68rem"
 				},
-				children: [/* @__PURE__ */ jsx("button", {
-					onClick: () => api.openWithDefaultApp(),
+				children: [/* @__PURE__ */ jsx("span", {
 					style: {
-						flex: 1,
-						padding: "0.35rem 0.5rem",
-						background: "rgba(255, 255, 255, 0.06)",
-						border: "1px solid rgba(255, 255, 255, 0.1)",
-						borderRadius: "5px",
-						color: "#e2e8f0",
-						fontSize: "0.75rem",
-						cursor: "pointer"
+						color: isDark ? "#6366f1" : "#4f46e5",
+						fontWeight: 500
 					},
-					children: "Edit"
-				}), /* @__PURE__ */ jsx("button", {
-					onClick: () => api.revealInFinder(),
+					children: "双击全屏预览"
+				}), /* @__PURE__ */ jsxs("div", {
 					style: {
-						flex: 1,
-						padding: "0.35rem 0.5rem",
-						background: "rgba(255, 255, 255, 0.06)",
-						border: "1px solid rgba(255, 255, 255, 0.1)",
-						borderRadius: "5px",
-						color: "#e2e8f0",
-						fontSize: "0.75rem",
-						cursor: "pointer"
+						display: "flex",
+						gap: "0.35rem"
 					},
-					children: "Reveal"
+					children: [/* @__PURE__ */ jsx("button", {
+						type: "button",
+						onClick: (e) => {
+							e.stopPropagation();
+							api.openWithDefaultApp();
+						},
+						title: "用系统默认应用打开",
+						style: {
+							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
+							border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+							color: isDark ? "#cbd5e1" : "#475569",
+							borderRadius: "4px",
+							padding: "2px 6px",
+							fontSize: "0.68rem",
+							cursor: "pointer"
+						},
+						children: "编辑"
+					}), /* @__PURE__ */ jsx("button", {
+						type: "button",
+						onClick: (e) => {
+							e.stopPropagation();
+							api.revealInFinder();
+						},
+						title: "在访达中显示",
+						style: {
+							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#f1f5f9",
+							border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+							color: isDark ? "#cbd5e1" : "#475569",
+							borderRadius: "4px",
+							padding: "2px 6px",
+							fontSize: "0.68rem",
+							cursor: "pointer"
+						},
+						children: "定位"
+					})]
 				})]
 			})
 		]

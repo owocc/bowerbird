@@ -41,6 +41,7 @@ import {
   createPreviewPluginHostAPI,
 } from "@/plugins/preview/registry";
 import { PluginErrorBoundary } from "@/components/PluginErrorBoundary";
+import { useTheme } from "@/components/theme-provider";
 import type {
   Item,
   Folder,
@@ -101,6 +102,13 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
   usePreviewPlugins();
+  const { theme } = useTheme();
+  const isDark =
+    theme === "dark" ||
+    (theme === "system" &&
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const resolvedTheme = isDark ? "dark" : "light";
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -315,7 +323,12 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
         <div className="w-full flex items-center justify-center">
           {PluginInspectorPreview && (
             <PluginErrorBoundary pluginId={plugin.id} pluginName={plugin.name}>
-              <PluginInspectorPreview item={item} onOpenPreview={onPreview} api={hostApi} />
+              <PluginInspectorPreview
+                item={item}
+                onOpenPreview={onPreview}
+                api={hostApi}
+                theme={resolvedTheme}
+              />
             </PluginErrorBoundary>
           )}
         </div>
