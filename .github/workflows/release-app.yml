@@ -91,10 +91,11 @@ jobs:
           version: 9
 
       - name: Install NSIS
+        shell: pwsh
         run: |
           choco install nsis -y
-          echo "C:\Program Files (x86)\NSIS" >> $GITHUB_PATH
-          echo "C:\Program Files\NSIS" >> $GITHUB_PATH
+          "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "C:\Program Files\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Install Tools
         shell: pwsh
         run: |
@@ -112,6 +113,7 @@ jobs:
       - name: Build and Package Windows Installer
         shell: pwsh
         run: |
+          $env:PATH = "C:\Program Files (x86)\NSIS;C:\Program Files\NSIS;$env:PATH"
           wails3 task windows:package ARCH=amd64
 
       - name: Prepare Windows Artifacts
