@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function marketplaceApiPlugin() {
+function marketplaceApiPlugin(loadedEnv: Record<string, string>) {
   return {
     name: "marketplace-api-middleware",
     configureServer(server: any) {
@@ -26,6 +26,7 @@ function marketplaceApiPlugin() {
             headers.set(key, val as string);
           }
         }
+
         let body: Uint8Array | null = null;
         if (req.method !== "GET" && req.method !== "HEAD") {
           const chunks: any[] = [];
@@ -43,7 +44,7 @@ function marketplaceApiPlugin() {
 
         try {
           const { handlePluginApiRequest } = await server.ssrLoadModule("./src/lib/server-api.ts");
-          const webResponse = await handlePluginApiRequest(webRequest);
+          const webResponse = await handlePluginApiRequest(webRequest, loadedEnv);
 
           res.statusCode = webResponse.status;
           webResponse.headers.forEach((val: string, key: string) => {
@@ -62,20 +63,25 @@ function marketplaceApiPlugin() {
   };
 }
 
-export default defineConfig({
-  plugins: [
-    tailwindcss(),
-    tanstackStart(),
-    viteReact(),
-    marketplaceApiPlugin(),
-  ],
-  resolve: {
-    alias: {
-      "~": path.resolve(__dirname, "./src"),
-      "@": path.resolve(__dirname, "./src"),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  Object.assign(process.env, env);
+
+  return {
+    plugins: [
+      tailwindcss(),
+      tanstackStart(),
+      viteReact(),
+      marketplaceApiPlugin(env),
+    ],
+    resolve: {
+      alias: {
+        "~": path.resolve(__dirname, "./src"),
+        "@": path.resolve(__dirname, "./src"),
+      },
     },
-  },
-  server: {
-    port: 3000,
-  },
+    server: {
+      port: 3000,
+    },
+  };
 });
