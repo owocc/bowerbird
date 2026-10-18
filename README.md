@@ -145,7 +145,7 @@ Bowerbird enforces a strict physical separation between **User Libraries** and *
    - **`main` Branch**: Contains compact index metadata (`index.min.json`, `registry.json`, `repo/<id>/manifest.json`, `repo/<id>/index.js`).
    - **GitHub Releases**: Contains pre-packaged release zip bundles (`<plugin-id>-v<version>.zip`).
 3. **Marketplace & Edge Resolution**:
-   - The plugin store (`web/`) reads metadata from `PLUGIN_REPO_INDEX_URL`.
+   - The plugin store (`apps/marketplace/`) reads metadata from `PLUGIN_REPO_INDEX_URL`.
    - Release downloads directly route to `PLUGIN_RELEASE_BASE_URL` without intermediate proxying.
 4. **In-App Data Management**:
    - The Settings panel includes a dedicated **Data & Storage** section with one-click shortcuts to reveal the **Plugins Directory** and **Application Data Directory** in the native OS file manager (Finder / Explorer).

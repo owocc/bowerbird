@@ -20,3 +20,5 @@ extension/.wxt
 .env
 .env.local
 .env.*.local
+.wrangler/
+**/.wrangler/

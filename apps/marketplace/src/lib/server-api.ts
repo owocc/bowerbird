@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import { INITIAL_OFFICIAL_PLUGINS } from "../data/plugins";
 
 export interface PluginIndexItem {
   id: string;
@@ -115,7 +116,7 @@ export async function fetchPluginRegistry(env?: Record<string, string | undefine
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    plugins: [],
+    plugins: INITIAL_OFFICIAL_PLUGINS as PluginIndexItem[],
   };
 }
 

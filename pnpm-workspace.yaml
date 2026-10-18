@@ -2,5 +2,8 @@ packages:
   - "packages/*"
   - "frontend"
   - "extension"
-  - "web"
+  - "apps/*"
   - "plugins/*"
+allowBuilds:
+  esbuild: true
+  workerd: true
