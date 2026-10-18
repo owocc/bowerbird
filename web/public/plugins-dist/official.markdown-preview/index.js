@@ -62,7 +62,7 @@ function extractOutline(text) {
 	}
 	return outline;
 }
-function renderInlineMarkdown(text, onLinkClick) {
+function renderInlineMarkdown(text, onLinkClick, isDark = true) {
 	const nodes = [];
 	let remaining = text;
 	let keyIdx = 0;
@@ -75,8 +75,9 @@ function renderInlineMarkdown(text, onLinkClick) {
 					fontSize: "0.875em",
 					padding: "0.15em 0.35em",
 					borderRadius: "4px",
-					background: "rgba(120, 120, 140, 0.15)",
-					color: "#e06c75"
+					background: isDark ? "rgba(120, 120, 140, 0.15)" : "#f1f5f9",
+					border: isDark ? "none" : "1px solid #e2e8f0",
+					color: isDark ? "#e06c75" : "#b91c1c"
 				},
 				children: codeMatch[1]
 			}, `code-${keyIdx++}`));
@@ -85,7 +86,10 @@ function renderInlineMarkdown(text, onLinkClick) {
 		}
 		const boldMatch = remaining.match(/^\*\*([^*]+)\*\*/);
 		if (boldMatch) {
-			nodes.push(/* @__PURE__ */ jsx("strong", { children: boldMatch[1] }, `bold-${keyIdx++}`));
+			nodes.push(/* @__PURE__ */ jsx("strong", {
+				style: { color: isDark ? "#f8fafc" : "#000000" },
+				children: boldMatch[1]
+			}, `bold-${keyIdx++}`));
 			remaining = remaining.slice(boldMatch[0].length);
 			continue;
 		}
@@ -111,7 +115,7 @@ function renderInlineMarkdown(text, onLinkClick) {
 					onLinkClick?.(url);
 				},
 				style: {
-					color: "#60a5fa",
+					color: isDark ? "#60a5fa" : "#2563eb",
 					textDecoration: "underline",
 					textUnderlineOffset: "3px",
 					cursor: "pointer"
@@ -204,7 +208,7 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 						fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 						fontSize: "0.85rem",
 						lineHeight: 1.5,
-						color: "#e2e8f0"
+						color: isDark ? "#e2e8f0" : "#000000"
 					},
 					children: /* @__PURE__ */ jsx("code", { children: fullCode })
 				})]
@@ -232,11 +236,11 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 					marginTop: level === 1 ? "1.5rem" : "1.25rem",
 					marginBottom: "0.5rem",
 					paddingBottom: level <= 2 ? "0.3rem" : void 0,
-					borderBottom: level <= 2 ? "1px solid rgba(255, 255, 255, 0.1)" : void 0,
-					color: "#f8fafc",
+					borderBottom: level <= 2 ? isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0" : void 0,
+					color: isDark ? "#f8fafc" : "#000000",
 					scrollMarginTop: "2rem"
 				},
-				children: renderInlineMarkdown(text, onLinkClick)
+				children: renderInlineMarkdown(text, onLinkClick, isDark)
 			}, `heading-${blockKey++}`));
 			i++;
 			continue;
@@ -244,8 +248,7 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 		if (/^(\*{3,}|-{3,}|_{3,})$/.test(trimmed)) {
 			elements.push(/* @__PURE__ */ jsx("hr", { style: {
 				border: "none",
-				borderTop: "1px solid rgba(255, 255, 255, 0.12)",
-				margin: "1.5rem 0"
+				borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #e2e8f0"
 			} }, `hr-${blockKey++}`));
 			i++;
 			continue;
@@ -260,15 +263,18 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 				style: {
 					margin: "0.75rem 0",
 					padding: "0.5rem 1rem",
-					borderLeft: "4px solid #6366f1",
-					background: "rgba(99, 102, 241, 0.08)",
+					borderLeft: `4px solid ${isDark ? "#6366f1" : "#4f46e5"}`,
+					background: isDark ? "rgba(99, 102, 241, 0.08)" : "#f8fafc",
 					borderRadius: "0 6px 6px 0",
-					color: "#cbd5e1",
+					color: isDark ? "#cbd5e1" : "#000000",
 					fontStyle: "italic"
 				},
 				children: quoteLines.map((ql, qIdx) => /* @__PURE__ */ jsx("p", {
-					style: { margin: "0.25rem 0" },
-					children: renderInlineMarkdown(ql, onLinkClick)
+					style: {
+						margin: "0.25rem 0",
+						color: isDark ? "#cbd5e1" : "#000000"
+					},
+					children: renderInlineMarkdown(ql, onLinkClick, isDark)
 				}, qIdx))
 			}, `quote-${blockKey++}`));
 			continue;
@@ -287,7 +293,7 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 						margin: "1rem 0",
 						overflowX: "auto",
 						borderRadius: "6px",
-						border: "1px solid rgba(255, 255, 255, 0.1)"
+						border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0"
 					},
 					children: /* @__PURE__ */ jsxs("table", {
 						style: {
@@ -297,27 +303,27 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 							textAlign: "left"
 						},
 						children: [/* @__PURE__ */ jsx("thead", { children: /* @__PURE__ */ jsx("tr", {
-							style: { background: "rgba(255, 255, 255, 0.05)" },
+							style: { background: isDark ? "rgba(255, 255, 255, 0.05)" : "#f8fafc" },
 							children: headerRow.map((h, hIdx) => /* @__PURE__ */ jsx("th", {
 								style: {
 									padding: "0.6rem 0.8rem",
-									borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+									borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
 									fontWeight: 600,
-									color: "#f1f5f9"
+									color: isDark ? "#f1f5f9" : "#000000"
 								},
-								children: renderInlineMarkdown(h, onLinkClick)
+								children: renderInlineMarkdown(h, onLinkClick, isDark)
 							}, hIdx))
 						}) }), /* @__PURE__ */ jsx("tbody", { children: bodyRows.map((row, rIdx) => /* @__PURE__ */ jsx("tr", {
 							style: {
-								borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
-								background: rIdx % 2 === 1 ? "rgba(255, 255, 255, 0.02)" : "transparent"
+								borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.05)" : "1px solid #f1f5f9",
+								background: rIdx % 2 === 1 ? isDark ? "rgba(255, 255, 255, 0.02)" : "#f8fafc" : "transparent"
 							},
 							children: row.map((cell, cIdx) => /* @__PURE__ */ jsx("td", {
 								style: {
 									padding: "0.5rem 0.8rem",
-									color: "#cbd5e1"
+									color: isDark ? "#cbd5e1" : "#000000"
 								},
-								children: renderInlineMarkdown(cell, onLinkClick)
+								children: renderInlineMarkdown(cell, onLinkClick, isDark)
 							}, cIdx))
 						}, rIdx)) })]
 					})
@@ -344,7 +350,7 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 				style: {
 					margin: "0.5rem 0",
 					paddingLeft: "1.5rem",
-					color: "#e2e8f0",
+					color: isDark ? "#e2e8f0" : "#000000",
 					lineHeight: 1.6
 				},
 				children: listItems.map((li, liIdx) => /* @__PURE__ */ jsxs("li", {
@@ -353,7 +359,8 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 						marginLeft: li.isTask ? "-1.2rem" : void 0,
 						display: li.isTask ? "flex" : void 0,
 						alignItems: li.isTask ? "center" : void 0,
-						gap: li.isTask ? "0.5rem" : void 0
+						gap: li.isTask ? "0.5rem" : void 0,
+						color: isDark ? "#e2e8f0" : "#000000"
 					},
 					children: [li.isTask && /* @__PURE__ */ jsx("input", {
 						type: "checkbox",
@@ -363,7 +370,7 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 							accentColor: "#6366f1",
 							cursor: "default"
 						}
-					}), /* @__PURE__ */ jsx("span", { children: renderInlineMarkdown(li.text, onLinkClick) })]
+					}), /* @__PURE__ */ jsx("span", { children: renderInlineMarkdown(li.text, onLinkClick, isDark) })]
 				}, liIdx))
 			}, `list-${blockKey++}`));
 			continue;
@@ -377,10 +384,10 @@ function MarkdownRenderer({ body, onLinkClick, isDark = true }) {
 			style: {
 				margin: "0.6rem 0",
 				lineHeight: 1.7,
-				color: "#e2e8f0",
+				color: isDark ? "#e2e8f0" : "#000000",
 				fontSize: "0.95rem"
 			},
-			children: renderInlineMarkdown(paraLines.join(" "), onLinkClick)
+			children: renderInlineMarkdown(paraLines.join(" "), onLinkClick, isDark)
 		}, `p-${blockKey++}`));
 	}
 	return /* @__PURE__ */ jsx("div", { children: elements });
@@ -451,7 +458,7 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 			height: "100%",
 			width: "100%",
 			background: isDark ? "#0c0d11" : "#ffffff",
-			color: isDark ? "#f1f5f9" : "#1e293b",
+			color: isDark ? "#f1f5f9" : "#000000",
 			overflow: "hidden",
 			position: "relative"
 		},
@@ -464,7 +471,7 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 				background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
 				borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
 				fontSize: "0.75rem",
-				color: isDark ? "#94a3b8" : "#64748b",
+				color: isDark ? "#94a3b8" : "#4b5563",
 				userSelect: "none"
 			},
 			children: [/* @__PURE__ */ jsxs("div", {
@@ -477,7 +484,7 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 					/* @__PURE__ */ jsx("span", {
 						style: {
 							fontWeight: 600,
-							color: isDark ? "#f8fafc" : "#0f172a"
+							color: isDark ? "#f8fafc" : "#000000"
 						},
 						children: item.name
 					}),
@@ -500,9 +507,9 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 					outline.length > 0 && /* @__PURE__ */ jsxs("button", {
 						onClick: () => setShowOutline(!showOutline),
 						style: {
-							background: showOutline ? "rgba(99, 102, 241, 0.2)" : "rgba(255, 255, 255, 0.06)",
-							border: "1px solid rgba(255, 255, 255, 0.1)",
-							color: showOutline ? "#a5b4fc" : "#cbd5e1",
+							background: isDark ? showOutline ? "rgba(99, 102, 241, 0.2)" : "rgba(255, 255, 255, 0.06)" : showOutline ? "#e0e7ff" : "#ffffff",
+							border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
+							color: isDark ? showOutline ? "#a5b4fc" : "#cbd5e1" : showOutline ? "#3730a3" : "#000000",
 							padding: "3px 8px",
 							borderRadius: "5px",
 							cursor: "pointer",
@@ -517,9 +524,9 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 					/* @__PURE__ */ jsx("button", {
 						onClick: () => api.openWithDefaultApp(),
 						style: {
-							background: "rgba(255, 255, 255, 0.06)",
-							border: "1px solid rgba(255, 255, 255, 0.1)",
-							color: "#cbd5e1",
+							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+							border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
+							color: isDark ? "#cbd5e1" : "#000000",
 							padding: "3px 8px",
 							borderRadius: "5px",
 							cursor: "pointer",
@@ -530,9 +537,9 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 					/* @__PURE__ */ jsx("button", {
 						onClick: () => api.revealInFinder(),
 						style: {
-							background: "rgba(255, 255, 255, 0.06)",
-							border: "1px solid rgba(255, 255, 255, 0.1)",
-							color: "#cbd5e1",
+							background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+							border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
+							color: isDark ? "#cbd5e1" : "#000000",
 							padding: "3px 8px",
 							borderRadius: "5px",
 							cursor: "pointer",
@@ -551,8 +558,8 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 			children: [showOutline && outline.length > 0 && /* @__PURE__ */ jsxs("div", {
 				style: {
 					width: "240px",
-					borderRight: "1px solid rgba(255, 255, 255, 0.08)",
-					background: "rgba(15, 17, 23, 0.95)",
+					borderRight: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+					background: isDark ? "rgba(15, 17, 23, 0.95)" : "#f8fafc",
 					overflowY: "auto",
 					padding: "1rem",
 					fontSize: "0.8rem"
@@ -560,7 +567,7 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 				children: [/* @__PURE__ */ jsx("div", {
 					style: {
 						fontWeight: 600,
-						color: "#94a3b8",
+						color: isDark ? "#94a3b8" : "#4b5563",
 						textTransform: "uppercase",
 						letterSpacing: "0.05em",
 						marginBottom: "0.75rem",
@@ -577,7 +584,7 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 						display: "block",
 						padding: "0.25rem 0",
 						paddingLeft: `${(o.level - 1) * .75}rem`,
-						color: "#cbd5e1",
+						color: isDark ? "#cbd5e1" : "#000000",
 						textDecoration: "none",
 						whiteSpace: "nowrap",
 						overflow: "hidden",
@@ -622,8 +629,8 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 							marginBottom: "1.5rem",
 							padding: "1rem",
 							borderRadius: "8px",
-							background: "rgba(255, 255, 255, 0.03)",
-							border: "1px solid rgba(255, 255, 255, 0.08)",
+							background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
+							border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
 							fontSize: "0.85rem"
 						},
 						children: [
@@ -631,14 +638,14 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 								style: {
 									margin: "0 0 0.5rem 0",
 									fontSize: "1.5rem",
-									color: "#f8fafc"
+									color: isDark ? "#f8fafc" : "#000000"
 								},
 								children: String(frontmatter.title)
 							}),
 							frontmatter.description && /* @__PURE__ */ jsx("p", {
 								style: {
 									margin: "0 0 0.5rem 0",
-									color: "#94a3b8"
+									color: isDark ? "#94a3b8" : "#334155"
 								},
 								children: String(frontmatter.description)
 							}),
@@ -651,11 +658,11 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 								},
 								children: [
 									frontmatter.author && /* @__PURE__ */ jsxs("span", {
-										style: { color: "#64748b" },
+										style: { color: isDark ? "#64748b" : "#4b5563" },
 										children: ["By ", String(frontmatter.author)]
 									}),
 									frontmatter.date && /* @__PURE__ */ jsxs("span", {
-										style: { color: "#64748b" },
+										style: { color: isDark ? "#64748b" : "#4b5563" },
 										children: ["• ", String(frontmatter.date)]
 									}),
 									Array.isArray(frontmatter.tags) && frontmatter.tags.map((t, idx) => /* @__PURE__ */ jsxs("span", {
@@ -682,16 +689,18 @@ function MarkdownViewport({ item, scale, controllerRef, api, theme: propTheme })
 	});
 }
 function usePluginTheme(propTheme, api) {
-	const [theme, setTheme] = useState(() => {
+	const getResolved = () => {
+		if (propTheme) return propTheme;
 		if (api?.getTheme) return api.getTheme();
 		if (typeof document !== "undefined") return document.documentElement.classList.contains("dark") ? "dark" : "light";
-		return "dark";
-	});
+		return "light";
+	};
+	const [theme, setTheme] = useState(getResolved);
 	useEffect(() => {
-		if (propTheme) {
-			setTheme(propTheme);
-			return;
-		}
+		setTheme(getResolved());
+	}, [propTheme]);
+	useEffect(() => {
+		if (propTheme) return;
 		if (api?.subscribeTheme) return api.subscribeTheme((t) => setTheme(t));
 		if (typeof window !== "undefined" && typeof MutationObserver !== "undefined") {
 			const observer = new MutationObserver(() => {

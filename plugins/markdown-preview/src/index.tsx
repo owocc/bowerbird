@@ -86,7 +86,8 @@ function extractOutline(text: string): OutlineItem[] {
 
 function renderInlineMarkdown(
   text: string,
-  onLinkClick?: (url: string) => void
+  onLinkClick?: (url: string) => void,
+  isDark: boolean = true
 ): React.ReactNode[] {
   // Simple inline parser: code, bold, italic, strikethrough, link, image
   const nodes: React.ReactNode[] = [];
@@ -105,8 +106,9 @@ function renderInlineMarkdown(
             fontSize: "0.875em",
             padding: "0.15em 0.35em",
             borderRadius: "4px",
-            background: "rgba(120, 120, 140, 0.15)",
-            color: "#e06c75",
+            background: isDark ? "rgba(120, 120, 140, 0.15)" : "#f1f5f9",
+            border: isDark ? "none" : "1px solid #e2e8f0",
+            color: isDark ? "#e06c75" : "#b91c1c",
           }}
         >
           {codeMatch[1]}
@@ -119,7 +121,14 @@ function renderInlineMarkdown(
     // Bold **text**
     const boldMatch = remaining.match(/^\*\*([^*]+)\*\*/);
     if (boldMatch) {
-      nodes.push(<strong key={`bold-${keyIdx++}`}>{boldMatch[1]}</strong>);
+      nodes.push(
+        <strong
+          key={`bold-${keyIdx++}`}
+          style={{ color: isDark ? "#f8fafc" : "#000000" }}
+        >
+          {boldMatch[1]}
+        </strong>
+      );
       remaining = remaining.slice(boldMatch[0].length);
       continue;
     }
@@ -153,7 +162,7 @@ function renderInlineMarkdown(
             onLinkClick?.(url);
           }}
           style={{
-            color: "#60a5fa",
+            color: isDark ? "#60a5fa" : "#2563eb",
             textDecoration: "underline",
             textUnderlineOffset: "3px",
             cursor: "pointer",
@@ -275,7 +284,7 @@ function MarkdownRenderer({
               fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
               fontSize: "0.85rem",
               lineHeight: 1.5,
-              color: "#e2e8f0",
+              color: isDark ? "#e2e8f0" : "#000000",
             }}
           >
             <code>{fullCode}</code>
@@ -304,12 +313,12 @@ function MarkdownRenderer({
             marginTop: level === 1 ? "1.5rem" : "1.25rem",
             marginBottom: "0.5rem",
             paddingBottom: level <= 2 ? "0.3rem" : undefined,
-            borderBottom: level <= 2 ? "1px solid rgba(255, 255, 255, 0.1)" : undefined,
-            color: "#f8fafc",
+            borderBottom: level <= 2 ? (isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0") : undefined,
+            color: isDark ? "#f8fafc" : "#000000",
             scrollMarginTop: "2rem",
           }}
         >
-          {renderInlineMarkdown(text, onLinkClick)}
+          {renderInlineMarkdown(text, onLinkClick, isDark)}
         </Tag>
       );
       i++;
@@ -323,8 +332,7 @@ function MarkdownRenderer({
           key={`hr-${blockKey++}`}
           style={{
             border: "none",
-            borderTop: "1px solid rgba(255, 255, 255, 0.12)",
-            margin: "1.5rem 0",
+            borderTop: isDark ? "1px solid rgba(255, 255, 255, 0.12)" : "1px solid #e2e8f0",
           }}
         />
       );
@@ -345,16 +353,16 @@ function MarkdownRenderer({
           style={{
             margin: "0.75rem 0",
             padding: "0.5rem 1rem",
-            borderLeft: "4px solid #6366f1",
-            background: "rgba(99, 102, 241, 0.08)",
+            borderLeft: `4px solid ${isDark ? "#6366f1" : "#4f46e5"}`,
+            background: isDark ? "rgba(99, 102, 241, 0.08)" : "#f8fafc",
             borderRadius: "0 6px 6px 0",
-            color: "#cbd5e1",
+            color: isDark ? "#cbd5e1" : "#000000",
             fontStyle: "italic",
           }}
         >
           {quoteLines.map((ql, qIdx) => (
-            <p key={qIdx} style={{ margin: "0.25rem 0" }}>
-              {renderInlineMarkdown(ql, onLinkClick)}
+            <p key={qIdx} style={{ margin: "0.25rem 0", color: isDark ? "#cbd5e1" : "#000000" }}>
+              {renderInlineMarkdown(ql, onLinkClick, isDark)}
             </p>
           ))}
         </blockquote>
@@ -386,7 +394,7 @@ function MarkdownRenderer({
               margin: "1rem 0",
               overflowX: "auto",
               borderRadius: "6px",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
             }}
           >
             <table
@@ -398,18 +406,18 @@ function MarkdownRenderer({
               }}
             >
               <thead>
-                <tr style={{ background: "rgba(255, 255, 255, 0.05)" }}>
+                <tr style={{ background: isDark ? "rgba(255, 255, 255, 0.05)" : "#f8fafc" }}>
                   {headerRow.map((h, hIdx) => (
                     <th
                       key={hIdx}
                       style={{
                         padding: "0.6rem 0.8rem",
-                        borderBottom: "1px solid rgba(255, 255, 255, 0.1)",
+                        borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #e2e8f0",
                         fontWeight: 600,
-                        color: "#f1f5f9",
+                        color: isDark ? "#f1f5f9" : "#000000",
                       }}
                     >
-                      {renderInlineMarkdown(h, onLinkClick)}
+                      {renderInlineMarkdown(h, onLinkClick, isDark)}
                     </th>
                   ))}
                 </tr>
@@ -419,8 +427,8 @@ function MarkdownRenderer({
                   <tr
                     key={rIdx}
                     style={{
-                      borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
-                      background: rIdx % 2 === 1 ? "rgba(255, 255, 255, 0.02)" : "transparent",
+                      borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.05)" : "1px solid #f1f5f9",
+                      background: rIdx % 2 === 1 ? (isDark ? "rgba(255, 255, 255, 0.02)" : "#f8fafc") : "transparent",
                     }}
                   >
                     {row.map((cell, cIdx) => (
@@ -428,10 +436,10 @@ function MarkdownRenderer({
                         key={cIdx}
                         style={{
                           padding: "0.5rem 0.8rem",
-                          color: "#cbd5e1",
+                          color: isDark ? "#cbd5e1" : "#000000",
                         }}
                       >
-                        {renderInlineMarkdown(cell, onLinkClick)}
+                        {renderInlineMarkdown(cell, onLinkClick, isDark)}
                       </td>
                     ))}
                   </tr>
@@ -473,7 +481,7 @@ function MarkdownRenderer({
           style={{
             margin: "0.5rem 0",
             paddingLeft: "1.5rem",
-            color: "#e2e8f0",
+            color: isDark ? "#e2e8f0" : "#000000",
             lineHeight: 1.6,
           }}
         >
@@ -486,6 +494,7 @@ function MarkdownRenderer({
                 display: li.isTask ? "flex" : undefined,
                 alignItems: li.isTask ? "center" : undefined,
                 gap: li.isTask ? "0.5rem" : undefined,
+                color: isDark ? "#e2e8f0" : "#000000",
               }}
             >
               {li.isTask && (
@@ -496,7 +505,7 @@ function MarkdownRenderer({
                   style={{ accentColor: "#6366f1", cursor: "default" }}
                 />
               )}
-              <span>{renderInlineMarkdown(li.text, onLinkClick)}</span>
+              <span>{renderInlineMarkdown(li.text, onLinkClick, isDark)}</span>
             </li>
           ))}
         </ListTag>
@@ -526,11 +535,11 @@ function MarkdownRenderer({
           style={{
             margin: "0.6rem 0",
             lineHeight: 1.7,
-            color: "#e2e8f0",
+            color: isDark ? "#e2e8f0" : "#000000",
             fontSize: "0.95rem",
           }}
         >
-          {renderInlineMarkdown(paraLines.join(" "), onLinkClick)}
+          {renderInlineMarkdown(paraLines.join(" "), onLinkClick, isDark)}
         </p>
       );
     }
@@ -632,7 +641,7 @@ function MarkdownViewport({
         height: "100%",
         width: "100%",
         background: isDark ? "#0c0d11" : "#ffffff",
-        color: isDark ? "#f1f5f9" : "#1e293b",
+        color: isDark ? "#f1f5f9" : "#000000",
         overflow: "hidden",
         position: "relative",
       }}
@@ -647,12 +656,12 @@ function MarkdownViewport({
           background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
           borderBottom: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
           fontSize: "0.75rem",
-          color: isDark ? "#94a3b8" : "#64748b",
+          color: isDark ? "#94a3b8" : "#4b5563",
           userSelect: "none",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <span style={{ fontWeight: 600, color: isDark ? "#f8fafc" : "#0f172a" }}>{item.name}</span>
+          <span style={{ fontWeight: 600, color: isDark ? "#f8fafc" : "#000000" }}>{item.name}</span>
           <span>•</span>
           <span>{stats.words.toLocaleString()} words</span>
           <span>•</span>
@@ -664,9 +673,9 @@ function MarkdownViewport({
             <button
               onClick={() => setShowOutline(!showOutline)}
               style={{
-                background: showOutline ? "rgba(99, 102, 241, 0.2)" : "rgba(255, 255, 255, 0.06)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: showOutline ? "#a5b4fc" : "#cbd5e1",
+                background: isDark ? (showOutline ? "rgba(99, 102, 241, 0.2)" : "rgba(255, 255, 255, 0.06)") : (showOutline ? "#e0e7ff" : "#ffffff"),
+                border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
+                color: isDark ? (showOutline ? "#a5b4fc" : "#cbd5e1") : (showOutline ? "#3730a3" : "#000000"),
                 padding: "3px 8px",
                 borderRadius: "5px",
                 cursor: "pointer",
@@ -679,9 +688,9 @@ function MarkdownViewport({
           <button
             onClick={() => api.openWithDefaultApp()}
             style={{
-              background: "rgba(255, 255, 255, 0.06)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              color: "#cbd5e1",
+              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
+              color: isDark ? "#cbd5e1" : "#000000",
               padding: "3px 8px",
               borderRadius: "5px",
               cursor: "pointer",
@@ -693,9 +702,9 @@ function MarkdownViewport({
           <button
             onClick={() => api.revealInFinder()}
             style={{
-              background: "rgba(255, 255, 255, 0.06)",
-              border: "1px solid rgba(255, 255, 255, 0.1)",
-              color: "#cbd5e1",
+              background: isDark ? "rgba(255, 255, 255, 0.06)" : "#ffffff",
+              border: isDark ? "1px solid rgba(255, 255, 255, 0.1)" : "1px solid #cbd5e1",
+              color: isDark ? "#cbd5e1" : "#000000",
               padding: "3px 8px",
               borderRadius: "5px",
               cursor: "pointer",
@@ -714,8 +723,8 @@ function MarkdownViewport({
           <div
             style={{
               width: "240px",
-              borderRight: "1px solid rgba(255, 255, 255, 0.08)",
-              background: "rgba(15, 17, 23, 0.95)",
+              borderRight: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
+              background: isDark ? "rgba(15, 17, 23, 0.95)" : "#f8fafc",
               overflowY: "auto",
               padding: "1rem",
               fontSize: "0.8rem",
@@ -724,7 +733,7 @@ function MarkdownViewport({
             <div
               style={{
                 fontWeight: 600,
-                color: "#94a3b8",
+                color: isDark ? "#94a3b8" : "#4b5563",
                 textTransform: "uppercase",
                 letterSpacing: "0.05em",
                 marginBottom: "0.75rem",
@@ -745,7 +754,7 @@ function MarkdownViewport({
                   display: "block",
                   padding: "0.25rem 0",
                   paddingLeft: `${(o.level - 1) * 0.75}rem`,
-                  color: "#cbd5e1",
+                  color: isDark ? "#cbd5e1" : "#000000",
                   textDecoration: "none",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
@@ -802,27 +811,27 @@ function MarkdownViewport({
                       marginBottom: "1.5rem",
                       padding: "1rem",
                       borderRadius: "8px",
-                      background: "rgba(255, 255, 255, 0.03)",
-                      border: "1px solid rgba(255, 255, 255, 0.08)",
+                      background: isDark ? "rgba(255, 255, 255, 0.03)" : "#f8fafc",
+                      border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid #e2e8f0",
                       fontSize: "0.85rem",
                     }}
                   >
                     {frontmatter.title && (
-                      <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem", color: "#f8fafc" }}>
+                      <h1 style={{ margin: "0 0 0.5rem 0", fontSize: "1.5rem", color: isDark ? "#f8fafc" : "#000000" }}>
                         {String(frontmatter.title)}
                       </h1>
                     )}
                     {frontmatter.description && (
-                      <p style={{ margin: "0 0 0.5rem 0", color: "#94a3b8" }}>
+                      <p style={{ margin: "0 0 0.5rem 0", color: isDark ? "#94a3b8" : "#334155" }}>
                         {String(frontmatter.description)}
                       </p>
                     )}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.5rem" }}>
                       {frontmatter.author && (
-                        <span style={{ color: "#64748b" }}>By {String(frontmatter.author)}</span>
+                        <span style={{ color: isDark ? "#64748b" : "#4b5563" }}>By {String(frontmatter.author)}</span>
                       )}
                       {frontmatter.date && (
-                        <span style={{ color: "#64748b" }}>• {String(frontmatter.date)}</span>
+                        <span style={{ color: isDark ? "#64748b" : "#4b5563" }}>• {String(frontmatter.date)}</span>
                       )}
                       {Array.isArray(frontmatter.tags) &&
                         frontmatter.tags.map((t, idx) => (
@@ -854,19 +863,23 @@ function MarkdownViewport({
   );
 }
 function usePluginTheme(propTheme?: ThemeMode, api?: PreviewPluginHostAPI): ThemeMode {
-  const [theme, setTheme] = useState<ThemeMode>(() => {
+  const getResolved = (): ThemeMode => {
+    if (propTheme) return propTheme;
     if (api?.getTheme) return api.getTheme();
     if (typeof document !== "undefined") {
       return document.documentElement.classList.contains("dark") ? "dark" : "light";
     }
-    return "dark";
-  });
+    return "light";
+  };
+
+  const [theme, setTheme] = useState<ThemeMode>(getResolved);
 
   useEffect(() => {
-    if (propTheme) {
-      setTheme(propTheme);
-      return;
-    }
+    setTheme(getResolved());
+  }, [propTheme]);
+
+  useEffect(() => {
+    if (propTheme) return;
     if (api?.subscribeTheme) {
       return api.subscribeTheme((t: ThemeMode) => setTheme(t));
     }
