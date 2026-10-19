@@ -187,7 +187,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
                     value={libName}
                     onChange={(e) => setLibName(e.target.value)}
                     placeholder={t("setup.create.namePlaceholder")}
-                    className="text-xs h-9"
+                    className="text-xs"
                   />
                   <span className="text-muted-foreground font-mono text-xs shrink-0">.library</span>
                 </div>
@@ -200,14 +200,13 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
                     readOnly
                     value={parentDir || t("setup.create.noDirectory")}
                     placeholder={t("setup.create.directoryPlaceholder")}
-                    className={`text-xs h-9 font-mono ${!parentDir ? "text-muted-foreground italic" : ""}`}
+                    className={`text-xs font-mono ${!parentDir ? "text-muted-foreground italic" : ""}`}
                   />
                   <Button
                     type="button"
                     variant="outline"
-                    size="sm"
                     onClick={handlePickDirectory}
-                    className="shrink-0 h-9 gap-1.5"
+                    className="shrink-0 gap-1.5"
                   >
                     <Folder className="size-3.5" />
                     <span>{t("setup.create.chooseLocation")}</span>
@@ -223,7 +222,7 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
               )}
             </CardContent>
             <CardFooter className="pt-2 flex justify-end">
-              <Button type="submit" disabled={loading || !parentDir} className="gap-2 text-xs h-9">
+              <Button type="submit" disabled={loading || !parentDir} className="gap-2 text-xs">
                 <span>{loading ? t("setup.create.creating") : t("setup.create.submit")}</span>
                 <ArrowRight className="size-3.5" />
               </Button>
@@ -250,10 +249,9 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
             <Button
               type="button"
               variant="outline"
-              size="sm"
               disabled={loading}
               onClick={handleOpenExisting}
-              className="shrink-0 gap-1.5 text-xs h-9"
+              className="shrink-0 gap-1.5 text-xs"
             >
               <FolderOpen className="size-3.5" />
               <span>{t("setup.open.button")}</span>
