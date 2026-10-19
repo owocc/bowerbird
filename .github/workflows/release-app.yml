@@ -119,7 +119,7 @@ jobs:
       - name: Build Plugins
         run: node scripts/build-plugins.mjs
 
-      - name: Build and Package Windows Installer
+      - name: Build and Package Windows (portable + NSIS installer)
         shell: pwsh
         run: |
           $env:PATH = "C:\Program Files (x86)\NSIS;C:\Program Files\NSIS;$env:PATH"
@@ -128,13 +128,15 @@ jobs:
       - name: Prepare Windows Artifacts
         shell: pwsh
         run: |
-          mkdir -p dist-win
-          if (Test-Path "build/windows/nsis/bowerbird-installer.exe") {
-            cp "build/windows/nsis/bowerbird-installer.exe" "dist-win/bowerbird-windows-x64-installer.exe"
+          $portable  = "bin/bowerbird.exe"
+          $installer = "bin/bowerbird-amd64-installer.exe"
+          foreach ($file in @($portable, $installer)) {
+            if (-not (Test-Path $file)) { throw "Missing build artifact: $file" }
           }
-          if (Test-Path "bin/bowerbird.exe") {
-            cp "bin/bowerbird.exe" "dist-win/bowerbird-windows-x64-portable.exe"
-          }
+          New-Item -ItemType Directory -Force -Path dist-win | Out-Null
+          Copy-Item $installer "dist-win/bowerbird-windows-x64-installer.exe"
+          Copy-Item $portable  "dist-win/bowerbird-windows-x64-portable.exe"
+          Get-ChildItem dist-win | Select-Object Name, Length
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4

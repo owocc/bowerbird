@@ -56,9 +56,12 @@ ManifestDPIAware true
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
 !define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
 !define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}" # Offer to launch the app right away (checkbox checked by default).
+!define MUI_FINISHPAGE_RUN_TEXT "Run ${INFO_PRODUCTNAME}"
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
+!insertmacro MUI_PAGE_COMPONENTS # Let the user decide which shortcuts get created.
 !insertmacro MUI_PAGE_DIRECTORY # In which folder install page.
 !insertmacro MUI_PAGE_INSTFILES # Installing page.
 !insertmacro MUI_PAGE_FINISH # Finished installation page.
@@ -84,7 +87,9 @@ Function .onInit
    !insertmacro wails.checkArchitecture
 FunctionEnd
 
-Section
+Section "${INFO_PRODUCTNAME}" SEC_CORE
+    SectionIn RO # Required: the components page shows it but it cannot be deselected.
+
     !insertmacro wails.setShellContext
 
     !insertmacro wails.webview2runtime
@@ -93,16 +98,25 @@ Section
     
     !insertmacro wails.files
 
-    CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-    CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
-
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
     
     !insertmacro wails.writeUninstaller
 SectionEnd
 
-Section "uninstall" 
+Section "Start Menu shortcut" SEC_START_MENU
+    !insertmacro wails.setShellContext
+
+    CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+SectionEnd
+
+Section /o "Desktop shortcut" SEC_DESKTOP
+    !insertmacro wails.setShellContext
+
+    CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+SectionEnd
+
+Section "-uninstall" 
     !insertmacro wails.setShellContext
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
@@ -117,3 +131,13 @@ Section "uninstall"
 
     !insertmacro wails.deleteUninstaller
 SectionEnd
+
+LangString DESC_SecCore ${LANG_ENGLISH} "The ${INFO_PRODUCTNAME} application files. Required."
+LangString DESC_SecStartMenu ${LANG_ENGLISH} "Add ${INFO_PRODUCTNAME} to the Start Menu."
+LangString DESC_SecDesktop ${LANG_ENGLISH} "Add a ${INFO_PRODUCTNAME} shortcut to the Desktop."
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_CORE} $(DESC_SecCore)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_START_MENU} $(DESC_SecStartMenu)
+    !insertmacro MUI_DESCRIPTION_TEXT ${SEC_DESKTOP} $(DESC_SecDesktop)
+!insertmacro MUI_FUNCTION_DESCRIPTION_END

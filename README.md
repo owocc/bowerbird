@@ -179,3 +179,27 @@ sources — `@bowerbird/plugin-sdk` publishes `dist/` output that only
 
 Without the Vite option, dev fails with
 `Failed to resolve import "@bowerbird/plugin-sdk" from ... Does the file exist?`.
+
+### Windows Installer (NSIS)
+
+`windows:package` produces both the portable executable and an NSIS installer.
+The installer registers the app under *Apps & features*, installs the WebView2
+runtime when it is missing, and asks the user whether to create shortcuts
+(Start Menu on by default, Desktop optional) plus whether to launch the app.
+
+NSIS is a build-time prerequisite and is **not** shipped by `wails3` — without
+`makensis` on `PATH` the `windows:create:nsis:installer` step fails with
+`"makensis": executable file not found in $PATH` / exit status 127.
+Install it with `scoop install nsis` (shim lands on `PATH`), `choco install nsis`
+(append `C:\Program Files (x86)\NSIS` to `PATH`), or `winget install NSIS.NSIS`
+(manual `PATH` entry required).
+
+```bash
+wails3 task windows:package ARCH=amd64
+# -> bin/bowerbird.exe                    portable
+# -> bin/bowerbird-amd64-installer.exe     installer (machine-wide, UAC prompt)
+# windows:package ... INSTALL_SCOPE=user   per-user install in %LOCALAPPDATA%\Programs, no UAC
+```
+
+CI (`.github/workflows/release-app.yml`) publishes both as
+`bowerbird-windows-x64-portable.exe` and `bowerbird-windows-x64-installer.exe`.
