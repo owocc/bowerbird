@@ -1,6 +1,6 @@
 {
   "name": "@bowerbird/plugin-audio-player",
-  "version": "1.0.0-alpha",
+  "version": "1.0.0-alpha-1",
   "description": "Rich Audio player plugin for Bowerbird",
   "type": "module",
   "scripts": {

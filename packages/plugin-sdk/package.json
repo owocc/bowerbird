@@ -1,6 +1,6 @@
 {
   "name": "@bowerbird/plugin-sdk",
-  "version": "1.0.0-alpha",
+  "version": "1.0.0-alpha-1",
   "description": "SDK for authoring Bowerbird preview and metadata plugins",
   "type": "module",
   "main": "./dist/index.js",
