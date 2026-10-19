@@ -16,7 +16,6 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    overscroll-behavior: none;
   }
   /* 全局禁止文本选中。WebKit 不会把 body 上的 user-select 可靠地继承到后代，
      所以必须显式落到每个元素上；需要放行的元素可用 Tailwind 的 select-text
