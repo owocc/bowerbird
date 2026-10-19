@@ -1,0 +1,37 @@
+---
+title: 欢迎查阅 Bowerbird 开发者文档
+description: 学习如何为 Bowerbird 打造高性能富媒体预览插件与元数据透视扩展。
+sidebar:
+  order: 0
+  badge:
+    text: 官方
+    variant: default
+---
+
+**Bowerbird** 是一款面向数字创作者与工程师的现代媒体资源库工作站。通过原生的插件扩展体系，开发者能够为任意文件格式定制专属的交互式深度预览与属性检视能力。
+
+<CardGrid>
+  <Card title="快速起步" icon="ph:rocket-launch" href="/getting-started">
+    5 分钟内搭建插件开发环境，运行第一行插件代码。
+  </Card>
+  <Card title="Plugin SDK 核心" icon="ph:code" href="/plugin-sdk/quickstart">
+    深入了解 `@bowerbird/plugin-sdk` 的类型定义与宿主 API。
+  </Card>
+  <Card title="清单规范 (Manifest)" icon="ph:file-text" href="/plugin-sdk/manifest">
+    学习配置 `manifest.json`，声明支持的文件扩展名与优先级。
+  </Card>
+  <Card title="分发与 1-Click 安装" icon="ph:download-simple" href="/plugin-sdk/distribution">
+    使用 `bowerbird://` 系统协议实现市场一键安装与打包。
+  </Card>
+</CardGrid>
+
+## 为什么选择 Bowerbird 插件架构？
+
+- **极致纯净沙箱**: 插件采用现代 ES Module 打包，宿主通过隔离环境注入安全的宿主 API 与主题上下文。
+- **双端多视口呈现**: 同时支持在主视口（Viewport）进行全屏快速预览，以及在右侧属性检视器（Inspector）提供辅助元数据透视。
+- **格式优先抢占式匹配**: 通过优先权数字（Priority 1~85）与文件扩展名匹配，支持社区插件无缝增强核心预览。
+- **跨平台一键唤起**: 支持通过 `bowerbird://plugin/install` 协议在浏览器或终端中直接触发桌面端安全安装。
+
+<Aside type="tip" title="版本与多语言切换">
+  您可以通过顶部导航栏的版本切换器在 **v1 (最新)** 与 **v0 (历史)** 之间自由切换；也可以在左侧导航栏切换查阅中文与英文双语文档。
+</Aside>

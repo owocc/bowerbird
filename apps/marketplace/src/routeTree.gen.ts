@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as DocsRouteImport } from './routes/docs'
+import { Route as SearchRouteImport } from './routes/search'
+import { Route as CategoryNameRouteImport } from './routes/category.$name'
 import { Route as PluginsPluginIdRouteImport } from './routes/plugins.$pluginId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +25,16 @@ const DocsRoute = DocsRouteImport.update({
   path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SearchRoute = SearchRouteImport.update({
+  id: '/search',
+  path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CategoryNameRoute = CategoryNameRouteImport.update({
+  id: '/category/$name',
+  path: '/category/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PluginsPluginIdRoute = PluginsPluginIdRouteImport.update({
   id: '/plugins/$pluginId',
   path: '/plugins/$pluginId',
@@ -32,30 +44,45 @@ const PluginsPluginIdRoute = PluginsPluginIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/search': typeof SearchRoute
+  '/category/$name': typeof CategoryNameRoute
   '/plugins/$pluginId': typeof PluginsPluginIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/search': typeof SearchRoute
+  '/category/$name': typeof CategoryNameRoute
   '/plugins/$pluginId': typeof PluginsPluginIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/search': typeof SearchRoute
+  '/category/$name': typeof CategoryNameRoute
   '/plugins/$pluginId': typeof PluginsPluginIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/docs' | '/plugins/$pluginId'
+  fullPaths:
+    '/' | '/docs' | '/search' | '/category/$name' | '/plugins/$pluginId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/docs' | '/plugins/$pluginId'
-  id: '__root__' | '/' | '/docs' | '/plugins/$pluginId'
+  to: '/' | '/docs' | '/search' | '/category/$name' | '/plugins/$pluginId'
+  id:
+    | '__root__'
+    | '/'
+    | '/docs'
+    | '/search'
+    | '/category/$name'
+    | '/plugins/$pluginId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DocsRoute: typeof DocsRoute
+  SearchRoute: typeof SearchRoute
+  CategoryNameRoute: typeof CategoryNameRoute
   PluginsPluginIdRoute: typeof PluginsPluginIdRoute
 }
 
@@ -75,6 +102,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/search': {
+      id: '/search'
+      path: '/search'
+      fullPath: '/search'
+      preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/category/$name': {
+      id: '/category/$name'
+      path: '/category/$name'
+      fullPath: '/category/$name'
+      preLoaderRoute: typeof CategoryNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/plugins/$pluginId': {
       id: '/plugins/$pluginId'
       path: '/plugins/$pluginId'
@@ -88,6 +129,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DocsRoute: DocsRoute,
+  SearchRoute: SearchRoute,
+  CategoryNameRoute: CategoryNameRoute,
   PluginsPluginIdRoute: PluginsPluginIdRoute,
 }
 export const routeTree = rootRouteImport

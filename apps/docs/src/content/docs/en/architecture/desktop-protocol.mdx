@@ -1,0 +1,21 @@
+---
+title: Desktop Daemon & Protocol Architecture
+description: Overview of the local daemon and communication protocol.
+sidebar:
+  order: 6
+---
+
+Bowerbird Desktop runs a local HTTP daemon enabling real-time status detection and seamless 1-click plugin installation from the web marketplace.
+
+## Communication Overview
+
+```text
+Marketplace Web ──(HTTP ping :47990)──> Bowerbird Desktop
+Marketplace Web ──(POST /api/plugins/install)──> Bowerbird Desktop
+Marketplace Web ──(bowerbird:// OS URI)──> OS Handler Launch
+```
+
+## Security Model
+
+- **Loopback Binding**: Listens exclusively on `127.0.0.1`.
+- **User Confirmation**: The desktop client prompts for confirmation before installing remote third-party plugins.

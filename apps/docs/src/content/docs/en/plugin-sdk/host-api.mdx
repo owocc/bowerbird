@@ -1,0 +1,41 @@
+---
+title: Host API & Capabilities
+description: Reference for PreviewPluginHostAPI file handles, metadata updates, and desktop hooks.
+sidebar:
+  order: 4
+---
+
+The host injects `api: PreviewPluginHostAPI` into each plugin component.
+
+## Key APIs
+
+### `api.getOriginalFile(): OriginalFileHandle`
+Access the local filesystem file and data streaming:
+
+```ts
+const file = api.getOriginalFile();
+const text = await file.fetchText();
+const buffer = await file.fetchArrayBuffer();
+```
+
+### `api.saveCoverThumbnail(base64Image, options)`
+Save a custom thumbnail cover and trigger dominant color extraction:
+
+```ts
+await api.saveCoverThumbnail(canvas.toDataURL("image/png"));
+```
+
+### `api.updateItemDetails(patch)`
+Persist user metadata fields:
+
+```ts
+await api.updateItemDetails({
+  prompt: "A futuristic city in neon cyberpunk style",
+  rating: 5,
+  note: "Verified high-quality asset",
+});
+```
+
+### `api.openWithDefaultApp()` and `api.revealInFinder()`
+- `api.openWithDefaultApp()`: Launches the file in the default OS handler.
+- `api.revealInFinder()`: Highlights the file in macOS Finder or Windows Explorer.

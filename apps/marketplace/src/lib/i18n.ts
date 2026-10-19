@@ -1,51 +1,315 @@
 import * as React from "react";
 
-export type Locale = "en" | "zh";
+export type Locale = "zh" | "en";
 
-export interface Translations {
-  catalogTitle: string;
-  catalogSubtitle: string;
-  searchPlaceholder: string;
-  categoryAll: string;
-  categoryPreview: string;
-  categoryMetadata: string;
-  desktopConnected: string;
-  desktopOffline: string;
-  desktopHelp: string;
-  installBowerbird: string;
-  installPlugin: string;
-  installing: string;
-  installed: string;
-  uninstall: string;
-  openDetails: string;
-  docsTitle: string;
-  navMarketplace: string;
-  navDocs: string;
-  navGithub: string;
-  backToCatalog: string;
-  supportedFormats: string;
-  versionHistory: string;
-  detailsOverview: string;
-  manualDownload: string;
-  downloadManifest: string;
-  downloadBundle: string;
-  oneClickInstall: string;
-  oneClickHint: string;
-  sdkQuickStart: string;
-  sdkManifestSpec: string;
-  sdkHostApi: string;
-  sdkPackaging: string;
-  rating: string;
-  author: string;
-  version: string;
-  priority: string;
-}
+export const MESSAGES: Record<Locale, Record<string, string>> = {
+  zh: {
+    // Common
+    appName: "Bowerbird 插件市场",
+    home: "首页",
+    search: "搜索插件",
+    searchPlaceholder: "搜索插件名称、描述或文件格式 (.md, .mp3, .csv)...",
+    categories: "分类",
+    all: "全部插件",
+    tools: "效率工具",
+    preview: "预览扩展",
+    metadata: "元数据透视",
+    docs: "开发文档",
+    submit: "开发插件",
+    login: "登录",
+    register: "注册",
+    logout: "退出",
+    explore: "开始探索",
+    language: "语言",
+    english: "English",
+    chinese: "简体中文",
+    viewAll: "查看全部",
+    view: "查看详情",
+    install: "一键安装",
+    installed: "已安装",
+    installing: "安装中...",
 
-export const MESSAGES: Record<Locale, Translations> = {
+    // Sidebar
+    "sidebar.title": "Bowerbird",
+    "sidebar.apps": "插件中心",
+    "sidebar.preview": "预览扩展",
+    "sidebar.metadata": "元数据透视",
+    "sidebar.docs": "SDK 开发文档",
+    "sidebar.searchPlaceholder": "搜索插件或格式...",
+    "sidebar.categoriesHeader": "插件分类",
+    "sidebar.all": "全部插件",
+    "sidebar.document": "文档与文本",
+    "sidebar.media": "音视频媒体",
+    "sidebar.code": "开发与代码",
+    "sidebar.data": "数据与表格",
+
+    // Apps / Catalog Page
+    "apps.title": "插件中心",
+    "apps.subtitle": "Bowerbird 官方与社区插件生态，支持富媒体预览与元数据扩展",
+    "apps.emptyTitle": "暂无匹配插件",
+    "apps.emptyDesc": "当前分类下暂无插件。您也可以查看 SDK 文档开发自己的第一个插件！",
+    "apps.recommendFirst": "查阅开发文档",
+    "apps.heroTag1": "官方精选 • 推荐主打",
+    "apps.heroTag2": "多媒体扩展 • 官方推荐",
+    "apps.heroTag3": "AI 增强 • 效率飞跃",
+    "apps.webCategory": "预览扩展",
+    "apps.webTitle": "文件预览扩展",
+    "apps.toolsCategory": "元数据扩展",
+    "apps.toolsTitle": "元数据透视插件",
+    "apps.aiCategory": "开发与数据",
+    "apps.aiTitle": "代码与数据扩展",
+    "apps.badgeHot": "热门推荐",
+    "apps.badgeSpeed": "官方认证",
+    "apps.badgeWorkflow": "工作流核心",
+    "apps.badgePraise": "深度好评",
+    "apps.badgeGenerate": "智能生成",
+    "apps.badgeAlgorithm": "前沿算法",
+
+    // Category Page
+    "category.featured": "精选 {category}",
+    "category.topCharts": "热门排行",
+    "category.editorsChoice": "精选推荐",
+    "category.emptyTitle": "暂无该分类插件",
+    "category.emptyDesc": "当前尚未收录属于【{category}】的插件。欢迎提交您的插件开源仓库！",
+
+    // Search Page
+    "searchPage.title": "搜索",
+    "searchPage.resultsFor": "“{query}”的搜索结果",
+    "searchPage.foundCount": "找到 {count} 个相关插件与扩展",
+    "searchPage.noResults": "未找到相关插件",
+    "searchPage.noResultsDesc": "没有找到与 “{query}” 匹配的插件。您可以查阅开发文档为 Bowerbird 开发该扩展！",
+    "searchPage.autoSubmit": "查阅插件开发指南",
+
+    // Plugin Detail
+    "appDetail.visitWebsite": "一键安装到客户端",
+    "appDetail.copied": "已复制",
+    "appDetail.share": "分享",
+    "appDetail.freeWebApp": "免费开源插件",
+    "appDetail.ratingsCount": "{count} 次安装",
+    "appDetail.ageRating": "适用版本",
+    "appDetail.sizePlatform": "能力类别",
+    "appDetail.preview": "界面预览",
+    "appDetail.noPreview": "暂无预览截图",
+    "appDetail.noPreviewDesc": "开发者暂未提供此插件的界面预览截图",
+    "appDetail.quickAccess": "安装与下载",
+    "appDetail.launchOnline": "在线加载",
+    "appDetail.aboutApp": "插件介绍与功能特点",
+    "appDetail.showMore": "展开全文",
+    "appDetail.showLess": "收起",
+    "appDetail.whatsNew": "新版本功能",
+    "appDetail.version": "版本",
+    "appDetail.ratingsReviews": "安装评价",
+    "appDetail.writeReview": "提交反馈",
+    "appDetail.outOf5": "满分 5 分",
+    "appDetail.totalRatings": "共 {count} 次安装使用",
+    "appDetail.information": "规格与元数据",
+    "appDetail.size": "包体大小",
+    "appDetail.category": "类别",
+    "appDetail.compatibility": "系统兼容性",
+    "appDetail.languages": "授权协议",
+    "appDetail.copyright": "版权所有",
+    "appDetail.moreFromDev": "更多来自“{developer}”的插件",
+    "appDetail.previewDesktop": "主视口预览",
+    "appDetail.previewTablet": "检视器预览",
+    "appDetail.previewMobile": "属性扩展",
+    "appDetail.previewMultiDevice": "多端多视口视图",
+    "appDetail.recommendedApps": "相关插件推荐",
+
+    // Footer
+    "footer.tagline": "Bowerbird 官方与社区插件生态",
+    "footer.subTagline": "Bowerbird 官方与社区插件市场。支持媒体深度预览、元数据透视扩展与一键客户端安装。",
+    "footer.discover": "插件浏览",
+    "footer.appsFeatured": "精选插件",
+    "footer.allApps": "全部插件",
+    "footer.games": "开发与代码",
+    "footer.web": "预览扩展",
+    "footer.tools": "元数据透视",
+    "footer.ai": "音视频媒体",
+    "footer.services": "开发者",
+    "footer.submitApp": "开发与发布插件",
+    "footer.snapshotPipeline": "Plugin SDK 规范",
+    "footer.guidelines": "插件上架指引",
+    "footer.developerCollab": "GitHub 插件仓库",
+    "footer.aboutPlatform": "关于 Bowerbird",
+    "footer.aboutUs": "关于我们",
+    "footer.terms": "使用条款",
+    "footer.privacy": "隐私政策",
+    "footer.contact": "反馈与建议",
+    "footer.copyright": "© 2026 Bowerbird. 保留所有权利。",
+
+    // Backward compatibility for Bowerbird plugins
+    catalogTitle: "Bowerbird 插件市场",
+    catalogSubtitle: "使用官方与社区插件扩展 Bowerbird，支持富媒体预览、元数据透视和自动化工作流。",
+    categoryAll: "全部插件",
+    categoryPreview: "预览插件",
+    categoryMetadata: "元数据插件",
+    desktopConnected: "桌面端已连接",
+    desktopOffline: "桌面端未启动",
+    desktopHelp: "在计算机上启动 Bowerbird 即可启用一键安装及本地状态同步。",
+    installBowerbird: "通过 Bowerbird 安装",
+    installPlugin: "安装插件",
+    uninstall: "卸载",
+    openDetails: "查看详情",
+    docsTitle: "插件开发指南",
+    navMarketplace: "插件市场",
+    navDocs: "开发文档",
+    navGithub: "代码仓库",
+    backToCatalog: "返回插件列表",
+    supportedFormats: "支持文件格式",
+    versionHistory: "版本更新历史",
+    detailsOverview: "功能特点",
+    manualDownload: "手动下载",
+    downloadManifest: "下载 manifest.json",
+    downloadBundle: "下载 index.js",
+    oneClickInstall: "一键安装到 Bowerbird",
+    oneClickHint: "通过 bowerbird:// 系统协议直接安装到本地运行的 Bowerbird。",
+    sdkQuickStart: "快速开始",
+    sdkManifestSpec: "插件清单规范",
+    sdkHostApi: "宿主 API 与能力",
+    sdkPackaging: "构建与发布",
+    rating: "评分",
+    author: "作者",
+    version: "版本",
+    priority: "优先级",
+  },
+
   en: {
+    // Common
+    appName: "Bowerbird Marketplace",
+    home: "Home",
+    search: "Search Plugins",
+    searchPlaceholder: "Search plugins by name, description, or extension (.md, .mp3, .csv)...",
+    categories: "Categories",
+    all: "All Plugins",
+    tools: "Utilities",
+    preview: "Preview Plugins",
+    metadata: "Metadata Plugins",
+    docs: "Developer Docs",
+    submit: "Create Plugin",
+    login: "Log In",
+    register: "Sign Up",
+    logout: "Log Out",
+    explore: "Explore",
+    language: "Language",
+    english: "English",
+    chinese: "简体中文",
+    viewAll: "View All",
+    view: "View Details",
+    install: "Install",
+    installed: "Installed",
+    installing: "Installing...",
+
+    // Sidebar
+    "sidebar.title": "Bowerbird",
+    "sidebar.apps": "Plugin Hub",
+    "sidebar.preview": "Preview Extensions",
+    "sidebar.metadata": "Metadata Extensions",
+    "sidebar.docs": "SDK Docs",
+    "sidebar.searchPlaceholder": "Search plugins...",
+    "sidebar.categoriesHeader": "Plugin Categories",
+    "sidebar.all": "All Plugins",
+    "sidebar.document": "Documents",
+    "sidebar.media": "Media & Audio",
+    "sidebar.code": "Dev & Code",
+    "sidebar.data": "Data & Tables",
+
+    // Apps / Catalog Page
+    "apps.title": "Plugin Hub",
+    "apps.subtitle": "Official and community ecosystem for Bowerbird rich media previews and metadata extensions",
+    "apps.emptyTitle": "No Plugins Found",
+    "apps.emptyDesc": "No plugins match the current criteria. You can read the SDK docs to build your first plugin!",
+    "apps.recommendFirst": "Read SDK Docs",
+    "apps.heroTag1": "Official Pick • Featured Spotlight",
+    "apps.heroTag2": "Media Extension • Staff Pick",
+    "apps.heroTag3": "AI Powered • Efficiency Leap",
+    "apps.webCategory": "Preview Plugins",
+    "apps.webTitle": "File Preview Extensions",
+    "apps.toolsCategory": "Metadata Plugins",
+    "apps.toolsTitle": "Inspector Extensions",
+    "apps.aiCategory": "Dev & Data",
+    "apps.aiTitle": "Code & Data Extensions",
+    "apps.badgeHot": "Popular",
+    "apps.badgeSpeed": "Official",
+    "apps.badgeWorkflow": "Workflow",
+    "apps.badgePraise": "Top Rated",
+    "apps.badgeGenerate": "Generative",
+    "apps.badgeAlgorithm": "Algorithm",
+
+    // Category Page
+    "category.featured": "Featured {category}",
+    "category.topCharts": "Top Charts",
+    "category.editorsChoice": "Editor's Choice",
+    "category.emptyTitle": "No plugins in this category",
+    "category.emptyDesc": "No plugins found under [{category}] yet. Contributions are welcome!",
+
+    // Search Page
+    "searchPage.title": "Search",
+    "searchPage.resultsFor": "Results for \"{query}\"",
+    "searchPage.foundCount": "Found {count} plugins & extensions",
+    "searchPage.noResults": "No plugins found",
+    "searchPage.noResultsDesc": "No plugins match \"{query}\". You can build one with the Bowerbird Plugin SDK!",
+    "searchPage.autoSubmit": "Read Developer Docs",
+
+    // Plugin Detail
+    "appDetail.visitWebsite": "1-Click Install to App",
+    "appDetail.copied": "Copied",
+    "appDetail.share": "Share",
+    "appDetail.freeWebApp": "Open Source Plugin",
+    "appDetail.ratingsCount": "{count} Installs",
+    "appDetail.ageRating": "Target Version",
+    "appDetail.sizePlatform": "Kind",
+    "appDetail.preview": "Interface Preview",
+    "appDetail.noPreview": "No preview available",
+    "appDetail.noPreviewDesc": "No preview screenshots have been provided for this plugin yet.",
+    "appDetail.quickAccess": "Installation & Download",
+    "appDetail.launchOnline": "Load Remotely",
+    "appDetail.aboutApp": "Overview & Features",
+    "appDetail.showMore": "Show More",
+    "appDetail.showLess": "Show Less",
+    "appDetail.whatsNew": "Release Notes",
+    "appDetail.version": "Version",
+    "appDetail.ratingsReviews": "Community Feedback",
+    "appDetail.writeReview": "Submit Feedback",
+    "appDetail.outOf5": "out of 5",
+    "appDetail.totalRatings": "{count} Total Installs",
+    "appDetail.information": "Specifications & Metadata",
+    "appDetail.size": "Bundle Size",
+    "appDetail.category": "Category",
+    "appDetail.compatibility": "Compatibility",
+    "appDetail.languages": "License",
+    "appDetail.copyright": "Publisher",
+    "appDetail.moreFromDev": "More by \"{developer}\"",
+    "appDetail.previewDesktop": "Viewport Preview",
+    "appDetail.previewTablet": "Inspector Preview",
+    "appDetail.previewMobile": "Inspector Extension",
+    "appDetail.previewMultiDevice": "Multi-Viewport Layout",
+    "appDetail.recommendedApps": "Related Plugins",
+
+    // Footer
+    "footer.tagline": "Bowerbird Plugin Ecosystem",
+    "footer.subTagline": "Official and community marketplace for Bowerbird. Extend your workspace with rich media previews and metadata inspectors.",
+    "footer.discover": "Explore",
+    "footer.appsFeatured": "Featured Plugins",
+    "footer.allApps": "All Plugins",
+    "footer.games": "Dev & Code",
+    "footer.web": "Preview Plugins",
+    "footer.tools": "Metadata Plugins",
+    "footer.ai": "Media & Audio",
+    "footer.services": "Developers",
+    "footer.submitApp": "Build & Publish Plugin",
+    "footer.snapshotPipeline": "Plugin SDK Guide",
+    "footer.guidelines": "Publishing Guidelines",
+    "footer.developerCollab": "GitHub Repository",
+    "footer.aboutPlatform": "About Bowerbird",
+    "footer.aboutUs": "About Us",
+    "footer.terms": "Terms of Service",
+    "footer.privacy": "Privacy Policy",
+    "footer.contact": "Feedback",
+    "footer.copyright": "© 2026 Bowerbird. All rights reserved.",
+
+    // Backward compatibility for Bowerbird plugins
     catalogTitle: "Bowerbird Plugin Marketplace",
     catalogSubtitle: "Extend Bowerbird with community and official plugins for rich media previews, metadata inspection, and custom workflows.",
-    searchPlaceholder: "Search plugins by name, format, or description...",
     categoryAll: "All Plugins",
     categoryPreview: "Preview Plugins",
     categoryMetadata: "Metadata Plugins",
@@ -54,8 +318,6 @@ export const MESSAGES: Record<Locale, Translations> = {
     desktopHelp: "Launch Bowerbird on your computer to enable 1-click remote installs and real-time status detection.",
     installBowerbird: "Install via Bowerbird",
     installPlugin: "Install",
-    installing: "Installing...",
-    installed: "Installed",
     uninstall: "Uninstall",
     openDetails: "View Details",
     docsTitle: "Plugin Developer Documentation",
@@ -80,56 +342,30 @@ export const MESSAGES: Record<Locale, Translations> = {
     version: "Version",
     priority: "Priority",
   },
-  zh: {
-    catalogTitle: "Bowerbird 插件市场",
-    catalogSubtitle: "使用官方与社区插件扩展 Bowerbird，支持富媒体预览、元数据透视和自动化工作流。",
-    searchPlaceholder: "按插件名称、支持格式或描述搜索...",
-    categoryAll: "全部插件",
-    categoryPreview: "预览插件",
-    categoryMetadata: "元数据插件",
-    desktopConnected: "桌面端已连接",
-    desktopOffline: "桌面端未启动",
-    desktopHelp: "在计算机上启动 Bowerbird 即可启用一键安装及本地状态同步。",
-    installBowerbird: "通过 Bowerbird 安装",
-    installPlugin: "安装插件",
-    installing: "正在安装...",
-    installed: "已安装",
-    uninstall: "卸载",
-    openDetails: "查看详情",
-    docsTitle: "插件开发指南",
-    navMarketplace: "插件市场",
-    navDocs: "开发文档",
-    navGithub: "代码仓库",
-    backToCatalog: "返回插件列表",
-    supportedFormats: "支持文件格式",
-    versionHistory: "版本更新历史",
-    detailsOverview: "功能特点",
-    manualDownload: "手动下载",
-    downloadManifest: "下载 manifest.json",
-    downloadBundle: "下载 index.js",
-    oneClickInstall: "一键安装到 Bowerbird",
-    oneClickHint: "通过 bowerbird:// 系统协议直接安装到您本地运行的 Bowerbird 桌面客户端。",
-    sdkQuickStart: "快速开始",
-    sdkManifestSpec: "插件清单规范",
-    sdkHostApi: "宿主 API 与能力",
-    sdkPackaging: "构建与发布",
-    rating: "评分",
-    author: "作者",
-    version: "版本",
-    priority: "优先级",
-  },
 };
 
 export interface I18nContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: keyof Translations) => string;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}
+
+function resolveMessage(locale: Locale, key: string, params?: Record<string, string | number>): string {
+  const dict = MESSAGES[locale] || MESSAGES.zh;
+  let text = dict[key] || MESSAGES.en[key] || key;
+
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      text = text.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
+    }
+  }
+  return text;
 }
 
 export const I18nContext = React.createContext<I18nContextValue>({
-  locale: "en",
+  locale: "zh",
   setLocale: () => {},
-  t: (key) => MESSAGES.en[key] || String(key),
+  t: (key, params) => resolveMessage("zh", key, params),
 });
 
 export function useI18n(): I18nContextValue {

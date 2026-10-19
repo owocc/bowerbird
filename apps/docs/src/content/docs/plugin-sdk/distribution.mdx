@@ -1,0 +1,52 @@
+---
+title: 构建、打包与 1-Click 安装协议
+description: 采用 Vite 构建 ES Module 产物并通过 bowerbird:// 协议分发。
+sidebar:
+  order: 5
+---
+
+Bowerbird 插件采用纯现代 ES Module 格式打包。宿主客户端在运行时通过动态 `import()` 或隔离沙箱加载插件产物。
+
+## 1. Vite 打包配置 (vite.config.ts)
+
+创建 `vite.config.ts` 并设置 external 外部依赖：
+
+```ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: "src/index.tsx",
+      formats: ["es"],
+      fileName: () => "index.js",
+    },
+    rollupOptions: {
+      external: [
+        "react",
+        "react-dom",
+        "react/jsx-runtime",
+        "@bowerbird/plugin-sdk",
+      ],
+    },
+  },
+});
+```
+
+运行构建命令生成 `dist/index.js`：
+
+```bash
+pnpm build
+```
+
+## 2. 1-Click 安装协议 (bowerbird://)
+
+Bowerbird 注册了操作系统级别的自定义 URL Scheme。用户在浏览器或任何应用中点击包含协议的链接即可直接呼起本地桌面客户端进行一键安装：
+
+```text
+bowerbird://plugin/install?manifest=https://your-domain.com/manifest.json&id=your.plugin.id&version=1.0.0
+```
+
+<Aside type="tip" title="市场自动集成">
+  当你向官方或社区插件市场提交插件后，市场网页端将自动生成此安装链接，用户无需手动下载或解压。
+</Aside>

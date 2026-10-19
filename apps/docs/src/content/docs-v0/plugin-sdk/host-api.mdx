@@ -1,0 +1,62 @@
+---
+title: 宿主 API 与系统能力 (Host API)
+description: 了解 PreviewPluginHostAPI 提供的文件操作、元数据持久化与桌面系统交互。
+sidebar:
+  order: 4
+---
+
+在每一个视口渲染器（`Viewport`）、检视器缩略图（`InspectorPreview`）或属性扩展（`InspectorExtension`）组件中，宿主均会注入 `api: PreviewPluginHostAPI` 实例。
+
+## 常用 API 接口
+
+### 1. `api.getOriginalFile(): OriginalFileHandle`
+返回当前选中素材在本地磁盘上的绝对路径与访问对象：
+
+```ts
+const file = api.getOriginalFile();
+console.log(file.filePath); // 本地绝对磁盘路径
+console.log(file.size);     // 文件大小 (字节)
+console.log(file.mimeType); // MIME 类型
+
+// 读取文件内容为纯文本
+const text = await file.fetchText();
+
+// 读取二进制流为 ArrayBuffer
+const buffer = await file.fetchArrayBuffer();
+```
+
+### 2. `api.saveCoverThumbnail(base64Image, options)`
+为素材保存由插件渲染生成的缩略图封面，并自动触发后台主题色与调色板抽取：
+
+```ts
+// 将 Canvas 绘制的缩略图持久化为当前素材的封面
+await api.saveCoverThumbnail(canvas.toDataURL("image/png"));
+```
+
+### 3. `api.updateItemDetails(patch)`
+更新并持久化当前素材的用户可编辑元数据：
+
+```ts
+await api.updateItemDetails({
+  prompt: "A futuristic city in neon cyberpunk style",
+  rating: 5,
+  note: "Verified high-quality asset",
+});
+```
+
+### 4. `api.openWithDefaultApp()` 与 `api.revealInFinder()`
+- `api.openWithDefaultApp()`: 调用操作系统默认关联程序打开此文件；
+- `api.revealInFinder()`: 在 macOS Finder 或 Windows 资源管理器中高亮定位该文件所在目录。
+
+### 5. `api.subscribeTheme(callback)`
+监听桌面端深浅色模式切换：
+
+```ts
+useEffect(() => {
+  if (!api.subscribeTheme) return;
+  const unsubscribe = api.subscribeTheme((themeMode) => {
+    console.log("Current theme:", themeMode); // "dark" | "light"
+  });
+  return unsubscribe;
+}, [api]);
+```

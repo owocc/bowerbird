@@ -1,0 +1,42 @@
+---
+title: Getting Started
+description: Set up your environment and install the official Bowerbird Plugin SDK.
+sidebar:
+  order: 1
+---
+
+This guide walks you through preparing your plugin project and installing core dependencies.
+
+## 1. Prerequisites
+
+Before building a plugin, ensure you have:
+
+- **Node.js**: v18.0.0 or later (Node 20 LTS recommended)
+- **Package Manager**: `pnpm` (recommended), `npm`, or `yarn`
+- **Bowerbird Desktop App**: Installed and running on macOS or Windows
+
+## 2. Installing the SDK
+
+In your plugin directory, add `@bowerbird/plugin-sdk`:
+
+<PackageManagers pkg="@bowerbird/plugin-sdk" />
+
+<Aside type="note">
+  Since the host desktop runtime provides `react`, `react-dom`, and `@bowerbird/plugin-sdk`, mark them as external in your bundler to keep plugin packages tiny (typically under 20KB).
+</Aside>
+
+## 3. Project Structure
+
+A standard plugin repository follows this layout:
+
+```text
+my-custom-preview/
+├── manifest.json        # Core plugin manifest specification
+├── package.json         # Dependencies and build scripts
+├── tsconfig.json        # TypeScript configuration
+├── vite.config.ts       # ESM bundler configuration
+└── src/
+    └── index.tsx        # Plugin entrypoint and components
+```
+
+Continue to [Build Your First Plugin](/en/plugin-sdk/quickstart) to write your component code.
