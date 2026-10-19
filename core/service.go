@@ -676,3 +676,50 @@ func (s *Service) TestNetworkConnection(targetURL string) (*NetworkTestResult, e
 	result := TestNetworkConnectivity(settings, targetURL, 10*time.Second)
 	return &result, nil
 }
+
+// GetMobileServerStatus returns the operational status and pairing code of the mobile LAN server.
+func (s *Service) GetMobileServerStatus() (*MobileServerStatus, error) {
+	if s.mgr == nil || s.mgr.GetMobileServer() == nil {
+		return &MobileServerStatus{Enabled: false, Running: false}, nil
+	}
+	status := s.mgr.GetMobileServer().GetStatus()
+	return &status, nil
+}
+
+// SetMobileServerEnabled enables or disables the LAN mobile server and updates user data.
+func (s *Service) SetMobileServerEnabled(enabled bool) error {
+	if s.mgr == nil {
+		return ErrCoreNotInitialized
+	}
+	ms := s.mgr.userData.GetMobileSettings()
+	ms.Enabled = enabled
+	if err := s.mgr.userData.SetMobileSettings(ms); err != nil {
+		return err
+	}
+
+	server := s.mgr.GetMobileServer()
+	if server != nil {
+		if enabled && !server.IsRunning() {
+			return server.Start()
+		} else if !enabled && server.IsRunning() {
+			return server.Stop()
+		}
+	}
+	return nil
+}
+
+// RegenerateMobilePairingCode generates and returns a new 6-digit pairing code.
+func (s *Service) RegenerateMobilePairingCode() (string, error) {
+	if s.mgr == nil || s.mgr.GetMobileServer() == nil {
+		return "", ErrCoreNotInitialized
+	}
+	return s.mgr.GetMobileServer().RegeneratePairingCode(), nil
+}
+
+// GetMobilePairingCode returns the active pairing code.
+func (s *Service) GetMobilePairingCode() (string, error) {
+	if s.mgr == nil || s.mgr.GetMobileServer() == nil {
+		return "", ErrCoreNotInitialized
+	}
+	return s.mgr.GetMobileServer().GetPairingCode(), nil
+}

@@ -52,7 +52,8 @@ type LibraryManager struct {
 	db          *sql.DB
 	userData    *UserDataStore
 	pluginMgr   *PluginManager
-	assetServer *AssetServer
+	assetServer  *AssetServer
+	mobileServer *MobileServer
 	// High-speed in-memory index for sub-millisecond queries and searches
 	cacheMu     sync.RWMutex
 	cacheLoaded bool
@@ -90,6 +91,11 @@ func NewLibraryManager() *LibraryManager {
 	}
 	// Start internal HTTP asset streaming server
 	mgr.assetServer = newAssetServer(mgr)
+	// Start mobile LAN HTTP and discovery server
+	mgr.mobileServer = newMobileServer(mgr)
+	if err := mgr.mobileServer.Start(); err != nil {
+		log.Printf("[Core] failed to start mobile server: %v", err)
+	}
 
 	// Automatically mount remembered library on launch
 	if store != nil {
@@ -177,6 +183,11 @@ func (m *LibraryManager) GetAssetServerPort() int {
 		return m.assetServer.getPort()
 	}
 	return 0
+}
+
+// GetMobileServer returns the mobile LAN server instance.
+func (m *LibraryManager) GetMobileServer() *MobileServer {
+	return m.mobileServer
 }
 
 // CreateLibrary creates a new xxx.library container, initializes SQLite, and remembers it in user data.
@@ -2357,6 +2368,15 @@ func IsImageExtension(ext string) bool {
 func IsVideoExtension(ext string) bool {
 	switch strings.ToLower(ext) {
 	case "mp4", "mov", "qt", "webm", "mkv", "avi", "m4v", "flv", "f4v", "mts", "m2ts", "m3u8", "m3u", "mpd", "ogv", "ogm", "3gp", "3g2", "wmv", "asf", "mpg", "mpeg", "m2v", "vob", "rmvb", "rm":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsAudioExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case "mp3", "wav", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aiff", "aif":
 		return true
 	default:
 		return false
