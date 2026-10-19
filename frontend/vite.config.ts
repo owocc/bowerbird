@@ -12,6 +12,11 @@ export default defineConfig({
     strictPort: true,
   },
   resolve: {
+    // Workspace packages (@bowerbird/plugin-sdk, @workspace/ui) resolve to
+    // TypeScript sources via tsconfig `paths`; without this, Vite falls back to
+    // Node module resolution and requires built `dist` output that dev never
+    // produces.
+    tsconfigPaths: true,
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
     },

@@ -1,0 +1,17 @@
+# Normalize line endings: LF in the repository and in every working tree.
+# Without this, `core.autocrlf=true` on Windows makes tool-written files (Wails
+# bindings, generated route trees) show up as modified even though their content
+# is identical to the index.
+* text=auto eol=lf
+
+# Windows scripts stay CRLF in the working tree (LF in the repository).
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be line-ending converted or diffed as text.
+*.png binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.woff2 binary

@@ -164,3 +164,18 @@ cd frontend && npm run build
 # Run in Wails3 development mode
 wails3 dev
 ```
+
+### Workspace Package Resolution
+
+`@bowerbird/plugin-sdk` and `@workspace/ui` are consumed straight from TypeScript
+sources — `@bowerbird/plugin-sdk` publishes `dist/` output that only
+`pnpm --filter @bowerbird/plugin-sdk build` produces, and only npm publishing needs.
+
+- **Type checking** — map the package in the consumer's `tsconfig.json` `paths`
+  (substitutions resolve relative to `baseUrl`):
+  `"@bowerbird/plugin-sdk": ["../packages/plugin-sdk/src/index.ts"]`.
+- **Vite** — set `resolve.tsconfigPaths: true` so dev resolution matches `tsc`
+  (`frontend/vite.config.ts`); production builds inline the sources either way.
+
+Without the Vite option, dev fails with
+`Failed to resolve import "@bowerbird/plugin-sdk" from ... Does the file exist?`.
