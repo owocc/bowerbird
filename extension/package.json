@@ -1,6 +1,6 @@
 {
   "name": "bowerbird-web-extension",
-  "version": "1.0.0-alpha",
+  "version": "1.0.0-alpha-1",
   "description": "Bowerbird Web Clipper - Save images, screenshots, and bookmarks directly to your Bowerbird desktop library.",
   "private": true,
   "type": "module",
