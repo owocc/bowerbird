@@ -312,38 +312,53 @@ export async function handlePluginApiRequest(
     });
   }
 
-  // 5. /api/plugins/:id/index.js -> JavaScript bundle only (NEVER return zip!)
-  const jsMatch = pathname.match(/^\/api\/plugins\/([a-zA-Z0-9_\-.]+)\/index\.js$/);
-  if (jsMatch) {
-    const pluginId = jsMatch[1];
-    const localJsCandidates = [
-      path.resolve(process.cwd(), `../dist/plugins/${pluginId}/index.js`),
-      path.resolve(process.cwd(), `dist/plugins/${pluginId}/index.js`),
-    ];
-    for (const p of localJsCandidates) {
-      if (fs.existsSync(p)) {
-        const content = fs.readFileSync(p);
-        return new Response(content, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/javascript",
-            "Cache-Control": "public, max-age=300",
-            ...corsHeaders,
-          },
-        });
+  // 5. /api/plugins/:id/<file> -> a file from the plugin bundle (index.js, style.css, icon, ...)
+  //    One store origin therefore serves everything a manifest-based install needs.
+  const fileMatch = pathname.match(/^\/api\/plugins\/([a-zA-Z0-9_\-.]+)\/([^/]+)$/);
+  if (fileMatch) {
+    const pluginId = fileMatch[1];
+    const fileName = fileMatch[2];
+    if (fileName.includes("..")) {
+      return new Response("Not Found", { status: 404, headers: corsHeaders });
+    }
+
+    const contentType = fileName.endsWith(".js")
+      ? "application/javascript"
+      : fileName.endsWith(".css")
+        ? "text/css"
+        : fileName.endsWith(".json")
+          ? "application/json"
+          : "application/octet-stream";
+
+    for (const bundleDir of [
+      path.resolve(process.cwd(), `../dist/plugins/${pluginId}`),
+      path.resolve(process.cwd(), `dist/plugins/${pluginId}`),
+    ]) {
+      const localPath = path.resolve(bundleDir, fileName);
+      // Never serve anything outside the plugin's own bundle directory.
+      if (!localPath.startsWith(bundleDir + path.sep) || !fs.existsSync(localPath)) {
+        continue;
       }
+      return new Response(fs.readFileSync(localPath), {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "public, max-age=300",
+          ...corsHeaders,
+        },
+      });
     }
 
     // Remote fallback: if indexUrl is configured (e.g. raw.githubusercontent.com/.../index.min.json),
-    // redirect to raw index.js in repo/<id>/index.js
+    // redirect to the same file in repo/<id>/<file>
     if (indexUrl && indexUrl.startsWith("http")) {
-      const remoteJsUrl = indexUrl.replace(/\/index\.min\.json$/, `/repo/${pluginId}/index.js`);
-      return Response.redirect(remoteJsUrl, 302);
+      const remoteFileUrl = indexUrl.replace(/\/index\.min\.json$/, `/repo/${pluginId}/${fileName}`);
+      return Response.redirect(remoteFileUrl, 302);
     }
 
-    return new Response(`// Plugin ${pluginId} entry not found`, {
+    return new Response("Not Found", {
       status: 404,
-      headers: { "Content-Type": "application/javascript", ...corsHeaders },
+      headers: { "Content-Type": contentType, ...corsHeaders },
     });
   }
 
