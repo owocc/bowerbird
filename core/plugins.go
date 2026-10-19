@@ -542,15 +542,15 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 	RecordLog("info", "plugin", fmt.Sprintf("[Phase 2/5] Downloading plugin from %s (proxy: %s)", pluginURL, proxyDesc), "", 0)
 	manifest, err := pm.downloadAndExtract(pluginURL, stagingDir)
 	if err != nil {
-		// Fallback for official plugins: if marketplace worker endpoint fails, try official GitHub releases
+		// Fallback for official plugins: if the marketplace endpoint fails, try the configured plugin store
 		if pID := extractPluginIDFromURL(pluginURL); pID != "" {
-			RecordLog("info", "plugin", fmt.Sprintf("Primary download failed for %s (%v), attempting fallback from official GitHub releases...", pID, err), "", 0)
-			fallbackCandidates := []string{
-				fmt.Sprintf("https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest/%s-v1.0.0.zip", pID),
-				fmt.Sprintf("https://github.com/owocc/bowerbird-plugins/releases/download/plugins-latest/%s-v1.0.0-alpha.zip", pID),
-				fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/manifest.json", pID),
+			candidates := pluginFallbackCandidates(pID)
+			if len(candidates) == 0 {
+				RecordLog("warn", "plugin", fmt.Sprintf("Primary download failed for %s (%v) and no plugin store is configured for fallback", pID, err), "", 0)
+			} else {
+				RecordLog("info", "plugin", fmt.Sprintf("Primary download failed for %s (%v), attempting fallback from the configured plugin store...", pID, err), "", 0)
 			}
-			for _, candURL := range fallbackCandidates {
+			for _, candURL := range candidates {
 				if fbManifest, fbErr := pm.downloadAndExtract(candURL, stagingDir); fbErr == nil {
 					manifest = fbManifest
 					err = nil
@@ -785,6 +785,26 @@ func (pm *PluginManager) downloadAndExtract(rawURL string, stagingDir string) (*
 	return &m, nil
 }
 
+// downloadStoreFallback retries an official plugin asset against the configured
+// store, which serves plugin files under /api/plugins/<id>/<file>. It reports
+// false when the plugin is not an official one or no store is configured, so
+// callers fall through to their normal error handling.
+func (pm *PluginManager) downloadStoreFallback(pluginID, relativePath, destPath, reason string) bool {
+	if !strings.HasPrefix(pluginID, "official.") {
+		return false
+	}
+	fallbackURL := pluginAssetURL(pluginID, relativePath)
+	if fallbackURL == "" {
+		return false
+	}
+	RecordLog("info", "plugin", fmt.Sprintf("%s, trying store fallback: %s", reason, fallbackURL), "", 0)
+	if err := pm.downloadDirectFile(fallbackURL, destPath); err != nil {
+		return false
+	}
+	RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from store fallback", relativePath), "", 0)
+	return true
+}
+
 // downloadAssetToStaging downloads a relative asset referenced by the manifest into stagingDir.
 func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath string, stagingDir string, pluginID string) error {
 	destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
@@ -820,13 +840,8 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 	resp, err := pm.httpClient.Do(req)
 	dlDuration := time.Since(dlStart).Milliseconds()
 	if err != nil {
-		if strings.HasPrefix(pluginID, "official.") {
-			fallbackURL := fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/%s", pluginID, relativePath)
-			RecordLog("info", "plugin", fmt.Sprintf("Asset download failed, trying official GitHub fallback: %s", fallbackURL), "", 0)
-			if fbErr := pm.downloadDirectFile(fallbackURL, destPath); fbErr == nil {
-				RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from GitHub fallback", relativePath), "", 0)
-				return nil
-			}
+		if pm.downloadStoreFallback(pluginID, relativePath, destPath, fmt.Sprintf("Asset download failed (%v)", err)) {
+			return nil
 		}
 		RecordLog("error", "plugin", fmt.Sprintf("Failed downloading plugin asset %s: %v", assetURL.String(), err),
 			fmt.Sprintf("proxy=%s, duration=%dms", proxyDesc, dlDuration), dlDuration)
@@ -835,13 +850,8 @@ func (pm *PluginManager) downloadAssetToStaging(baseURL *url.URL, relativePath s
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		if strings.HasPrefix(pluginID, "official.") {
-			fallbackURL := fmt.Sprintf("https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/repo/%s/%s", pluginID, relativePath)
-			RecordLog("info", "plugin", fmt.Sprintf("Asset HTTP %d, trying official GitHub fallback: %s", resp.StatusCode, fallbackURL), "", 0)
-			if fbErr := pm.downloadDirectFile(fallbackURL, destPath); fbErr == nil {
-				RecordLog("info", "plugin", fmt.Sprintf("Downloaded %s successfully from GitHub fallback", relativePath), "", 0)
-				return nil
-			}
+		if pm.downloadStoreFallback(pluginID, relativePath, destPath, fmt.Sprintf("Asset HTTP %d", resp.StatusCode)) {
+			return nil
 		}
 		RecordLog("error", "plugin", fmt.Sprintf("HTTP %d error downloading plugin asset %s", resp.StatusCode, assetURL.String()),
 			fmt.Sprintf("status=%s, proxy=%s, duration=%dms", resp.Status, proxyDesc, dlDuration), dlDuration)
@@ -1056,6 +1066,22 @@ func extractMarketplaceURL(rawURL string) string {
 		return fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
 	}
 	return ""
+}
+
+// pluginFallbackCandidates lists the store URLs to try when a direct plugin
+// install fails: the archive endpoint first (a complete bundle), then the
+// manifest (metadata plus the JS entry point). Both live on the configured store
+// (store.go); when no store is set the list is empty and no host is contacted.
+func pluginFallbackCandidates(pluginID string) []string {
+	downloadURL := PluginDownloadURL(pluginID)
+	if downloadURL == "" {
+		return nil
+	}
+	candidates := []string{downloadURL}
+	if manifestURL := PluginManifestURL(pluginID); manifestURL != "" {
+		candidates = append(candidates, manifestURL)
+	}
+	return candidates
 }
 
 // CompareSemVer compares two semantic version strings (e.g. "1.2.3" vs "1.2.0").

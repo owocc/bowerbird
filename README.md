@@ -147,7 +147,25 @@ Bowerbird enforces a strict physical separation between **User Libraries** and *
 3. **Marketplace & Edge Resolution**:
    - The plugin store (`apps/marketplace/`) reads metadata from `PLUGIN_REPO_INDEX_URL`.
    - Release downloads directly route to `PLUGIN_RELEASE_BASE_URL` without intermediate proxying.
-4. **In-App Data Management**:
+4. **Desktop Store Address (build-time injection)**:
+   - The desktop app hardcodes no store or distribution host: `PLUGIN_STORE_URL` is
+     its single store address, linking the store front end, the plugin API and the
+     plugin files together. It is injected at build time by the platform Taskfiles
+     (`-X bowerbird/core.storeURL`, see `core/store.go`), including the Docker
+     cross-compile and server images.
+   - Everything the app needs is derived from that origin: the *Visit Marketplace*
+     link, `{store}/api/plugins/<id>/download` (archive fallback) and
+     `{store}/api/plugins/<id>/<file>` (asset fallback). The store resolves the
+     distribution repository server-side via `PLUGIN_REPO_INDEX_URL` /
+     `PLUGIN_RELEASE_BASE_URL`.
+   - Export it before building (`PLUGIN_STORE_URL=https://… wails3 task
+     windows:package ARCH=amd64`), or set the `PLUGIN_STORE_URL` repository variable
+     for the release workflow.
+   - The variable wins over the injected value at runtime, so `wails3 dev` can
+     target a local store without rebuilding. A build with no store injected reports
+     `ERR_STORE_NOT_CONFIGURED` instead of opening a placeholder host, and skips
+     store fallbacks when installing plugins.
+5. **In-App Data Management**:
    - The Settings panel includes a dedicated **Data & Storage** section with one-click shortcuts to reveal the **Plugins Directory** and **Application Data Directory** in the native OS file manager (Finder / Explorer).
 
 ---

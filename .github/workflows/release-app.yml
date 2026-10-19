@@ -14,6 +14,13 @@ on:
 permissions:
   contents: write
 
+# The plugin store URL is baked into the binaries at link time by the build
+# Taskfiles. Set the repository variable PLUGIN_STORE_URL (front end, store API
+# and plugin files live on that single origin); unset ships an app without a
+# plugin store.
+env:
+  PLUGIN_STORE_URL: ${{ vars.PLUGIN_STORE_URL }}
+
 jobs:
   build-macos:
     runs-on: macos-latest

@@ -47,7 +47,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import {
   GetAssetServerPort,
-  OpenExternalURL,
+  OpenMarketplace,
   CheckPluginUpdates,
   UpgradePlugin,
   GetPendingPluginInstall,
@@ -659,6 +659,17 @@ export function SettingsPage() {
       setUpgradingId(null);
     }
   };
+  // The store address is injected at build time; a build without one reports
+  // ERR_STORE_NOT_CONFIGURED instead of opening a placeholder host.
+  const handleOpenMarketplace = async () => {
+    try {
+      await OpenMarketplace();
+    } catch (err) {
+      console.error("Open marketplace failed:", err);
+      notifyError(err);
+    }
+  };
+
   useEffect(() => {
     GetAssetServerPort().then((p) => {
       if (p && p > 0) {
@@ -1001,7 +1012,7 @@ export function SettingsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => OpenExternalURL("http://localhost:3000")}
+                    onClick={handleOpenMarketplace}
                     className="h-8 gap-1.5 text-xs cursor-pointer"
                   >
                     <Store className="size-3.5 text-primary" />

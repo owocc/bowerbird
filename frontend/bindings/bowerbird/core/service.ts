@@ -340,7 +340,9 @@ export function OpenLogsWindow(): $CancellablePromise<void> {
 }
 
 /**
- * OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
+ * OpenMarketplace opens the configured plugin store in the default browser.
+ * The store address is injected at build time (see store.go); without one the
+ * app reports it instead of opening a placeholder.
  */
 export function OpenMarketplace(): $CancellablePromise<void> {
     return $Call.ByID(372301127);

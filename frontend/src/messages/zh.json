@@ -638,7 +638,8 @@
       "ERR_NATIVE_DRAG_FAILED": "启动原生拖拽会话失败",
       "ERR_COPY_TO_CLIPBOARD_FAILED": "复制到剪贴板失败",
       "ERR_INVALID_THEME": "无效的外观主题设置",
-      "ERR_INVALID_LANGUAGE": "无效的语言设置"
+      "ERR_INVALID_LANGUAGE": "无效的语言设置",
+      "ERR_STORE_NOT_CONFIGURED": "当前构建未配置插件商店地址"
     },
     "success": {
       "SUCCESS_OK": "操作成功完成",

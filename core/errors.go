@@ -56,6 +56,7 @@ const (
 	ErrCodePluginNotFound             = "ERR_PLUGIN_NOT_FOUND"
 	ErrCodeInvalidManifest            = "ERR_INVALID_MANIFEST"
 	ErrCodePluginInstallFailed        = "ERR_PLUGIN_INSTALL_FAILED"
+	ErrCodeStoreNotConfigured         = "ERR_STORE_NOT_CONFIGURED"
 )
 
 // Standard Success Codes agreed between Go backend and frontend
@@ -102,6 +103,7 @@ var (
 	ErrNoValidFiles        = NewAppError(ErrCodeNoValidFiles, "no valid files")
 	ErrInvalidURL          = NewAppError(ErrCodeInvalidURL, "invalid or unsupported URL")
 	ErrInvalidBase64       = NewAppError(ErrCodeInvalidBase64, "invalid base64 payload")
+	ErrStoreNotConfigured  = NewAppError(ErrCodeStoreNotConfigured, "plugin store is not configured for this build")
 )
 
 // AppError is the structured error type containing an agreed Code and detailed Message.

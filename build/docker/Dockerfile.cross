@@ -204,6 +204,10 @@ if [ "$GOOS" = "windows" ]; then
     LDFLAGS="-s -w -H windowsgui"
 fi
 
+# Plugin store endpoints are injected at build time; when they are empty the app
+# ships without a store instead of carrying a vendor host baked into the binary.
+LDFLAGS="$LDFLAGS -X bowerbird/core.storeURL=${PLUGIN_STORE_URL:-}"
+
 TAGS="production"
 if [ -n "$EXTRA_TAGS" ]; then
     TAGS="${TAGS},${EXTRA_TAGS}"

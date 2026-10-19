@@ -597,8 +597,7 @@
     "actualSize": "Actual size (100%)",
     "fitToWindow": "Fit",
     "selectPreset": "Select preset zoom level"
-  }
-,
+  },
   "codes": {
     "error": {
       "ERR_CORE_NOT_INITIALIZED": "Core service not initialized",
@@ -639,7 +638,8 @@
       "ERR_NATIVE_DRAG_FAILED": "Native drag gesture failed",
       "ERR_COPY_TO_CLIPBOARD_FAILED": "Failed to copy items to clipboard",
       "ERR_INVALID_THEME": "Invalid theme setting",
-      "ERR_INVALID_LANGUAGE": "Invalid language setting"
+      "ERR_INVALID_LANGUAGE": "Invalid language setting",
+      "ERR_STORE_NOT_CONFIGURED": "No plugin store is configured for this build"
     },
     "success": {
       "SUCCESS_OK": "Operation completed successfully",

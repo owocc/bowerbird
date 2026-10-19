@@ -580,13 +580,18 @@ func (s *Service) UpgradePlugin(id string) (*InstalledPlugin, error) {
 	return s.mgr.GetPluginManager().UpgradePlugin(id)
 }
 
-// OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
+// openStoreURL opens the store front end; indirected so tests can observe it.
+var openStoreURL = OpenExternalURL
+
+// OpenMarketplace opens the configured plugin store in the default browser.
+// The store address is injected at build time (see store.go); without one the
+// app reports it instead of opening a placeholder.
 func (s *Service) OpenMarketplace() error {
-	targetURL := os.Getenv("BOWERBIRD_MARKETPLACE_URL")
+	targetURL := PluginStoreURL()
 	if targetURL == "" {
-		targetURL = "http://localhost:3000"
+		return ErrStoreNotConfigured
 	}
-	return OpenExternalURL(targetURL)
+	return openStoreURL(targetURL)
 }
 
 // GetUserDataDir returns the absolute path of the Bowerbird user data directory.
