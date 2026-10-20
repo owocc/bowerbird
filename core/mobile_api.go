@@ -155,6 +155,7 @@ func (s *MobileServer) Start() error {
 		}
 	}()
 
+	log.Printf("[MobileServer] mobile pairing code: %s", s.GetPairingCode())
 	s.startMDNS(settings.PairingRequired)
 	return nil
 }
