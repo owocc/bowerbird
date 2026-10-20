@@ -42,12 +42,14 @@
     inset: 0;
     --wails-draggable: no-drag;
     -webkit-app-region: no-drag;
+    --app-region: no-drag;
   }
   input, textarea, [contenteditable="true"] {
     user-select: text;
     -webkit-user-select: text;
     --wails-draggable: no-drag;
     -webkit-app-region: no-drag;
+    --app-region: no-drag;
   }
   /* 输入框的 placeholder 在 WebKit 下是可被拖选/全选高亮的，
      这里单独关掉；输入的真实内容仍然可以选中。 */
@@ -62,6 +64,7 @@
   button, a, select {
     --wails-draggable: no-drag;
     -webkit-app-region: no-drag;
+    --app-region: no-drag;
   }
   html {
     @apply font-sans;
@@ -72,6 +75,7 @@
 header {
   --wails-draggable: no-drag;
   -webkit-app-region: no-drag;
+  --app-region: no-drag;
 }
 
 .wails-no-drag,
@@ -79,11 +83,13 @@ header {
 .header-interactive-container *:not(.wails-drag) {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+  --app-region: no-drag !important;
 }
 
 .wails-drag {
   --wails-draggable: drag !important;
   -webkit-app-region: drag !important;
+  --app-region: drag !important;
 }
 
 /* Strictly ensure slider controls, +/- buttons and their vicinity cannot trigger window dragging */
@@ -93,6 +99,7 @@ header {
 [data-slot="slider"] * {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+  --app-region: no-drag !important;
   user-select: none !important;
   -webkit-user-select: none !important;
 }
@@ -103,6 +110,7 @@ body[data-dragging-files="true"] *,
 [data-dragging-files="true"] .wails-drag {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+  --app-region: no-drag !important;
 }
 
 /* Strictly ensure the search input and its vicinity cannot trigger window dragging.
@@ -112,6 +120,7 @@ body[data-dragging-files="true"] *,
 input[type="search"] {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+  --app-region: no-drag !important;
 }
 
 /* 空输入框（正在显示 placeholder）时禁止选中：拖拽/全选都不会高亮提示文本。
@@ -126,6 +135,7 @@ textarea:placeholder-shown {
 .draggable-asset-card {
   --wails-draggable: no-drag !important;
   -webkit-app-region: no-drag !important;
+  --app-region: no-drag !important;
   -webkit-user-drag: element !important;
   user-select: none;
 }

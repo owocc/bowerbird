@@ -69,7 +69,7 @@ import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult, MobileServer
 import { QRCodeSVG } from "qrcode.react";
 import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   getLanguagePreference,

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import { GetActiveLibrary } from "../../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../../bindings/bowerbird/core/models";
 

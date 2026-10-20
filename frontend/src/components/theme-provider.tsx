@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import { GetTheme, SetTheme } from "../../bindings/bowerbird/core/service";
 
 export type Theme = "dark" | "light" | "system";

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import { Download, AlertCircle, Sparkles, Loader2 } from "lucide-react";
 import {
   Dialog,

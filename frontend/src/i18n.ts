@@ -1,6 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import { GetLanguage, SetLanguage } from "../bindings/bowerbird/core/service";
 
 /**
