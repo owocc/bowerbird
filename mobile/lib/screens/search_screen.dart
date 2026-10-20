@@ -478,8 +478,8 @@ class _SearchScreenState extends State<SearchScreen> {
       itemBuilder: (context, index) {
         final item = _results[index];
         return InkWell(
-          onTap: () {
-            Navigator.of(context).push(
+          onTap: () async {
+            final deleted = await Navigator.of(context).push<bool>(
               MaterialPageRoute(
                 builder: (_) => DetailScreen(
                   items: _results,
@@ -487,6 +487,12 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ),
             );
+            if (deleted == true && mounted && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('已移入废纸篓')),
+              );
+              _performSearch();
+            }
           },
           borderRadius: BorderRadius.circular(8),
           child: ClipRRect(
@@ -503,6 +509,26 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: Icon(Icons.broken_image, size: 28, color: Colors.grey),
                     ),
                   ),
+                  if (item.isGif)
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'GIF',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
                   if (item.isVideo)
                     Positioned(
                       bottom: 4,

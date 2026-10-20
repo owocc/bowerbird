@@ -2873,6 +2873,13 @@ func (m *LibraryManager) MoveToTrash(id string) error {
 		return errors.New("no active library")
 	}
 
+	// Idempotency guard: re-trashing an already trashed item would overwrite
+	// trashed_folders with an empty list (item_folders links are already gone),
+	// losing the original folders needed for restore.
+	if existing, getErr := m.GetItem(id); getErr == nil && existing != nil && existing.InTrash {
+		return nil
+	}
+
 	// 1. Collect current folder associations
 	var currentFolders []string
 	rows, err := db.Query("SELECT folder_id FROM item_folders WHERE item_id = ?", id)

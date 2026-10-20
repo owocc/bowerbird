@@ -1,13 +1,18 @@
 package com.bowerbird.bowerbird_mobile
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -40,6 +45,21 @@ class MainActivity : FlutterActivity() {
                     } catch (e: Exception) {
                         pendingPickResult = null
                         result.error("PICK_FAILED", e.message, null)
+                    }
+                }
+                "copyFileToClipboard" -> {
+                    val path = call.argument<String>("path")
+                    val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
+                    val displayName = call.argument<String>("displayName")
+                    if (path.isNullOrEmpty()) {
+                        result.error("INVALID_ARGS", "Missing path for clipboard copy", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        copyFileToClipboard(File(path), mimeType, displayName)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("COPY_FAILED", e.message, null)
                     }
                 }
                 "saveMediaToGallery" -> {
@@ -114,6 +134,31 @@ class MainActivity : FlutterActivity() {
             tempFile.absolutePath
         } catch (e: Exception) {
             null
+        }
+    }
+
+    private fun copyFileToClipboard(file: File, mimeType: String, displayName: String?) {
+        val clipboardDir = File(cacheDir, "clipboard").canonicalFile
+        val canonical = file.canonicalFile
+        if (!canonical.path.startsWith(clipboardDir.path + File.separator)) {
+            throw IllegalArgumentException("File is outside the clipboard cache directory")
+        }
+        if (!canonical.exists()) {
+            throw IllegalArgumentException("File not found: ${canonical.name}")
+        }
+
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", canonical)
+        val label = displayName?.takeIf { it.isNotBlank() } ?: canonical.name
+        val clip = ClipData(ClipDescription(label, arrayOf(mimeType)), ClipData.Item(uri))
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        manager.setPrimaryClip(clip)
+
+        // Best-effort: drop stale clipboard payloads so the cache does not grow.
+        val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1000L
+        clipboardDir.listFiles()?.forEach { candidate ->
+            if (candidate != canonical && candidate.isFile && candidate.lastModified() < cutoff) {
+                candidate.delete()
+            }
         }
     }
 

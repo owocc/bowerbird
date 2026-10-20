@@ -639,3 +639,154 @@ func TestMobileWebSocketItemsUpdatedCoverage(t *testing.T) {
 	}
 	readNextItemsUpdated("RestoreFromTrash")
 }
+
+func TestMobileDeleteItem(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "mobile_delete_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", filepath.Join(tempDir, "userdata"))
+
+	mgr := NewLibraryManager()
+	defer func() {
+		if mgr.assetServer != nil {
+			_ = mgr.assetServer.Stop()
+		}
+		if mgr.mobileServer != nil {
+			_ = mgr.mobileServer.Stop()
+		}
+	}()
+
+	if _, err := mgr.CreateLibrary(tempDir, "DeleteTestLib"); err != nil {
+		t.Fatalf("failed to create library: %v", err)
+	}
+
+	mobileSrv := mgr.GetMobileServer()
+	if mobileSrv == nil {
+		t.Fatal("expected non-nil mobile server")
+	}
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", mobileSrv.GetPort())
+
+	pairPayload, _ := json.Marshal(map[string]string{
+		"code":       mobileSrv.GetPairingCode(),
+		"deviceName": "DeleteTester",
+	})
+	resp, err := http.Post(baseURL+"/api/v1/pair", "application/json", bytes.NewReader(pairPayload))
+	if err != nil {
+		t.Fatalf("pair request failed: %v", err)
+	}
+	var pairResp APIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pairResp); err != nil {
+		t.Fatalf("failed to decode pair response: %v", err)
+	}
+	resp.Body.Close()
+	pairData, _ := pairResp.Data.(map[string]any)
+	token, _ := pairData["token"].(string)
+	if token == "" {
+		t.Fatalf("expected token in pair response, got %v", pairResp.Data)
+	}
+
+	samplePNG := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+	imported, err := mgr.ImportFromBase64WithOptions("to_delete.png", samplePNG, ImportItemOptions{Name: "To Delete"})
+	if err != nil {
+		t.Fatalf("failed to import test image: %v", err)
+	}
+
+	client := &http.Client{}
+	deleteItem := func(id, authToken string) *http.Response {
+		t.Helper()
+		req, reqErr := http.NewRequest(http.MethodDelete, baseURL+"/api/v1/items/"+id, nil)
+		if reqErr != nil {
+			t.Fatalf("failed to build DELETE request: %v", reqErr)
+		}
+		if authToken != "" {
+			req.Header.Set("Authorization", "Bearer "+authToken)
+		}
+		res, reqErr := client.Do(req)
+		if reqErr != nil {
+			t.Fatalf("DELETE /api/v1/items/%s failed: %v", id, reqErr)
+		}
+		return res
+	}
+
+	// Missing token.
+	res := deleteItem(imported.ID, "")
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without token, got %d", res.StatusCode)
+	}
+
+	// Unknown item.
+	res = deleteItem("does-not-exist", token)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown item, got %d", res.StatusCode)
+	}
+
+	// Successful delete moves the item to trash.
+	res = deleteItem(imported.ID, token)
+	if res.StatusCode != http.StatusOK {
+		res.Body.Close()
+		t.Fatalf("expected 200 for delete, got %d", res.StatusCode)
+	}
+	var delResp APIResponse
+	if err := json.NewDecoder(res.Body).Decode(&delResp); err != nil {
+		t.Fatalf("failed to decode delete response: %v", err)
+	}
+	res.Body.Close()
+	if delResp.Status != "success" {
+		t.Errorf("expected success status, got %q", delResp.Status)
+	}
+	delData, _ := delResp.Data.(map[string]any)
+	if delData["id"] != imported.ID {
+		t.Errorf("expected deleted id %s, got %v", imported.ID, delData["id"])
+	}
+	if delData["inTrash"] != true {
+		t.Errorf("expected inTrash true, got %v", delData["inTrash"])
+	}
+
+	trashed, err := mgr.GetItem(imported.ID)
+	if err != nil || trashed == nil {
+		t.Fatalf("failed to reload item: %v", err)
+	}
+	if !trashed.InTrash {
+		t.Fatal("expected item to be in trash after DELETE")
+	}
+
+	// Second delete is rejected so trashed_folders cannot be clobbered.
+	res = deleteItem(imported.ID, token)
+	if res.StatusCode != http.StatusConflict {
+		res.Body.Close()
+		t.Fatalf("expected 409 for already trashed item, got %d", res.StatusCode)
+	}
+	var conflictResp APIResponse
+	if err := json.NewDecoder(res.Body).Decode(&conflictResp); err != nil {
+		t.Fatalf("failed to decode conflict response: %v", err)
+	}
+	res.Body.Close()
+	if conflictResp.Code != ErrCodeItemAlreadyTrashed {
+		t.Errorf("expected code %s, got %s", ErrCodeItemAlreadyTrashed, conflictResp.Code)
+	}
+
+	// Trashed items disappear from the mobile list.
+	req, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/items?limit=10", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	res, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/items failed: %v", err)
+	}
+	var itemsResp MobileItemsResponse
+	if err := json.NewDecoder(res.Body).Decode(&itemsResp); err != nil {
+		t.Fatalf("failed to decode items response: %v", err)
+	}
+	res.Body.Close()
+	if itemsResp.Total != 0 || len(itemsResp.Items) != 0 {
+		t.Fatalf("expected trashed item to be excluded, got total=%d items=%d", itemsResp.Total, len(itemsResp.Items))
+	}
+
+	// Direct second MoveToTrash must stay a no-op (idempotency guard).
+	if err := mgr.MoveToTrash(imported.ID); err != nil {
+		t.Fatalf("expected idempotent MoveToTrash, got error: %v", err)
+	}
+}

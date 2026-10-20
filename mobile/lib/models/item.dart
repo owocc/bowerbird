@@ -83,6 +83,15 @@ class MobileItem {
       mimeType.startsWith('video/') ||
       ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'].contains(extension.toLowerCase());
 
+  bool get isGif =>
+      mimeType.toLowerCase() == 'image/gif' ||
+      extension.toLowerCase() == 'gif';
+
+  bool get isImage =>
+      mimeType.startsWith('image/') ||
+      ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tiff', 'ico']
+          .contains(extension.toLowerCase());
+
   bool get isAudio =>
       mimeType.startsWith('audio/') ||
       ['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg'].contains(extension.toLowerCase());
@@ -121,6 +130,9 @@ class ItemDetail {
   final String url;
   final int rating;
   final String prompt;
+  final String filePath;
+  final String itemPath;
+  final bool inTrash;
   final List<String> tags;
   final List<String> folders;
   final int createdAt;
@@ -142,6 +154,9 @@ class ItemDetail {
     required this.url,
     required this.rating,
     required this.prompt,
+    this.filePath = '',
+    this.itemPath = '',
+    this.inTrash = false,
     required this.tags,
     required this.folders,
     required this.createdAt,
@@ -165,6 +180,9 @@ class ItemDetail {
       url: json['url'] as String? ?? '',
       rating: (json['rating'] as num?)?.toInt() ?? 0,
       prompt: json['prompt'] as String? ?? '',
+      filePath: json['filePath'] as String? ?? '',
+      itemPath: json['itemPath'] as String? ?? '',
+      inTrash: json['inTrash'] as bool? ?? false,
       tags: (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       folders: (json['folders'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
       createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,

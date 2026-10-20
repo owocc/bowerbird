@@ -5,10 +5,11 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_view/photo_view.dart';
-import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
+import '../widgets/video_player_page.dart';
+
 class DetailScreen extends StatefulWidget {
   final List<MobileItem> items;
   final int initialIndex;
@@ -24,17 +25,25 @@ class DetailScreen extends StatefulWidget {
 }
 
 class _DetailScreenState extends State<DetailScreen> {
+  late final List<MobileItem> _items;
   late PageController _pageController;
   late int _currentIndex;
   bool _showOverlays = true;
   ItemDetail? _currentDetail;
   bool _isSharing = false;
   bool _isDownloading = false;
+  bool _isCopying = false;
+  bool _isDeleting = false;
+  double? _copyProgress;
+
   @override
   void initState() {
     super.initState();
-    _currentIndex = widget.initialIndex;
-    _pageController = PageController(initialPage: widget.initialIndex);
+    // Snapshot the list: the home screen clears and refills its own list on
+    // refresh, which would otherwise mutate the pages under this screen.
+    _items = List<MobileItem>.of(widget.items);
+    _currentIndex = widget.initialIndex.clamp(0, _items.length - 1);
+    _pageController = PageController(initialPage: _currentIndex);
     _loadCurrentDetail();
   }
 
@@ -44,11 +53,13 @@ class _DetailScreenState extends State<DetailScreen> {
     super.dispose();
   }
 
+  MobileItem get _currentItem => _items[_currentIndex];
+
   Future<void> _loadCurrentDetail() async {
-    final item = widget.items[_currentIndex];
+    final item = _currentItem;
     try {
       final detail = await ApiService.instance.getItemDetail(item.id);
-      if (mounted) {
+      if (mounted && _currentItem.id == item.id) {
         setState(() => _currentDetail = detail);
       }
     } catch (_) {
@@ -70,11 +81,23 @@ class _DetailScreenState extends State<DetailScreen> {
     });
   }
 
+  void _showSnack(BuildContext context, String message, {bool error = false}) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: Duration(seconds: error ? 3 : 1),
+        backgroundColor: error ? Colors.red.shade700 : null,
+      ),
+    );
+  }
+
   Future<void> _shareCurrentItem() async {
     if (_isSharing) return;
     setState(() => _isSharing = true);
 
-    final item = widget.items[_currentIndex];
+    final item = _currentItem;
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
       final response = await http.get(
@@ -102,11 +125,10 @@ class _DetailScreenState extends State<DetailScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Share failed: ${e.toString().replaceAll('Exception: ', '')}'),
-            backgroundColor: Colors.red.shade700,
-          ),
+        _showSnack(
+          context,
+          'Share failed: ${e.toString().replaceAll('Exception: ', '')}',
+          error: true,
         );
       }
     } finally {
@@ -115,11 +137,12 @@ class _DetailScreenState extends State<DetailScreen> {
       }
     }
   }
+
   Future<void> _downloadCurrentItem() async {
     if (_isDownloading) return;
     setState(() => _isDownloading = true);
 
-    final item = widget.items[_currentIndex];
+    final item = _currentItem;
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
       final response = await http.get(
@@ -135,17 +158,14 @@ class _DetailScreenState extends State<DetailScreen> {
       await ApiService.instance.saveMediaToGallery(response.bodyBytes, filename, item.mimeType);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已保存至手机相册/下载目录: $filename')),
-        );
+        _showSnack(context, '已保存至手机相册/下载目录: $filename');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('下载失败: ${e.toString().replaceAll('Exception: ', '')}'),
-            backgroundColor: Colors.red.shade700,
-          ),
+        _showSnack(
+          context,
+          '下载失败: ${e.toString().replaceAll('Exception: ', '')}',
+          error: true,
         );
       }
     } finally {
@@ -153,8 +173,53 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  Future<void> _copyCurrentContent() async {
+    if (_isCopying) return;
+    final item = _currentItem;
+    if (item.size > ApiService.maxClipboardFileBytes) {
+      _showSnack(context, '文件过大（${item.formattedSize}），请使用分享或下载', error: true);
+      return;
+    }
+
+    setState(() {
+      _isCopying = true;
+      _copyProgress = 0;
+    });
+    try {
+      await ApiService.instance.copyItemContent(
+        item,
+        onProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          final progress = (received / total).clamp(0.0, 1.0);
+          // Throttle rebuilds to whole percent steps.
+          if (_copyProgress == null || (progress - _copyProgress!) >= 0.01) {
+            setState(() => _copyProgress = progress);
+          }
+        },
+      );
+      if (mounted) {
+        _showSnack(context, '已复制素材内容，可粘贴到微信等应用');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnack(
+          context,
+          '复制失败: ${e.toString().replaceAll('Exception: ', '')}',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCopying = false;
+          _copyProgress = null;
+        });
+      }
+    }
+  }
+
   void _copyCurrentInfo() {
-    final item = widget.items[_currentIndex];
+    final item = _currentItem;
     final detail = _currentDetail;
     final info = [
       '名称: ${item.name.isNotEmpty ? item.name : item.filename}',
@@ -168,12 +233,51 @@ class _DetailScreenState extends State<DetailScreen> {
     ].join('\n');
 
     Clipboard.setData(ClipboardData(text: info));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('素材关键信息已复制到剪贴板')),
+    _showSnack(context, '素材关键信息已复制到剪贴板');
+  }
+
+  Future<void> _confirmDeleteCurrentItem() async {
+    if (_isDeleting) return;
+    final item = _currentItem;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除素材'),
+        content: const Text('该素材将移入桌面端废纸篓，可在桌面端废纸篓中找回。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
     );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    try {
+      await ApiService.instance.deleteItem(item.id);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (mounted) {
+        _showSnack(
+          context,
+          e.toString().replaceAll('Exception: ', ''),
+          error: true,
+        );
+        setState(() => _isDeleting = false);
+      }
+    }
   }
 
   void _showFullMetadataSheet(MobileItem item) {
+    final detail = _currentDetail;
     final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(item.dateTime);
     final theme = Theme.of(context);
 
@@ -184,7 +288,7 @@ class _DetailScreenState extends State<DetailScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
+      builder: (sheetContext) {
         return DraggableScrollableSheet(
           initialChildSize: 0.6,
           minChildSize: 0.35,
@@ -215,95 +319,97 @@ class _DetailScreenState extends State<DetailScreen> {
                   const SizedBox(height: 12),
                   const Divider(),
                   _buildMetaRow(Icons.title_outlined, 'Title', item.name.isNotEmpty ? item.name : item.filename),
+                  _buildMetaRow(Icons.insert_drive_file_outlined, 'Filename', item.filename),
                   _buildMetaRow(Icons.calendar_today_outlined, 'Captured / Imported', dateStr),
-                  _buildMetaRow(Icons.aspect_ratio_outlined, 'Dimensions', '${item.width} × ${item.height} (${item.orientation})'),
+                  _buildMetaRow(
+                    Icons.aspect_ratio_outlined,
+                    'Dimensions',
+                    '${item.width} × ${item.height} (${item.orientation})',
+                    copyValue: '${item.width} × ${item.height}',
+                  ),
                   _buildMetaRow(Icons.data_usage_outlined, 'File Size', item.formattedSize),
+                  _buildMetaRow(
+                    Icons.description_outlined,
+                    'Format',
+                    item.extension.toUpperCase(),
+                  ),
                   _buildMetaRow(Icons.category_outlined, 'MIME Type', item.mimeType),
-
-                  if (_currentDetail != null) ...[
-                    if (_currentDetail!.dominantColor != null && _currentDetail!.dominantColor!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.palette_outlined, size: 20),
-                            const SizedBox(width: 12),
-                            const Text('Dominant Color: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                            Container(
-                              width: 18,
-                              height: 18,
-                              decoration: BoxDecoration(
-                                color: _parseColor(_currentDetail!.dominantColor!),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white30),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(_currentDetail!.dominantColor!.toUpperCase(), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-                          ],
-                        ),
+                  if (detail != null && detail.filePath.isNotEmpty)
+                    _buildMetaRow(Icons.folder_open_outlined, 'File Path', detail.filePath),
+                  if (detail != null && detail.note.isNotEmpty)
+                    _buildMetaRow(Icons.notes_outlined, 'Note', detail.note),
+                  if (detail != null && detail.url.isNotEmpty)
+                    _buildMetaRow(Icons.link_outlined, 'Source URL', detail.url),
+                  if (detail != null && detail.prompt.isNotEmpty)
+                    _buildMetaRow(Icons.psychology_outlined, 'Prompt', detail.prompt),
+                  if (detail?.meta != null) ...[
+                    if (detail!.meta!['colorModel'] != null)
+                      _buildMetaRow(Icons.color_lens_outlined, 'Color Model', detail.meta!['colorModel'].toString()),
+                    if (detail.meta!['colorSpace'] != null)
+                      _buildMetaRow(Icons.tonality_outlined, 'Color Space', detail.meta!['colorSpace'].toString()),
+                    if (detail.meta!['megapixels'] != null)
+                      _buildMetaRow(Icons.photo_size_select_actual_outlined, 'Megapixels', detail.meta!['megapixels'].toString()),
+                    if (detail.meta!['exifMake'] != null || detail.meta!['exifModel'] != null)
+                      _buildMetaRow(
+                        Icons.camera_alt_outlined,
+                        'Camera',
+                        '${detail.meta!['exifMake'] ?? ''} ${detail.meta!['exifModel'] ?? ''}'.trim(),
                       ),
-                    if (_currentDetail!.palette.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(Icons.color_lens_outlined, size: 20),
-                                const SizedBox(width: 12),
-                                const Text('Color Palette: ', style: TextStyle(fontWeight: FontWeight.w600)),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 6,
-                              children: _currentDetail!.palette.map((hex) {
-                                final c = _parseColor(hex);
-                                return Tooltip(
-                                  message: hex.toUpperCase(),
-                                  child: Container(
-                                    width: 32,
-                                    height: 24,
-                                    decoration: BoxDecoration(
-                                      color: c,
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: Colors.white24),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (_currentDetail!.note.isNotEmpty)
-                      _buildMetaRow(Icons.notes_outlined, 'Note', _currentDetail!.note),
-                    if (_currentDetail!.url.isNotEmpty)
-                      _buildMetaRow(Icons.link_outlined, 'Source URL', _currentDetail!.url),
-                    if (_currentDetail!.prompt.isNotEmpty)
-                      _buildMetaRow(Icons.psychology_outlined, 'Prompt', _currentDetail!.prompt),
-                    if (_currentDetail!.meta != null) ...[
-                      if (_currentDetail!.meta!['colorModel'] != null)
-                        _buildMetaRow(Icons.color_lens_outlined, 'Color Model', _currentDetail!.meta!['colorModel'].toString()),
-                      if (_currentDetail!.meta!['colorSpace'] != null)
-                        _buildMetaRow(Icons.tonality_outlined, 'Color Space', _currentDetail!.meta!['colorSpace'].toString()),
-                      if (_currentDetail!.meta!['megapixels'] != null)
-                        _buildMetaRow(Icons.photo_size_select_actual_outlined, 'Megapixels', _currentDetail!.meta!['megapixels'].toString()),
-                      if (_currentDetail!.meta!['exifMake'] != null || _currentDetail!.meta!['exifModel'] != null)
-                        _buildMetaRow(
-                          Icons.camera_alt_outlined,
-                          'Camera',
-                          '${_currentDetail!.meta!['exifMake'] ?? ''} ${_currentDetail!.meta!['exifModel'] ?? ''}'.trim(),
-                        ),
-                    ],
                   ],
-
+                  if (detail != null && detail.dominantColor != null && detail.dominantColor!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.palette_outlined, size: 20),
+                          const SizedBox(width: 12),
+                          const Text('Dominant Color: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                          Container(
+                            width: 18,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: _parseColor(detail.dominantColor!),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white30),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              detail.dominantColor!.toUpperCase(),
+                              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                            ),
+                          ),
+                          _buildCopyButton('Dominant Color', detail.dominantColor!.toUpperCase()),
+                        ],
+                      ),
+                    ),
+                  if (detail != null && detail.palette.isNotEmpty) ...[
+                    _buildGroupHeader('Color Palette', detail.palette.join(', '), theme),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: detail.palette.map((hex) {
+                        final c = _parseColor(hex);
+                        return Tooltip(
+                          message: hex.toUpperCase(),
+                          child: Container(
+                            width: 32,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: c,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
                   if (item.folders.isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    Text('Folders', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    _buildGroupHeader('Folders', item.folders.join(', '), theme),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 6,
@@ -314,10 +420,9 @@ class _DetailScreenState extends State<DetailScreen> {
                       )).toList(),
                     ),
                   ],
-
                   if (item.tags.isNotEmpty) ...[
                     const SizedBox(height: 12),
-                    Text('Tags', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    _buildGroupHeader('Tags', item.tags.join(', '), theme),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 6,
@@ -328,6 +433,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       )).toList(),
                     ),
                   ],
+                  const SizedBox(height: 24),
                 ],
               ),
             );
@@ -343,65 +449,151 @@ class _DetailScreenState extends State<DetailScreen> {
     return Color(int.tryParse(c, radix: 16) ?? 0xFF888888);
   }
 
-  Widget _buildMetaRow(IconData icon, String label, String value) {
+  Widget _buildMetaRow(
+    IconData icon,
+    String label,
+    String value, {
+    String? copyValue,
+  }) {
+    final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 20, color: Theme.of(context).colorScheme.outline),
+          Icon(icon, size: 20, color: theme.colorScheme.outline),
           const SizedBox(width: 12),
-          Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
-          Expanded(child: Text(value)),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text('$label: ', style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(value),
+            ),
+          ),
+          if (value.isNotEmpty)
+            _buildCopyButton(label, copyValue ?? value),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGroupHeader(String title, String copyValue, ThemeData theme) {
+    return Row(
+      children: [
+        Text(title, style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
+        const Spacer(),
+        _buildCopyButton(title, copyValue, size: 16),
+      ],
+    );
+  }
+
+  Widget _buildCopyButton(String label, String value, {double size = 18}) {
+    return IconButton(
+      icon: Icon(Icons.copy_rounded, size: size),
+      tooltip: '复制$label',
+      visualDensity: VisualDensity.compact,
+      onPressed: value.isEmpty ? null : () => _copyField(label, value),
+    );
+  }
+
+  Future<void> _copyField(String label, String value) async {
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    _showCopyToast('已复制$label');
+  }
+
+  void _showCopyToast(String message) {
+    final overlay = Overlay.of(context, rootOverlay: true);
+    final entry = OverlayEntry(
+      builder: (_) => Positioned(
+        bottom: MediaQuery.of(context).size.height * 0.5,
+        left: 0,
+        right: 0,
+        child: IgnorePointer(
+          child: Center(
+            child: Material(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 13)),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    Future.delayed(const Duration(milliseconds: 1200), () {
+      if (entry.mounted) entry.remove();
+    });
+  }
+
+  Widget _buildPage(MobileItem item, int index) {
+    if (item.isVideo) {
+      return VideoPlayerPage(
+        key: ValueKey('video-${item.id}'),
+        item: item,
+        isActive: index == _currentIndex,
+        showControls: _showOverlays,
+        onTap: _toggleOverlays,
+      );
+    }
+    if (item.isGif) {
+      return _AnimatedImagePage(
+        key: ValueKey('gif-${item.id}'),
+        item: item,
+        onTap: _toggleOverlays,
+      );
+    }
+    return GestureDetector(
+      onTap: _toggleOverlays,
+      child: PhotoView(
+        imageProvider: NetworkImage(
+          ApiService.instance.getOriginalUrl(item.id),
+          headers: ApiService.instance.mediaHeaders,
+        ),
+        initialScale: PhotoViewComputedScale.contained,
+        minScale: PhotoViewComputedScale.contained * 0.8,
+        maxScale: PhotoViewComputedScale.covered * 3.5,
+        heroAttributes: PhotoViewHeroAttributes(tag: item.id),
+        errorBuilder: (context, error, stackTrace) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.broken_image, size: 64, color: Colors.white54),
+                const SizedBox(height: 12),
+                Text(item.filename, style: const TextStyle(color: Colors.white70)),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentItem = widget.items[_currentIndex];
+    final currentItem = _currentItem;
+    final theme = Theme.of(context);
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // PhotoViewGallery for gesture zoom, double-tap zoom & smooth swipe
-          GestureDetector(
-            onTap: _toggleOverlays,
-            child: PhotoViewGallery.builder(
-              pageController: _pageController,
-              itemCount: widget.items.length,
-              onPageChanged: _onPageChanged,
-              scrollPhysics: const BouncingScrollPhysics(),
-              backgroundDecoration: const BoxDecoration(color: Colors.black),
-              builder: (context, index) {
-                final item = widget.items[index];
-                return PhotoViewGalleryPageOptions(
-                  imageProvider: NetworkImage(
-                    ApiService.instance.getOriginalUrl(item.id),
-                    headers: ApiService.instance.authHeaders,
-                  ),
-                  initialScale: PhotoViewComputedScale.contained,
-                  minScale: PhotoViewComputedScale.contained * 0.8,
-                  maxScale: PhotoViewComputedScale.covered * 3.5,
-                  heroAttributes: PhotoViewHeroAttributes(tag: item.id),
-                  errorBuilder: (context, error, stackTrace) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.broken_image, size: 64, color: Colors.white54),
-                          const SizedBox(height: 12),
-                          Text(item.filename, style: const TextStyle(color: Colors.white70)),
-                        ],
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+          PageView.builder(
+            controller: _pageController,
+            itemCount: _items.length,
+            onPageChanged: _onPageChanged,
+            itemBuilder: (context, index) {
+              final item = _items[index];
+              return _buildPage(item, index);
+            },
           ),
 
           // Top Overlay Bar
@@ -415,7 +607,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   top: MediaQuery.of(context).padding.top + 8,
                   bottom: 12,
                   left: 8,
-                  right: 16,
+                  right: 8,
                 ),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
@@ -430,13 +622,41 @@ class _DetailScreenState extends State<DetailScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 4),
                     Expanded(
                       child: Text(
-                        '${_currentIndex + 1} / ${widget.items.length}',
+                        '${_currentIndex + 1} / ${_items.length}',
                         style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
                       ),
                     ),
+                    if (_isCopying)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                                value: _copyProgress,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _copyProgress == null ? '' : '${(_copyProgress! * 100).round()}%',
+                              style: const TextStyle(color: Colors.white, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      IconButton(
+                        icon: const Icon(Icons.content_copy, color: Colors.white),
+                        tooltip: '复制素材内容',
+                        onPressed: _copyCurrentContent,
+                      ),
                     if (_isDownloading)
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 10),
@@ -452,11 +672,6 @@ class _DetailScreenState extends State<DetailScreen> {
                         tooltip: '下载原图',
                         onPressed: _downloadCurrentItem,
                       ),
-                    IconButton(
-                      icon: const Icon(Icons.copy_rounded, color: Colors.white),
-                      tooltip: '复制信息',
-                      onPressed: _copyCurrentInfo,
-                    ),
                     if (_isSharing)
                       const Padding(
                         padding: EdgeInsets.symmetric(horizontal: 10),
@@ -472,10 +687,56 @@ class _DetailScreenState extends State<DetailScreen> {
                         tooltip: 'Share',
                         onPressed: _shareCurrentItem,
                       ),
-                    IconButton(
-                      icon: const Icon(Icons.info_outline, color: Colors.white),
-                      tooltip: 'Details',
-                      onPressed: () => _showFullMetadataSheet(currentItem),
+                    PopupMenuButton<String>(
+                      icon: _isDeleting
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            )
+                          : const Icon(Icons.more_vert, color: Colors.white),
+                      enabled: !_isDeleting,
+                      tooltip: '更多',
+                      color: theme.colorScheme.surface,
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'copy_text':
+                            _copyCurrentInfo();
+                          case 'details':
+                            _showFullMetadataSheet(currentItem);
+                          case 'delete':
+                            _confirmDeleteCurrentItem();
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'copy_text',
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.text_fields),
+                            title: Text('复制信息文本'),
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'details',
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.info_outline),
+                            title: Text('查看详情'),
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.delete_outline, color: theme.colorScheme.error),
+                            title: Text('删除素材', style: TextStyle(color: theme.colorScheme.error)),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -551,6 +812,59 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Renders animated images (GIF/WebP) with the native [Image] widget.
+///
+/// PhotoView is bypassed here: its frame tracking does not reliably drive
+/// multi-frame images, which left GIFs stuck on the first frame.
+class _AnimatedImagePage extends StatelessWidget {
+  const _AnimatedImagePage({super.key, required this.item, this.onTap});
+
+  final MobileItem item;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: InteractiveViewer(
+        minScale: 0.8,
+        maxScale: 4.0,
+        child: Center(
+          child: Image.network(
+            ApiService.instance.getOriginalUrl(item.id),
+            headers: ApiService.instance.mediaHeaders,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
+            loadingBuilder: (context, child, progress) {
+              if (progress == null) return child;
+              return Center(
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  value: progress.expectedTotalBytes != null
+                      ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                      : null,
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.broken_image, size: 64, color: Colors.white54),
+                    const SizedBox(height: 12),
+                    Text(item.filename, style: const TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
