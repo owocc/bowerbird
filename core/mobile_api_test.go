@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -277,6 +278,71 @@ func TestMobileAPIEndpoints(t *testing.T) {
 		}
 	}
 
+
+	// 12a. Test GET /api/v1/tags
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/tags", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/tags failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for tags, got %d", resp.StatusCode)
+	}
+	var tagsList []Tag
+	if err := json.NewDecoder(resp.Body).Decode(&tagsList); err != nil {
+		t.Fatalf("failed to decode tags response: %v", err)
+	}
+	if len(tagsList) == 0 {
+		t.Errorf("expected tags list to contain at least the default tag or item tags")
+	}
+
+	// 12b. Test GET /api/v1/folders
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/folders", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/folders failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for folders, got %d", resp.StatusCode)
+	}
+	var foldersList []Folder
+	if err := json.NewDecoder(resp.Body).Decode(&foldersList); err != nil {
+		t.Fatalf("failed to decode folders response: %v", err)
+	}
+
+	// 12c. Test GET /api/v1/colors
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/colors", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/colors failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for colors, got %d", resp.StatusCode)
+	}
+	var colorsList []string
+	if err := json.NewDecoder(resp.Body).Decode(&colorsList); err != nil {
+		t.Fatalf("failed to decode colors response: %v", err)
+	}
+
+	// 12d. Test GET /api/v1/items with tag, folder, and color filters
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/items?tag=nature", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/items?tag=sample-tag failed: %v, status %d", err, resp.StatusCode)
+	}
+	var tagFilteredResp MobileItemsResponse
+	_ = json.NewDecoder(resp.Body).Decode(&tagFilteredResp)
+	resp.Body.Close()
+	if tagFilteredResp.Total != 1 {
+		t.Errorf("expected 1 item with tag nature, got %d", tagFilteredResp.Total)
+	}
 	// 13. Test Service RPC methods for desktop integration
 	svc := NewService(mgr)
 	srvStatus, err := svc.GetMobileServerStatus()
@@ -313,5 +379,14 @@ func TestMobileAPIEndpoints(t *testing.T) {
 	}
 	if !mobileSrv.IsRunning() {
 		t.Errorf("expected mobile server to be running again")
+	}
+
+	// Test GetMobilePairingURL
+	pairingURL, err := svc.GetMobilePairingURL()
+	if err != nil {
+		t.Fatalf("GetMobilePairingURL failed: %v", err)
+	}
+	if !strings.HasPrefix(pairingURL, "bowerbird://pair?data=") {
+		t.Fatalf("expected bowerbird://pair?data= prefix, got %s", pairingURL)
 	}
 }

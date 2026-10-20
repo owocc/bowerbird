@@ -723,3 +723,11 @@ func (s *Service) GetMobilePairingCode() (string, error) {
 	}
 	return s.mgr.GetMobileServer().GetPairingCode(), nil
 }
+
+// GetMobilePairingURL returns the bowerbird://pair?data= URL for mobile QR code connection.
+func (s *Service) GetMobilePairingURL() (string, error) {
+	if s.mgr == nil || s.mgr.GetMobileServer() == nil {
+		return "", ErrCoreNotInitialized
+	}
+	return s.mgr.GetMobileServer().GetPairingURL(), nil
+}

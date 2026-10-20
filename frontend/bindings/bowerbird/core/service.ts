@@ -197,6 +197,13 @@ export function GetMobilePairingCode(): $CancellablePromise<string> {
 }
 
 /**
+ * GetMobilePairingURL returns the bowerbird://pair?data= URL for mobile QR code connection.
+ */
+export function GetMobilePairingURL(): $CancellablePromise<string> {
+    return $Call.ByID(2939401407);
+}
+
+/**
  * GetMobileServerStatus returns the operational status and pairing code of the mobile LAN server.
  */
 export function GetMobileServerStatus(): $CancellablePromise<$models.MobileServerStatus | null> {

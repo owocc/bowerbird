@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/big"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -135,11 +138,13 @@ func (s *MobileServer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/pair", s.handlePair)
+	mux.HandleFunc("/api/v1/tags", s.authMiddleware(s.handleTagsList))
+	mux.HandleFunc("/api/v1/folders", s.authMiddleware(s.handleFoldersList))
+	mux.HandleFunc("/api/v1/colors", s.authMiddleware(s.handleColorsList))
 	mux.HandleFunc("/api/v1/items", s.authMiddleware(s.handleItemsList))
 	mux.HandleFunc("/api/v1/items/", s.authMiddleware(s.handleItemDetail))
 	mux.HandleFunc("/api/v1/thumbs/", s.authMiddleware(s.handleThumbnail))
 	mux.HandleFunc("/api/v1/originals/", s.authMiddleware(s.handleOriginal))
-
 	s.httpServer = &http.Server{
 		Handler:      s.corsMiddleware(mux),
 		ReadTimeout:  60 * time.Second,
@@ -433,9 +438,10 @@ func (s *MobileServer) handleItemsList(w http.ResponseWriter, r *http.Request) {
 	queryVals := r.URL.Query()
 	q := strings.TrimSpace(queryVals.Get("q"))
 	tagFilter := strings.TrimSpace(queryVals.Get("tag"))
+	folderFilter := strings.TrimSpace(queryVals.Get("folder"))
+	colorFilter := strings.TrimSpace(queryVals.Get("color"))
 	typeFilter := strings.ToLower(strings.TrimSpace(queryVals.Get("type")))
 	orientationFilter := strings.ToLower(strings.TrimSpace(queryVals.Get("orientation")))
-
 	limit := 50
 	if lStr := queryVals.Get("limit"); lStr != "" {
 		if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
@@ -478,6 +484,24 @@ func (s *MobileServer) handleItemsList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		if folderFilter != "" {
+			hasFolder := false
+			for _, f := range it.Folders {
+				if f == folderFilter {
+					hasFolder = true
+					break
+				}
+			}
+			if !hasFolder {
+				continue
+			}
+		}
+
+		if colorFilter != "" {
+			if !itemMatchesColor(it, colorFilter) {
+				continue
+			}
+		}
 		if typeFilter != "" {
 			switch typeFilter {
 			case "image":
@@ -562,6 +586,165 @@ func (s *MobileServer) handleItemsList(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// handleTagsList returns the tag taxonomy for the active library.
+func (s *MobileServer) handleTagsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode([]Tag{})
+		return
+	}
+
+	tags, err := s.manager.GetTags()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	if tags == nil {
+		tags = []Tag{}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(tags)
+}
+
+// handleFoldersList returns the full folder hierarchy for the active library.
+func (s *MobileServer) handleFoldersList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode([]Folder{})
+		return
+	}
+
+	folders, err := s.manager.GetFolders()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	if folders == nil {
+		folders = []Folder{}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(folders)
+}
+
+// handleColorsList returns aggregated dominant colors across library items.
+func (s *MobileServer) handleColorsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode([]string{})
+		return
+	}
+
+	items, err := s.manager.GetItems("", "desc")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+
+	type colorCount struct {
+		hex   string
+		count int
+	}
+	counts := make(map[string]int)
+	for _, it := range items {
+		if it.InTrash {
+			continue
+		}
+		c := strings.ToUpper(strings.TrimSpace(it.DominantColor))
+		if c != "" && strings.HasPrefix(c, "#") {
+			counts[c]++
+		}
+	}
+
+	list := make([]colorCount, 0, len(counts))
+	for c, cnt := range counts {
+		list = append(list, colorCount{hex: c, count: cnt})
+	}
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].count == list[j].count {
+			return list[i].hex < list[j].hex
+		}
+		return list[i].count > list[j].count
+	})
+
+	limit := 16
+	if len(list) < limit {
+		limit = len(list)
+	}
+	res := make([]string, 0, limit)
+	for i := range limit {
+		res = append(res, list[i].hex)
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func itemMatchesColor(it Item, targetHex string) bool {
+	candidates := make([]string, 0, 1+len(it.Palette))
+	if it.DominantColor != "" {
+		candidates = append(candidates, it.DominantColor)
+	}
+	for _, p := range it.Palette {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			candidates = append(candidates, p)
+		}
+	}
+	if len(candidates) == 0 {
+		return false
+	}
+
+	const tolerance = 115.0
+	for _, c := range candidates {
+		if colorDistanceHex(c, targetHex) <= tolerance {
+			return true
+		}
+	}
+	return false
+}
+
+func colorDistanceHex(hexA, hexB string) float64 {
+	r1, g1, b1, ok1 := parseHexRGB(hexA)
+	r2, g2, b2, ok2 := parseHexRGB(hexB)
+	if !ok1 || !ok2 {
+		return 999.0
+	}
+	rmean := (float64(r1) + float64(r2)) / 2.0
+	dr := float64(r1) - float64(r2)
+	dg := float64(g1) - float64(g2)
+	db := float64(b1) - float64(b2)
+	return math.Sqrt((2.0+rmean/256.0)*dr*dr + 4.0*dg*dg + (2.0+(255.0-rmean)/256.0)*db*db)
+}
+
+func parseHexRGB(h string) (uint8, uint8, uint8, bool) {
+	h = strings.TrimPrefix(strings.TrimSpace(h), "#")
+	if len(h) != 6 {
+		return 0, 0, 0, false
+	}
+	val, err := strconv.ParseUint(h, 16, 32)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return uint8((val >> 16) & 0xFF), uint8((val >> 8) & 0xFF), uint8(val & 0xFF), true
 }
 
 func deriveOrientation(it Item) string {
@@ -710,12 +893,19 @@ func (s *MobileServer) handleOriginal(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, originalPath)
 }
 
-// GetLocalIPs enumerates non-loopback active IPv4 addresses.
+// GetLocalIPs enumerates non-loopback active IPv4 addresses, prioritized by:
+// 1) LAN addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+// 2) Tailscale addresses (100.64-127.x.x)
+// 3) Other IPv4 addresses
 func GetLocalIPs() []string {
-	var ips []string
+	var lanIPs []string
+	var tailscaleIPs []string
+	var otherIPs []string
+	seen := make(map[string]bool)
+
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return ips
+		return []string{}
 	}
 
 	for _, iface := range interfaces {
@@ -737,12 +927,91 @@ func GetLocalIPs() []string {
 			if ip == nil || ip.IsLoopback() {
 				continue
 			}
-			if ip4 := ip.To4(); ip4 != nil {
-				ips = append(ips, ip4.String())
+			ip4 := ip.To4()
+			if ip4 == nil {
+				continue
+			}
+			ipStr := ip4.String()
+			if seen[ipStr] {
+				continue
+			}
+			seen[ipStr] = true
+
+			if isLANIP(ip4) {
+				lanIPs = append(lanIPs, ipStr)
+			} else if isTailscaleIP(ip4) {
+				tailscaleIPs = append(tailscaleIPs, ipStr)
+			} else {
+				otherIPs = append(otherIPs, ipStr)
 			}
 		}
 	}
-	return ips
+
+	sort.Strings(lanIPs)
+	sort.Strings(tailscaleIPs)
+	sort.Strings(otherIPs)
+
+	result := make([]string, 0, len(lanIPs)+len(tailscaleIPs)+len(otherIPs))
+	result = append(result, lanIPs...)
+	result = append(result, tailscaleIPs...)
+	result = append(result, otherIPs...)
+	return result
+}
+
+func isLANIP(ip net.IP) bool {
+	if ip[0] == 10 {
+		return true
+	}
+	if ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 {
+		return true
+	}
+	if ip[0] == 192 && ip[1] == 168 {
+		return true
+	}
+	return false
+}
+
+func isTailscaleIP(ip net.IP) bool {
+	// Tailscale CGNAT range is 100.64.0.0/10 (100.64.0.0 to 100.127.255.255)
+	return ip[0] == 100 && (ip[1] >= 64 && ip[1] <= 127)
+}
+
+// PairingPayload models the bowerbird://pair?data= JSON payload.
+type PairingPayload struct {
+	V    int      `json:"v"`
+	Name string   `json:"name"`
+	IPs  []string `json:"ips"`
+	Port int      `json:"port"`
+	Code string   `json:"code"`
+}
+
+// GetPairingURL returns a bowerbird://pair?data= URL encoding candidate IPs, port, and active pairing code.
+func (s *MobileServer) GetPairingURL() string {
+	s.mu.RLock()
+	port := s.port
+	s.mu.RUnlock()
+
+	name := "Bowerbird"
+	if s.manager != nil {
+		if active := s.manager.GetActiveLibrary(); active != nil && strings.TrimSpace(active.Name) != "" {
+			name = active.Name
+		}
+	}
+
+	payload := PairingPayload{
+		V:    1,
+		Name: name,
+		IPs:  GetLocalIPs(),
+		Port: port,
+		Code: s.GetPairingCode(),
+	}
+
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+
+	return fmt.Sprintf("bowerbird://pair?data=%s", url.QueryEscape(string(bytes)))
 }
 
 // GetStatus returns detailed diagnostics and pairing details for the desktop settings UI.
