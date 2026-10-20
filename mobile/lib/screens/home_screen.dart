@@ -27,6 +27,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _hasMore = true;
   int _offset = 0;
   static const int _pageSize = 60;
+  // Grid animates GIFs only below this size; larger ones keep the static
+  // thumbnail and the GIF badge to avoid multi-megabyte downloads per tile.
+  static const int _gifAnimationMaxBytes = 8 * 1024 * 1024;
   String? _errorMessage;
   bool _isUploading = false;
   StreamSubscription? _wsLibSub;
@@ -173,8 +176,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return groups;
   }
 
-  void _openDetail(int globalIndex) {
-    Navigator.of(context).push(
+  Future<void> _openDetail(int globalIndex) async {
+    final deleted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => DetailScreen(
           items: _items,
@@ -182,6 +185,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ),
       ),
     );
+    if (deleted == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已移入废纸篓')),
+      );
+      _loadItems(refresh: true);
+    }
   }
 
   Future<void> _disconnect({bool silent = false}) async {
@@ -392,6 +401,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 },
               ),
               ListTile(
+                leading: const Icon(Icons.content_copy),
+                title: const Text('复制素材内容'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _copyItemContent(item);
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.share_rounded),
                 title: const Text('分享'),
                 onTap: () {
@@ -452,6 +469,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('素材关键信息已复制到剪贴板')),
     );
+  }
+
+  Future<void> _copyItemContent(MobileItem item) async {
+    if (item.size > ApiService.maxClipboardFileBytes) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('文件过大（${item.formattedSize}），请使用分享或下载'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+      return;
+    }
+    try {
+      await ApiService.instance.copyItemContent(item);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已复制素材内容，可粘贴到微信等应用')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('复制失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    }
   }
 
   String _formatSize(int bytes) {
@@ -625,6 +673,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 (context, index) {
                                   final item = monthItems[index];
                                   final globalIndex = _items.indexOf(item);
+                                  final useAnimatedGif = item.isGif && item.size <= _gifAnimationMaxBytes;
 
                                   return GestureDetector(
                                     onTap: () => _openDetail(globalIndex),
@@ -633,9 +682,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                       fit: StackFit.expand,
                                       children: [
                                         Image.network(
-                                          ApiService.instance.getThumbnailUrl(item.id),
+                                          useAnimatedGif
+                                              ? ApiService.instance.getOriginalUrl(item.id)
+                                              : ApiService.instance.getThumbnailUrl(item.id),
                                           fit: BoxFit.cover,
                                           headers: ApiService.instance.authHeaders,
+                                          cacheWidth: useAnimatedGif ? 400 : null,
                                           loadingBuilder: (context, child, progress) {
                                             if (progress == null) return child;
                                             return Container(
@@ -680,6 +732,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                                 Icons.play_arrow,
                                                 color: Colors.white,
                                                 size: 14,
+                                              ),
+                                            ),
+                                          ),
+                                        if (item.isGif)
+                                          Positioned(
+                                            top: 4,
+                                            left: 4,
+                                            child: Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                horizontal: 4,
+                                                vertical: 1,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.black54,
+                                                borderRadius: BorderRadius.circular(4),
+                                              ),
+                                              child: const Text(
+                                                'GIF',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 9,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
                                               ),
                                             ),
                                           ),
