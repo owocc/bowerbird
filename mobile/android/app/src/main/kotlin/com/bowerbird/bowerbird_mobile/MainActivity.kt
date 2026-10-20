@@ -160,6 +160,7 @@ class MainActivity : FlutterActivity() {
                 add(clip.getItemAt(i).uri)
             }
         }
+        add(intent.data)
         return found.values.toList()
     }
 
