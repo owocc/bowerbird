@@ -28,6 +28,7 @@ func createTestPNG(t *testing.T, targetPath string) {
 }
 
 func TestCaptureScreenNoActiveLibrary(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
 	mgr := NewLibraryManager()
 	_ = mgr.CloseLibrary()
 	svc := NewService(mgr)
@@ -42,6 +43,7 @@ func TestCaptureScreenNoActiveLibrary(t *testing.T) {
 }
 
 func TestCaptureScreenCancelled(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
 	tempDir := t.TempDir()
 	mgr := NewLibraryManager()
 	_, err := mgr.CreateLibrary(tempDir, "TestLib")
@@ -67,6 +69,7 @@ func TestCaptureScreenCancelled(t *testing.T) {
 }
 
 func TestCaptureScreenSuccess(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
 	tempDir := t.TempDir()
 	mgr := NewLibraryManager()
 	_, err := mgr.CreateLibrary(tempDir, "CaptureLib")

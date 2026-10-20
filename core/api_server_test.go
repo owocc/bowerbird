@@ -12,6 +12,7 @@ import (
 )
 
 func TestAPIServerEndpoints(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
 	tempDir, err := os.MkdirTemp("", "api_server_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
