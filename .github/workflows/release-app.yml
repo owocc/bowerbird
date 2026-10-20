@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release Tag Name (e.g. v0.1.0)"
+        description: "Release Tag Name (e.g. v1.0.0-alpha-3.1)"
         required: false
         default: ""
 
@@ -15,8 +15,41 @@ permissions:
   contents: write
 
 jobs:
+  # mygo build reads the version from mygo.json / mygo.config.ts; the CLI has
+  # no -version flag or version environment variable. Resolve the tag once and
+  # stamp it into the checked-out mygo.json in every build job.
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve version from tag
+        id: resolve
+        env:
+          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_NAME}"
+          if [ -z "$tag" ]; then
+            echo "::error::No release tag: push a v* tag or pass tag_name to workflow_dispatch."
+            exit 1
+          fi
+          version="${tag#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag '$tag' does not yield a semver version (got '$version')."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Bowerbird $version from $tag"
+
   build-macos:
+    needs: prepare
     runs-on: macos-latest
+    env:
+      CGO_ENABLED: "1"
+      # Keep the cgo frameworks in line with mygo.json's default
+      # macos.minimumSystemVersion (12.0).
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -24,7 +57,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
           cache: true
 
       - name: Setup Node.js
@@ -37,11 +70,16 @@ jobs:
         with:
           version: 9
 
-      - name: Install Tools
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Stamp version from tag
+        env:
+          MYGO_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          go install github.com/go-task/task/v3/cmd/task@latest
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+          node -e "const fs=require('node:fs');const v=process.env.MYGO_BUILD_VERSION;if(!v)throw new Error('MYGO_BUILD_VERSION is not set');const p='mygo.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=v;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');const w=JSON.parse(fs.readFileSync(p,'utf8'));if(w.version!==v)throw new Error('version stamp failed: '+w.version);console.log('mygo.json version -> '+w.version);"
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -49,36 +87,48 @@ jobs:
       - name: Build Plugins
         run: node scripts/build-plugins.mjs
 
-      - name: Build and Package macOS ARM64 (Apple Silicon)
+      - name: Build and Package macOS (arm64 + x64)
         run: |
-          wails3 task darwin:package ARCH=arm64
-          wails3 task darwin:create:dmg
-          cd bin
-          tar -czf bowerbird-macos-arm64.app.tar.gz bowerbird.app
-          mv bowerbird.dmg bowerbird-macos-arm64.dmg
-          rm -rf bowerbird.app
+          CGO_ENABLED=1 go tool mygo build -platform "darwin/arm64,darwin/amd64"
 
-      - name: Build and Package macOS AMD64 (Intel x86_64)
+      - name: Collect macOS Artifacts
         run: |
-          wails3 task darwin:package ARCH=amd64
-          wails3 task darwin:create:dmg
-          cd bin
-          tar -czf bowerbird-macos-x64.app.tar.gz bowerbird.app
-          mv bowerbird.dmg bowerbird-macos-x64.dmg
-          rm -rf bowerbird.app
+          set -euo pipefail
+          mkdir -p dist-macos
+          for arch in arm64 amd64; do
+            dir="build/mygo/darwin-${arch}"
+            test -d "$dir/Bowerbird.app" || {
+              echo "::error::missing macOS app bundle in $dir"
+              exit 1
+            }
+            dmg="$(ls -1 "$dir"/*.dmg 2>/dev/null | head -n 1 || true)"
+            if [ -z "$dmg" ]; then
+              echo "::error::missing macOS disk image in $dir"
+              exit 1
+            fi
+            if [ "$arch" = "arm64" ]; then
+              suffix="arm64"
+            else
+              suffix="x64"
+            fi
+            cp "$dmg" "dist-macos/bowerbird-macos-${suffix}.dmg"
+            tar -czf "dist-macos/bowerbird-macos-${suffix}.app.tar.gz" \
+              -C "$dir" "Bowerbird.app"
+          done
+          ls -lh dist-macos
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-artifacts
-          path: |
-            bin/bowerbird-macos-arm64.dmg
-            bin/bowerbird-macos-arm64.app.tar.gz
-            bin/bowerbird-macos-x64.dmg
-            bin/bowerbird-macos-x64.app.tar.gz
+          path: dist-macos/*
+          if-no-files-found: error
 
   build-windows:
+    needs: prepare
     runs-on: windows-latest
+    env:
+      CGO_ENABLED: "1"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -86,7 +136,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
           cache: true
 
       - name: Setup Node.js
@@ -99,37 +149,31 @@ jobs:
         with:
           version: 9
 
-      - name: Install NSIS
-        id: install-nsis
-        uses: repolevedavaj/install-nsis@v1.3.0
-        continue-on-error: true
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          nsis-version: "3.10"
+          bun-version: latest
 
-      - name: Fallback NSIS install
-        if: steps.install-nsis.outcome != 'success'
+      - name: Install NSIS
         shell: pwsh
         run: |
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe") -and -not (Test-Path "C:\Program Files\NSIS\makensis.exe")) {
-            try {
-              choco install nsis -y --no-progress
-            } catch {
-              Write-Host "Choco install failed: $_"
+          choco install nsis -y --no-progress
+          $env:PATH = "C:\Program Files (x86)\NSIS;C:\Program Files\NSIS;$env:PATH"
+          foreach ($dir in @("C:\Program Files (x86)\NSIS", "C:\Program Files\NSIS")) {
+            if (Test-Path $dir) {
+              $dir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
             }
           }
-          if (Test-Path "C:\Program Files (x86)\NSIS") {
-            "C:\Program Files (x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
+            throw "NSIS (makensis) not found after install"
           }
-          if (Test-Path "C:\Program Files\NSIS") {
-            "C:\Program Files\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          }
-      - name: Install Tools
-        shell: pwsh
+          makensis -VERSION
+
+      - name: Stamp version from tag
+        env:
+          MYGO_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          go install github.com/go-task/task/v3/cmd/task@latest
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-          $goBin = "$(go env GOPATH)\bin"
-          echo "$goBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          node -e "const fs=require('node:fs');const v=process.env.MYGO_BUILD_VERSION;if(!v)throw new Error('MYGO_BUILD_VERSION is not set');const p='mygo.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=v;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');const w=JSON.parse(fs.readFileSync(p,'utf8'));if(w.version!==v)throw new Error('version stamp failed: '+w.version);console.log('mygo.json version -> '+w.version);"
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -137,23 +181,33 @@ jobs:
       - name: Build Plugins
         run: node scripts/build-plugins.mjs
 
-      - name: Build and Package Windows (portable + NSIS installer)
+      - name: Build and Package Windows
         shell: pwsh
         run: |
-          $env:PATH = "C:\Program Files (x86)\NSIS;C:\Program Files\NSIS;$env:PATH"
-          wails3 task windows:package ARCH=amd64
+          go tool mygo build -platform "windows/amd64"
 
-      - name: Prepare Windows Artifacts
+      - name: Collect Windows Artifacts
         shell: pwsh
         run: |
-          $portable  = "bin/bowerbird.exe"
-          $installer = "bin/bowerbird-amd64-installer.exe"
-          foreach ($file in @($portable, $installer)) {
-            if (-not (Test-Path $file)) { throw "Missing build artifact: $file" }
+          $dir = "build/mygo/windows-amd64"
+          if (-not (Test-Path $dir)) {
+            throw "Missing Windows build directory: $dir"
+          }
+          $portable = Get-ChildItem -LiteralPath $dir -Filter "Bowerbird.exe" -File |
+            Select-Object -First 1
+          $installer = Get-ChildItem -LiteralPath $dir -Filter "* Setup *.exe" -File |
+            Select-Object -First 1
+          if (-not $portable) {
+            throw "Missing portable executable in $dir"
+          }
+          if (-not $installer) {
+            throw "Missing NSIS installer in $dir"
           }
           New-Item -ItemType Directory -Force -Path dist-win | Out-Null
-          Copy-Item $installer "dist-win/bowerbird-windows-x64-installer.exe"
-          Copy-Item $portable  "dist-win/bowerbird-windows-x64-portable.exe"
+          Copy-Item -LiteralPath $installer.FullName `
+            -Destination "dist-win/bowerbird-windows-x64-installer.exe"
+          Copy-Item -LiteralPath $portable.FullName `
+            -Destination "dist-win/bowerbird-windows-x64-portable.exe"
           Get-ChildItem dist-win | Select-Object Name, Length
 
       - name: Upload Windows Artifacts
@@ -161,9 +215,13 @@ jobs:
         with:
           name: windows-artifacts
           path: dist-win/*
+          if-no-files-found: error
 
   build-linux:
+    needs: prepare
     runs-on: ubuntu-24.04
+    env:
+      CGO_ENABLED: "1"
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -171,7 +229,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.24"
+          go-version-file: go.mod
           cache: true
 
       - name: Setup Node.js
@@ -184,25 +242,26 @@ jobs:
         with:
           version: 9
 
-      - name: Install Linux Dependencies
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Linux Build Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            pkg-config \
             libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libgtk-4-dev \
-            libwebkitgtk-6.0-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            file
+            libwebkit2gtk-4.1-dev
 
-      - name: Install Tools
+      - name: Stamp version from tag
+        env:
+          MYGO_BUILD_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          go install github.com/go-task/task/v3/cmd/task@latest
-          go install -tags exp github.com/wailsapp/wails/v3/cmd/wails3@latest || go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
-          echo "$HOME/go/bin" >> $GITHUB_PATH
+          node -e "const fs=require('node:fs');const v=process.env.MYGO_BUILD_VERSION;if(!v)throw new Error('MYGO_BUILD_VERSION is not set');const p='mygo.json';const c=JSON.parse(fs.readFileSync(p,'utf8'));c.version=v;fs.writeFileSync(p,JSON.stringify(c,null,2)+'\n');const w=JSON.parse(fs.readFileSync(p,'utf8'));if(w.version!==v)throw new Error('version stamp failed: '+w.version);console.log('mygo.json version -> '+w.version);"
+
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
@@ -211,18 +270,39 @@ jobs:
 
       - name: Build and Package Linux
         run: |
-          wails3 task linux:package ARCH=amd64
+          go tool mygo build -platform "linux/amd64"
 
-      - name: Prepare Linux Artifacts
+      - name: Collect Linux Artifacts
         run: |
+          set -euo pipefail
+          dir="build/mygo/linux-amd64"
           mkdir -p dist-linux
-          find bin -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" \) -exec cp {} dist-linux/ \;
+          shopt -s nullglob
+          debs=( "$dir"/*.deb )
+          archives=( "$dir"/*.tar.gz )
+          if [ ${#debs[@]} -eq 0 ]; then
+            echo "::error::missing Debian package in $dir"
+            exit 1
+          fi
+          if [ ${#archives[@]} -eq 0 ]; then
+            echo "::error::missing Linux archive in $dir"
+            exit 1
+          fi
+          # Keep the asset name of the previous releases (alpha-3.1 shipped
+          # bowerbird.deb) while the archive and install.sh keep the names
+          # mygo's install script expects next to them.
+          cp "${debs[0]}" dist-linux/bowerbird.deb
+          cp "${archives[@]}" dist-linux/
+          cp "$dir/install.sh" dist-linux/install.sh
+          chmod +x dist-linux/install.sh
+          ls -lh dist-linux
 
       - name: Upload Linux Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: linux-artifacts
           path: dist-linux/*
+          if-no-files-found: error
 
   publish-release:
     needs: [build-macos, build-windows, build-linux]
@@ -238,8 +318,10 @@ jobs:
 
       - name: Consolidate Artifacts
         run: |
+          set -euo pipefail
           mkdir -p release-files
           find all-artifacts -type f -exec cp {} release-files/ \;
+          test -n "$(ls -A release-files)"
           ls -la release-files
 
       - name: Create GitHub Release
@@ -247,6 +329,7 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name }}
           files: release-files/*
+          fail_on_unmatched_files: true
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(inputs.tag_name, 'alpha') || contains(inputs.tag_name, 'beta') || contains(inputs.tag_name, 'rc') }}
           generate_release_notes: true

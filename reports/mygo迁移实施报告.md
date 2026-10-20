@@ -135,3 +135,88 @@
 ## 7. 提交记录
 
 本轮按方案逐项提交（`docs:` / `chore:` / `refactor:` / `feat:` / `fix:`）。若当前执行环境的沙箱不允许写 worktree 的 `.git`（该目录在仓库主目录、位于工作区外），提交会失败并在最终消息中说明；代码与报告均已落在工作区。
+
+## 8. CI 更新
+
+### 8.1 改动范围
+
+- 只改 `.github/workflows/release-app.yml` 与本报告；`android.yml`、`publish-plugins.yml`、`publish-sdk.yml`、业务代码、`mygo.json` 均未改。
+- 触发方式保持原样：`push` tag `v*`，或 `workflow_dispatch` 传 `tag_name`。
+- 桌面发版从 Wails `wails3 task` 链改为 `go tool mygo build`；不再安装 `task`、`wails3`、`nfpm`。
+- 仍未 commit（按任务要求由主会话代提交）。
+
+### 8.2 版本号注入结论
+
+查过 `mygo-ref/docs/configuration.md`、`distribution.md`、`cli.md`、`github-actions.md`，以及 mygo `v0.5.5` 源码 `cmd/mygo/build.go`、`config.go`：
+
+- `mygo build` 的 flag 只有 `-platform`、`-debug`、`-o`、`-sign`、`-skip-build-command`、`-skip-dmg`、`-skip-notarize`、`-upload`，**没有 `-version`**。
+- 也**没有** `MYGO_VERSION` 之类的版本环境变量；版本只从 `mygo.json` / `mygo.config.ts` 的 `version` 读取，再由 `packageFlags` 通过 `-X github.com/egoist/mygo.packageVersion=...` 链接进二进制，同时写进 macOS `Info.plist`、Windows 版本资源，以及 dmg / installer / deb 文件名。
+- 官方支持的“外部注入”方式是把配置改成 `mygo.config.ts`，默认导出函数里读 `process.env` 或 git 信息；本仓库目前是静态 `mygo.json`，且本次任务只允许改 CI 和报告，因此没有改配置格式。
+
+所以工作流用 CI 侧 stamp 的方式把 tag 写进构建版本：
+
+1. `prepare` job 从 `github.ref_name`（tag 触发）或 `inputs.tag_name`（手动触发）取 tag，去掉 `v`，用 semver 正则校验，输出 `version`。
+2. 三个构建 job 在 checkout 后用 Node 重写 `mygo.json` 的 `version`，并读回校验。
+3. 再执行 `go tool mygo build`。
+
+本地验证：把 `mygo.json` 临时改成 `1.0.0-alpha-2` 后构建 `darwin/arm64,darwin/amd64`，两个 app 的 `Info.plist` 里 `CFBundleShortVersionString` 与 `CFBundleVersion` 都是 `1.0.0-alpha-2`；测试后已恢复为 `1.0.0-alpha-1`。
+
+> 注意 1：stamp 只作用于 CI 的 checkout。本地直接 `go tool mygo build` 仍然得到 `mygo.json` 里写死的 `1.0.0-alpha-1`。如果希望本地也跟随 tag，需要迁移到 `mygo.config.ts` 的计算配置；这不在本次“只改 CI/报告”的范围内。
+>
+> 注意 2：`main_mygo.go` 的 `ShowAbout` 仍把 `mygo.AboutPanelOptions.ApplicationVersion` 写死为 `1.0.0-alpha-1`。因此 CI 打包出的 bundle 元数据与 `App.Version()` 是 tag 版本，但“关于”面板仍显示 `1.0.0-alpha-1`。这属于业务代码，按任务要求没有改；要完全一致，应改为 `mygo.App.Version()` 或注入变量。
+
+### 8.3 工作流结构
+
+| job | runner | 构建命令 | 收集的资产 |
+|---|---|---|---|
+| `prepare` | `ubuntu-latest` | 解析 tag → semver | `version` output |
+| `build-macos` | `macos-latest` | `CGO_ENABLED=1 go tool mygo build -platform "darwin/arm64,darwin/amd64"` | `bowerbird-macos-arm64.dmg`、`bowerbird-macos-arm64.app.tar.gz`、`bowerbird-macos-x64.dmg`、`bowerbird-macos-x64.app.tar.gz` |
+| `build-windows` | `windows-latest` | `go tool mygo build -platform "windows/amd64"` | `bowerbird-windows-x64-installer.exe`、`bowerbird-windows-x64-portable.exe` |
+| `build-linux` | `ubuntu-24.04` | `go tool mygo build -platform "linux/amd64"` | `bowerbird.deb`（由 mygo 输出的版本化 `.deb` 重命名）、`-linux-amd64.tar.gz`、`install.sh` |
+| `publish-release` | `ubuntu-latest` | 汇总 artifacts，`softprops/action-gh-release@v2` | 上述全部资产 |
+
+资产命名对照了 `v1.0.0-alpha-3.1` 的实际 release 清单（GitHub API）：macOS 的 `bowerbird-macos-arm64.dmg` / `.app.tar.gz`、`bowerbird-macos-x64.dmg` / `.app.tar.gz`，Windows 的 `bowerbird-windows-x64-installer.exe` / `-portable.exe` 均保持一致；Linux 把 mygo 的版本化 `.deb` 重命名为 alpha-3.1 同名的 `bowerbird.deb`，并额外保留 mygo 的 `-linux-amd64.tar.gz` 与 `install.sh`（安装脚本按这两个名字找包）。alpha-3.1 还有 `bowerbird.rpm` 与 `bowerbird-x86_64.AppImage`，mygo 不产出这两种格式，见 8.6。
+
+环境与依赖：
+
+- Go 用 `actions/setup-go@v5` + `go-version-file: go.mod`（当前 `go 1.27.1`），开启 module cache。
+- Node 22 + pnpm 9（`buildCommand` 是 `pnpm --filter bowerbird build`）；另按任务要求安装 Bun，当前 `mygo.json` 是 JSON，mygo 不会调用 Bun，保留给后续 `mygo.config.ts`/脚本使用。
+- 三个构建 job 都设 `CGO_ENABLED=1`；macOS 另设 `MACOSX_DEPLOYMENT_TARGET=12.0`，与 mygo 默认 `minimumSystemVersion` 对齐。
+- Windows 用 `choco install nsis` 安装 NSIS 并把安装目录加入 `PATH`；mygo 只在找不到 `makensis` 时才自行下载。
+- Linux 安装 `build-essential`、`pkg-config`、`libgtk-3-dev`、`libwebkit2gtk-4.1-dev`，覆盖 cgo 与 GTK/WebKitGTK 运行时依赖。
+- 每个平台先 `pnpm install --frozen-lockfile`，再 `node scripts/build-plugins.mjs`（沿用旧工作流），最后 `go tool mygo build`。
+- 发版仍用 `softprops/action-gh-release@v2`，`generate_release_notes: true` 与 prerelease 判断保持原逻辑，并新增 `fail_on_unmatched_files: true`。
+
+### 8.4 各平台验证状态
+
+| 平台 | 本地状态 | 说明 |
+|---|---|---|
+| macOS app | ✅ 已本地实跑 | `CGO_ENABLED=1 go tool mygo build -platform "darwin/arm64,darwin/amd64" -skip-dmg` 成功；`file` 确认分别为 `arm64` / `x86_64`；两个 app 的 `codesign --verify --deep --strict` 均通过。 |
+| macOS DMG | ⛔ 本轮沙箱内未完成 | 完整 `go tool mygo build -platform darwin/arm64` 走到 `hdiutil create ... -format UDRW` 时被沙箱拒绝：`hdiutil: create failed - Operation not permitted`；`diskutil image create` 同样返回 `OSStatus error 1`。本轮开始前 `build/mygo/darwin-arm64/` 下曾有一个 8.7 MB 的 DMG（12:24 生成），说明该链路在非沙箱环境可出；随后 `-skip-dmg` 重建输出目录，旧 DMG 已被清理。工作流在 GitHub 的 macOS runner 上不受此沙箱限制。 |
+| Windows | ⚠️ 未本地验证 | 本机是 macOS，未在原生 Windows 上跑过。工作流使用 `windows-latest` + NSIS，资产名按 mygo 源码规则收集（`Bowerbird.exe`、`Bowerbird Setup <version> amd64.exe`）。 |
+| Linux | ⚠️ 未本地验证 | 本机是 macOS，未在原生 Ubuntu 上跑过。工作流使用 `ubuntu-24.04` + `CGO_ENABLED=1`；收集 mygo 的 `.deb`（重命名为 `bowerbird.deb`）、`-linux-amd64.tar.gz`、`install.sh`。 |
+
+为什么没有用 macOS 交叉构建来“顺带验证” Windows/Linux：`CGO_ENABLED=0` 交叉构建时，mygo 生成 TypeScript 客户端那一步会按宿主 `darwin` 编译；此时 darwin 的 cgo 文件被排除，而 `sysicon_other.go` / `videothumb_other.go` / `drag_other.go` 的 build tag 又排除了非 iOS 的 darwin，导致 `GetSystemFileIconPNG`、`ExtractNativeVideoFrame`、`StartDragItems`、`CopyItemsToClipboard` 未定义。这是宿主交叉构建的限制，不是原生 Linux/Windows runner 的问题；原生 runner 上 `CGO_ENABLED=1` 会走 `_other.go` / `drag_windows.go` 分支。
+
+### 8.5 本地检查记录
+
+| 检查 | 结果 |
+|---|---|
+| `CGO_ENABLED=1 go tool mygo build -platform "darwin/arm64,darwin/amd64" -skip-dmg` | ✅ 两个 `.app`，21.8 MB / 23.0 MB |
+| `file build/mygo/darwin-*/Bowerbird.app/Contents/MacOS/Bowerbird` | ✅ `arm64`、`x86_64` |
+| `codesign --verify --deep --strict` 两个 app | ✅ 通过（ad-hoc） |
+| 版本 stamp（`1.0.0-alpha-2`）后读 `Info.plist` | ✅ `CFBundleShortVersionString` / `CFBundleVersion` 均为 `1.0.0-alpha-2` |
+| `CGO_ENABLED=1 go tool mygo build -platform darwin/arm64`（含 DMG） | ⛔ `hdiutil` 被沙箱拒绝（见 8.4） |
+| workflow YAML 解析 | ✅ Ruby `YAML.load_file` 通过 |
+| tag → semver 正则 | ✅ `v1.0.0-alpha-2`、`v1.2.3`、`1.2.3`、`v1.2.3-rc.1`、`v1.2.3+build.5` 通过；`v1.2`、`bad`、`v` 拒绝 |
+| macOS 资产收集脚本（临时假 dmg + 现有 app） | ✅ 产出 4 个命名资产，tar 内含 `Bowerbird.app` |
+| Linux 资产收集脚本（临时假 deb/tar/install.sh） | ✅ 产出 `bowerbird.deb`、`.tar.gz`、可执行 `install.sh` |
+
+### 8.6 未验证项与风险
+
+1. **macOS DMG**：工作流依赖 `go tool mygo build` 在 GitHub macOS runner 上完成 `hdiutil create/attach/convert`；本沙箱无法执行，未在本轮留下 DMG 产物。
+2. **Windows 安装器**：`Bowerbird Setup <version> amd64.exe` 的实际文件名、NSIS 下载/安装、portable 可执行文件是否单文件可运行，均未在原生 Windows 上验证。
+3. **Linux 打包**：mygo 不产出 `.rpm` / `.AppImage`，它们从 alpha-3.1 的资产清单里消失；Linux 现在发布 `bowerbird.deb` + `-linux-amd64.tar.gz` + `install.sh`。若必须保留 `bowerbird.rpm` / `bowerbird-x86_64.AppImage`，需要在 mygo build 之后另加 rpm/AppImage 打包步骤（本次未做）。
+4. **pnpm 版本**：本地是 pnpm 12，工作流按旧配置用 pnpm 9；`pnpm-lock.yaml` 是 `lockfileVersion: 9.0`，预期兼容，但未在 pnpm 9 下跑过 `--frozen-lockfile`。
+5. **Windows 的 `CGO_ENABLED=1`**：当前默认构建在 Windows 上没有 cgo 源文件（Wails `w32` 是纯 Go），预期不需要 MinGW；若将来新增 Windows cgo，需要补 C 编译器。
+6. **工作流未实际触发**：按任务要求未 commit/push，所有 GitHub Actions 逻辑只做了静态检查与本地等价脚本验证。
