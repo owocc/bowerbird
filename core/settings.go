@@ -1,9 +1,6 @@
 package core
 
-import (
-
-	"github.com/wailsapp/wails/v3/pkg/application"
-)
+import "errors"
 
 // Colour modes understood by the application. They mirror the values stored in
 // `UserData.Theme` and persisted by the frontend under the "bowerbird-ui-theme"
@@ -21,7 +18,6 @@ const settingsWindowName = "settings"
 // ThemeChangedEvent is broadcast whenever the colour mode changes so every
 // open window (main + settings) can restyle itself immediately.
 const ThemeChangedEvent = "theme-changed"
-
 
 // LanguageChangedEvent is broadcast whenever the language changes so every
 // open window (main + settings) can update its translations immediately.
@@ -70,9 +66,7 @@ func (s *Service) SetTheme(theme string) error {
 		}
 	}
 
-	if app := s.getApp(); app != nil {
-		app.Event.Emit(ThemeChangedEvent, theme)
-	}
+	s.emit(ThemeChangedEvent, theme)
 	return nil
 }
 
@@ -102,50 +96,45 @@ func (s *Service) SetLanguage(language string) error {
 		}
 	}
 
-	if app := s.getApp(); app != nil {
-		app.Event.Emit(LanguageChangedEvent, language)
-	}
+	s.emit(LanguageChangedEvent, language)
 	return nil
 }
 
 // OpenSettingsWindow opens the settings UI in its own window. Only a single
 // instance is created; later calls simply reveal and focus the existing one.
 func (s *Service) OpenSettingsWindow() error {
-	app := s.getApp()
-	if app == nil {
+	host := s.getHost()
+	if host == nil {
 		return ErrAppNotInitialized
 	}
 
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
-	return OpenSettingsWindowWithApp(app)
+	return host.OpenWindow(WindowSpec{
+		Name:           settingsWindowName,
+		Title:          "Settings",
+		URL:            "/#/settings",
+		Width:          800,
+		Height:         650,
+		MinWidth:       800,
+		MinHeight:      650,
+		TitleBarHidden: true,
+	})
 }
 
-// OpenSettingsWindowWithApp opens or focuses the settings window given an application instance.
-func OpenSettingsWindowWithApp(app *application.App) error {
-	if app == nil {
-		return ErrAppNotInitialized
+// OpenSettingsWindowWithHost opens or focuses the settings window through a host.
+func OpenSettingsWindowWithHost(host Host) error {
+	if host == nil {
+		return errors.New("application not initialized")
 	}
-
-	if existing, ok := app.Window.GetByName(settingsWindowName); ok {
-		existing.Show()
-		existing.Focus()
-		return nil
-	}
-
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             settingsWindowName,
-		Title:            "Settings",
-		URL:              "/#/settings",
-		Width:            800,
-		Height:           650,
-		MinWidth:         800,
-		MinHeight:        650,
-		BackgroundColour: application.NewRGB(6, 7, 15),
-		Mac: application.MacWindow{
-			Backdrop: application.MacBackdropTranslucent,
-			TitleBar: application.MacTitleBarHiddenInset,
-		},
+	return host.OpenWindow(WindowSpec{
+		Name:           settingsWindowName,
+		Title:          "Settings",
+		URL:            "/#/settings",
+		Width:          800,
+		Height:         650,
+		MinWidth:       800,
+		MinHeight:      650,
+		TitleBarHidden: true,
 	})
-	return nil
 }

@@ -18,8 +18,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 var (
@@ -49,20 +47,20 @@ type PluginManifest struct {
 
 // InstalledPlugin represents an installed plugin persisted in installed.json.
 type InstalledPlugin struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Version      string   `json:"version"`
-	Description  string   `json:"description"`
-	Author       string   `json:"author"`
-	Kind         string   `json:"kind"`
-	Priority     int      `json:"priority"`
-	Extensions   []string `json:"extensions"`
-	MimePrefixes []string `json:"mimePrefixes,omitempty"`
-	SupportsZoom bool     `json:"supportsZoom,omitempty"`
-	Main         string   `json:"main"`
-	Style        string   `json:"style,omitempty"`
-	Enabled      bool     `json:"enabled"`
-	InstalledAt  string   `json:"installedAt"`
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Version        string   `json:"version"`
+	Description    string   `json:"description"`
+	Author         string   `json:"author"`
+	Kind           string   `json:"kind"`
+	Priority       int      `json:"priority"`
+	Extensions     []string `json:"extensions"`
+	MimePrefixes   []string `json:"mimePrefixes,omitempty"`
+	SupportsZoom   bool     `json:"supportsZoom,omitempty"`
+	Main           string   `json:"main"`
+	Style          string   `json:"style,omitempty"`
+	Enabled        bool     `json:"enabled"`
+	InstalledAt    string   `json:"installedAt"`
 	SourceURL      string   `json:"sourceUrl"`
 	MarketplaceURL string   `json:"marketplaceUrl,omitempty"`
 	UpdateURL      string   `json:"updateUrl,omitempty"`
@@ -107,13 +105,14 @@ type BatchCheckUpdateResponse struct {
 
 // PluginManager manages plugin installation, validation, storage, and persistence.
 type PluginManager struct {
-	mu         sync.RWMutex
-	baseDir    string // <UserDataDir>/plugins
-	indexPath      string // <UserDataDir>/plugins/installed.json
-	plugins        map[string]*InstalledPlugin
-	pendingInstall *PluginInstallRequest
-	httpClient     *http.Client
-	app            *application.App
+	mu              sync.RWMutex
+	baseDir         string // <UserDataDir>/plugins
+	indexPath       string // <UserDataDir>/plugins/installed.json
+	plugins         map[string]*InstalledPlugin
+	pendingInstall  *PluginInstallRequest
+	httpClient      *http.Client
+	host            Host
+	hostMu          sync.RWMutex
 	networkSettings NetworkSettings
 }
 
@@ -125,9 +124,9 @@ func NewPluginManager() *PluginManager {
 // NewPluginManagerWithDir creates a PluginManager rooted at a custom directory.
 func NewPluginManagerWithDir(baseDir string) *PluginManager {
 	pm := &PluginManager{
-		baseDir:   baseDir,
-		indexPath: filepath.Join(baseDir, "installed.json"),
-		plugins:   make(map[string]*InstalledPlugin),
+		baseDir:         baseDir,
+		indexPath:       filepath.Join(baseDir, "installed.json"),
+		plugins:         make(map[string]*InstalledPlugin),
 		networkSettings: NetworkSettings{ProxyMode: ProxyModeSystem},
 		httpClient: &http.Client{
 			Timeout:   60 * time.Second,
@@ -140,11 +139,22 @@ func NewPluginManagerWithDir(baseDir string) *PluginManager {
 	return pm
 }
 
-// SetApp sets the Wails application reference for event emission.
-func (pm *PluginManager) SetApp(app *application.App) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
-	pm.app = app
+// SetHost sets the desktop shell used for event emission.
+func (pm *PluginManager) SetHost(host Host) {
+	pm.hostMu.Lock()
+	pm.host = host
+	pm.hostMu.Unlock()
+}
+
+// emit forwards an event to the host when one is attached. It uses hostMu,
+// not pm.mu: callers emit while holding pm.mu.
+func (pm *PluginManager) emit(name string, payload any) {
+	pm.hostMu.RLock()
+	host := pm.host
+	pm.hostMu.RUnlock()
+	if host != nil {
+		host.Emit(name, payload)
+	}
 }
 
 // UpdateNetworkSettings updates the proxy configuration used for plugin downloads and update checks.
@@ -486,8 +496,8 @@ func (pm *PluginManager) ScanLocalPlugins() ([]InstalledPlugin, error) {
 	defer pm.mu.Unlock()
 
 	changed := pm.scanLocalPluginsLocked()
-	if changed && pm.app != nil {
-		pm.app.Event.Emit("plugin:changed", map[string]any{
+	if changed {
+		pm.emit("plugin:changed", map[string]any{
 			"action": "scanned",
 		})
 	}
@@ -609,20 +619,20 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 	// Phase 5: Registration & Persistence
 	RecordLog("info", "plugin", fmt.Sprintf("[Phase 5/5] Registering plugin in installed.json: %s (v%s)", manifest.ID, manifest.Version), "", 0)
 	installed := &InstalledPlugin{
-		ID:           manifest.ID,
-		Name:         manifest.Name,
-		Version:      manifest.Version,
-		Description:  manifest.Description,
-		Author:       manifest.Author,
-		Kind:         manifest.Kind,
-		Priority:     manifest.Priority,
-		Extensions:   manifest.Extensions,
-		MimePrefixes: manifest.MimePrefixes,
-		SupportsZoom: manifest.SupportsZoom,
-		Main:         manifest.Main,
-		Style:        manifest.Style,
-		Enabled:      true,
-		InstalledAt:  time.Now().UTC().Format(time.RFC3339),
+		ID:             manifest.ID,
+		Name:           manifest.Name,
+		Version:        manifest.Version,
+		Description:    manifest.Description,
+		Author:         manifest.Author,
+		Kind:           manifest.Kind,
+		Priority:       manifest.Priority,
+		Extensions:     manifest.Extensions,
+		MimePrefixes:   manifest.MimePrefixes,
+		SupportsZoom:   manifest.SupportsZoom,
+		Main:           manifest.Main,
+		Style:          manifest.Style,
+		Enabled:        true,
+		InstalledAt:    time.Now().UTC().Format(time.RFC3339),
 		SourceURL:      pluginURL,
 		MarketplaceURL: extractMarketplaceURL(pluginURL),
 		UpdateURL:      pluginURL,
@@ -634,12 +644,10 @@ func (pm *PluginManager) InstallPluginFromURL(pluginURL string) (*InstalledPlugi
 		return nil, fmt.Errorf("failed to save installed.json: %w", err)
 	}
 
-	if pm.app != nil {
-		pm.app.Event.Emit("plugin:changed", map[string]any{
-			"action": "installed",
-			"id":     manifest.ID,
-		})
-	}
+	pm.emit("plugin:changed", map[string]any{
+		"action": "installed",
+		"id":     manifest.ID,
+	})
 
 	totalDuration := time.Since(startTotal).Milliseconds()
 	RecordLog("info", "plugin", fmt.Sprintf("Plugin %q (v%s, id: %s) installed successfully in %dms", manifest.Name, manifest.Version, manifest.ID, totalDuration),
@@ -1013,12 +1021,10 @@ func (pm *PluginManager) UninstallPlugin(id string) error {
 		return fmt.Errorf("failed to update installed.json: %w", err)
 	}
 
-	if pm.app != nil {
-		pm.app.Event.Emit("plugin:changed", map[string]any{
-			"action": "uninstalled",
-			"id":     id,
-		})
-	}
+	pm.emit("plugin:changed", map[string]any{
+		"action": "uninstalled",
+		"id":     id,
+	})
 	RecordLog("info", "plugin", fmt.Sprintf("Plugin %s uninstalled successfully", id), destDir, 0)
 	return nil
 }
@@ -1042,12 +1048,10 @@ func (pm *PluginManager) SetPluginEnabled(id string, enabled bool) error {
 	if !enabled {
 		action = "disabled"
 	}
-	if pm.app != nil {
-		pm.app.Event.Emit("plugin:changed", map[string]any{
-			"action": action,
-			"id":     id,
-		})
-	}
+	pm.emit("plugin:changed", map[string]any{
+		"action": action,
+		"id":     id,
+	})
 	return nil
 }
 
@@ -1292,12 +1296,10 @@ func (pm *PluginManager) UpgradePlugin(id string) (*InstalledPlugin, error) {
 		return nil, fmt.Errorf("failed to upgrade plugin %q: %w", id, err)
 	}
 
-	if pm.app != nil {
-		pm.app.Event.Emit("plugin:changed", map[string]any{
-			"action": "updated",
-			"id":     id,
-		})
-	}
+	pm.emit("plugin:changed", map[string]any{
+		"action": "updated",
+		"id":     id,
+	})
 	RecordLog("info", "plugin", fmt.Sprintf("Plugin %s upgraded to v%s successfully", id, updated.Version), "", 0)
 
 	return updated, nil

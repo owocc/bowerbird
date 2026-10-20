@@ -736,9 +736,7 @@ func (s *MobileServer) handleLibrarySwitch(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Notify desktop UI via LibraryOpenedEvent
-	if app := s.manager.GetApp(); app != nil {
-		app.Event.Emit(LibraryOpenedEvent, info)
-	}
+	s.manager.emit(LibraryOpenedEvent, info)
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)

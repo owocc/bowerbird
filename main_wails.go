@@ -1,3 +1,5 @@
+//go:build wails_legacy
+
 package main
 
 import (

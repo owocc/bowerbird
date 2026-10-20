@@ -22,3 +22,9 @@ extension/.wxt
 .env.*.local
 .wrangler/
 **/.wrangler/
+.gocache/
+.gomodcache/
+.pnpm-store/
+/build/mygo/
+.tmp-*
+/tmp-*

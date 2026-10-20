@@ -39,7 +39,6 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/w32"
 )
 
@@ -302,11 +301,11 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 		return errors.New("no items to drag")
 	}
 
-	window := m.getWindow()
-	if window == nil {
-		return errors.New("no window available")
+	host := m.Host()
+	if host == nil {
+		return errors.New("no desktop host available")
 	}
-	hwnd := window.NativeWindow()
+	hwnd := unsafe.Pointer(host.NativeWindowHandle())
 	if hwnd == nil {
 		return errors.New("native window is nil")
 	}
@@ -341,7 +340,7 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 		effect uint32
 		err    error
 	)
-	application.InvokeSync(func() {
+	host.RunOnMain(func() {
 		effect, err = runWindowsFileDrag(hwnd, paths)
 	})
 	if err != nil {
@@ -377,8 +376,12 @@ func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
 		return errors.New("no valid files to copy")
 	}
 
+	host := m.Host()
+	if host == nil {
+		return errors.New("no desktop host available")
+	}
 	var copyErr error
-	application.InvokeSync(func() {
+	host.RunOnMain(func() {
 		_, _, _ = procOleInitialize.Call(0)
 		drag, err := newWindowsDrag(paths)
 		if err != nil {
