@@ -225,6 +225,33 @@ export interface LogEntry {
 }
 
 /**
+ * NetworkInterfaceInfo describes an available network interface for mobile discovery.
+ */
+export interface NetworkInterfaceInfo {
+    "id": string;
+    "name": string;
+    "type": string;
+    "ips": string[] | null;
+    "selected": boolean;
+}
+
+/**
+ * MobileServerStatus contains desktop-facing diagnostics and pairing details.
+ */
+export interface MobileServerStatus {
+    "enabled": boolean;
+    "running": boolean;
+    "port": number;
+    "pairingCode": string;
+    "addresses": string[] | null;
+    "pairedDevices": number;
+    "itemCount": number;
+    "pairingRequired": boolean;
+    "allowedNetworks"?: string[] | null;
+    "availableNetworks"?: NetworkInterfaceInfo[] | null;
+}
+
+/**
  * NetworkSettings stores user-configured proxy settings.
  */
 export interface NetworkSettings {

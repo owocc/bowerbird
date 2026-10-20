@@ -323,7 +323,8 @@
       "plugins": "Plugins",
       "network": "Network",
       "data": "Data & Storage",
-      "extension": "Browser Extension"
+      "extension": "Browser Extension",
+      "mobile": "Mobile Connection"
     },
     "data": {
       "title": "Data & Storage Management",
@@ -432,6 +433,30 @@
       "scanLocal": "Scan Local Plugins",
       "scanning": "Scanning…",
       "scanSuccess": "Scan completed, synchronized local plugin folder"
+    },
+    "mobile": {
+      "title": "Mobile Connection",
+      "description": "Connect mobile companion apps over LAN or Tailscale to browse and sync library assets in real time.",
+      "serverStatus": "LAN Service",
+      "running": "Running (Port: {{port}})",
+      "stopped": "Stopped",
+      "enableServer": "Enable Mobile LAN Service",
+      "pairingCodeTitle": "Pairing Code",
+      "pairingCodeDesc": "6-digit code required when pairing for the first time, ensuring only authorized devices on your network have access.",
+      "regenerate": "Regenerate",
+      "regenerating": "Regenerating…",
+      "qrTitle": "Scan to Connect",
+      "qrDesc": "Scan this QR code with the Bowerbird Mobile App to automatically discover candidate IPs and pair securely.",
+      "qrTip": "Supports LAN direct connection and Tailscale remote IPs. The mobile app automatically probes latency and picks the best route.",
+      "candidateIPs": "Candidate IPs",
+      "pairedDevices": "Paired devices: {{count}}",
+      "copyUrl": "Copy Pairing URL",
+      "copiedUrl": "Pairing URL copied!",
+      "discoveryNetworks": "Discovery Networks",
+      "discoveryNetworksDesc": "Configure network interfaces allowed for mDNS broadcast discovery and QR code candidate IPs (LAN only by default, Tailscale must be checked manually).",
+      "netLan": "LAN",
+      "netOther": "Other",
+      "noNetworksFound": "No available network interfaces detected"
     },
     "subtitle": "Application preferences",
     "title": "Settings"

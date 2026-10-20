@@ -37,6 +37,9 @@ import {
   XCircle,
   Activity,
   Radio,
+  Smartphone,
+  QrCode,
+  Wifi,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
@@ -56,8 +59,14 @@ import {
   TestNetworkConnection,
   ScanLocalPlugins,
   OpenLogsWindow,
+  GetMobileServerStatus,
+  SetMobileServerEnabled,
+  RegenerateMobilePairingCode,
+  GetMobilePairingURL,
+  SetMobileAllowedNetworks,
 } from "../../bindings/bowerbird/core/service";
-import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult } from "../../bindings/bowerbird/core/models";
+import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult, MobileServerStatus } from "../../bindings/bowerbird/core/models";
+import { QRCodeSVG } from "qrcode.react";
 import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
 import { Events } from "@wailsio/runtime";
@@ -76,7 +85,7 @@ import {
 } from "@/plugins/preview/registry";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "shortcuts" | "plugins" | "network" | "data" | "extension";
+type SettingsSectionId = "general" | "shortcuts" | "plugins" | "network" | "data" | "extension" | "mobile";
 
 interface ThemeOption {
   value: Theme;
@@ -416,7 +425,73 @@ export function SettingsPage() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<NetworkTestResult | null>(null);
   const [scanningPlugins, setScanningPlugins] = useState(false);
+  const [mobileStatus, setMobileStatus] = useState<MobileServerStatus | null>(null);
+  const [mobilePairingUrl, setMobilePairingUrl] = useState<string>("");
+  const [regeneratingCode, setRegeneratingCode] = useState(false);
+  const [togglingMobile, setTogglingMobile] = useState(false);
+  const [copiedMobileUrl, setCopiedMobileUrl] = useState(false);
 
+  const loadMobileData = () => {
+    GetMobileServerStatus()
+      .then((status) => {
+        if (status) setMobileStatus(status);
+      })
+      .catch(() => {});
+    GetMobilePairingURL()
+      .then((url) => {
+        if (url) setMobilePairingUrl(url);
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadMobileData();
+  }, []);
+
+  const handleToggleMobileServer = async (enabled: boolean) => {
+    try {
+      setTogglingMobile(true);
+      await SetMobileServerEnabled(enabled);
+      loadMobileData();
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setTogglingMobile(false);
+    }
+  };
+
+  const handleRegeneratePairingCode = async () => {
+    try {
+      setRegeneratingCode(true);
+      await RegenerateMobilePairingCode();
+      loadMobileData();
+      notifySuccess(t("settings.mobile.pairingCodeTitle"));
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setRegeneratingCode(false);
+    }
+  };
+
+  const handleCopyMobileUrl = async () => {
+    if (!mobilePairingUrl) return;
+    await copyTextToClipboard(mobilePairingUrl);
+    setCopiedMobileUrl(true);
+    notifySuccess(t("settings.mobile.copiedUrl"));
+    setTimeout(() => setCopiedMobileUrl(false), 2000);
+  };
+  const handleToggleNetwork = async (ifaceId: string, currentSelected: boolean) => {
+    if (!mobileStatus?.availableNetworks) return;
+    const currentAllowed = mobileStatus.availableNetworks
+      .filter((n) => (n.id === ifaceId ? !currentSelected : n.selected))
+      .map((n) => n.id);
+    try {
+      await SetMobileAllowedNetworks(currentAllowed);
+      loadMobileData();
+    } catch (err) {
+      notifyError(err);
+    }
+  };
   useEffect(() => {
     GetNetworkSettings()
       .then((settings) => {
@@ -712,6 +787,11 @@ export function SettingsPage() {
       label: t("settings.nav.extension"),
       icon: Globe,
     },
+    {
+      id: "mobile",
+      label: t("settings.nav.mobile"),
+      icon: Smartphone,
+    },
   ];
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-background text-foreground antialiased select-none">
@@ -782,7 +862,9 @@ export function SettingsPage() {
               ? t("settings.nav.network")
               : activeSection === "data"
               ? t("settings.nav.data")
-              : t("settings.nav.extension")}
+              : activeSection === "extension"
+              ? t("settings.nav.extension")
+              : t("settings.nav.mobile")}
           </h1>
         </header>
 
@@ -1467,6 +1549,208 @@ export function SettingsPage() {
                       {t("settings.extension.browsers.safari.steps")}
                     </p>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {activeSection === "mobile" && (
+            <div className="max-w-2xl space-y-6">
+              {/* Server Status & Switch */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-2.5 w-2.5">
+                      {mobileStatus?.running ? (
+                        <>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                        </>
+                      ) : (
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-muted-foreground/40" />
+                      )}
+                    </span>
+                    <span className="text-xs font-semibold">
+                      {t("settings.mobile.serverStatus")}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "font-mono text-[10px]",
+                        mobileStatus?.running
+                          ? "text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                          : "text-muted-foreground border-border/60"
+                      )}
+                    >
+                      {mobileStatus?.running
+                        ? t("settings.mobile.running", { port: mobileStatus.port })
+                        : t("settings.mobile.stopped")}
+                    </Badge>
+                    <Switch
+                      checked={mobileStatus?.enabled ?? false}
+                      disabled={togglingMobile}
+                      onCheckedChange={handleToggleMobileServer}
+                    />
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {t("settings.mobile.description")}
+                </p>
+
+                {mobileStatus && (
+                  <div className="text-[11px] text-muted-foreground pt-1 flex items-center justify-between border-t border-border/50">
+                    <span>{t("settings.mobile.pairedDevices", { count: mobileStatus.pairedDevices })}</span>
+                    <span>{t("settings.mobile.candidateIPs")}: {mobileStatus.addresses?.length ? mobileStatus.addresses.join(", ") : "—"}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Pairing Code Section */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <h2 className="text-xs font-semibold text-foreground">
+                      {t("settings.mobile.pairingCodeTitle")}
+                    </h2>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.mobile.pairingCodeDesc")}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRegeneratePairingCode}
+                    disabled={regeneratingCode || !mobileStatus?.running}
+                    className="h-8 gap-1.5 text-xs shrink-0 cursor-pointer"
+                  >
+                    <RefreshCw className={cn("size-3.5", regeneratingCode && "animate-spin")} />
+                    {regeneratingCode ? t("settings.mobile.regenerating") : t("settings.mobile.regenerate")}
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-center p-3 rounded-xl bg-muted/30 border border-border/60">
+                  <span className="font-mono text-3xl font-bold tracking-widest text-primary selection:bg-primary/20">
+                    {mobileStatus?.pairingCode || "------"}
+                  </span>
+                </div>
+              </div>
+
+              {/* QR Code Section */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <h2 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <QrCode className="size-4 text-primary" />
+                      {t("settings.mobile.qrTitle")}
+                    </h2>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                      {t("settings.mobile.qrDesc")}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleCopyMobileUrl}
+                    disabled={!mobilePairingUrl}
+                    className="h-8 gap-1.5 text-xs shrink-0 cursor-pointer"
+                  >
+                    {copiedMobileUrl ? (
+                      <CheckCheck className="size-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="size-3.5" />
+                    )}
+                    {copiedMobileUrl ? t("settings.mobile.copiedUrl") : t("settings.mobile.copyUrl")}
+                  </Button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-6 p-4 rounded-xl bg-muted/20 border border-border/50">
+                  <div className="p-3 bg-white rounded-xl shadow-xs shrink-0 ring-1 ring-border/40">
+                    {mobilePairingUrl ? (
+                      <QRCodeSVG
+                        value={mobilePairingUrl}
+                        size={168}
+                        level="M"
+                        includeMargin={false}
+                      />
+                    ) : (
+                      <div className="size-[168px] flex items-center justify-center text-xs text-muted-foreground">
+                        {t("settings.mobile.stopped")}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2 text-[11px] leading-relaxed text-muted-foreground">
+                    <p className="text-foreground/90 font-medium">
+                      {t("settings.mobile.qrTip")}
+                    </p>
+                    {mobileStatus?.addresses && mobileStatus.addresses.length > 0 && (
+                      <div className="space-y-1 pt-1">
+                        <div className="font-semibold text-foreground/80">{t("settings.mobile.candidateIPs")}:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {mobileStatus.addresses.map((ip) => (
+                            <code
+                              key={ip}
+                              className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-muted/60 border border-border/60 text-foreground"
+                            >
+                              {ip}:{mobileStatus.port}
+                            </code>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* Discovery Networks Section */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Wifi className="size-4 text-primary" />
+                    {t("settings.mobile.discoveryNetworks")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.mobile.discoveryNetworksDesc")}
+                  </p>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  {mobileStatus?.availableNetworks && mobileStatus.availableNetworks.length > 0 ? (
+                    mobileStatus.availableNetworks.map((net) => (
+                      <div
+                        key={net.id}
+                        className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-mono text-xs font-medium text-foreground">
+                            {net.id}
+                          </span>
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            ({net.ips?.join(", ")})
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="text-[9px] px-1.5 py-0 h-4 uppercase"
+                          >
+                            {net.type === "lan"
+                              ? t("settings.mobile.netLan")
+                              : net.type === "tailscale"
+                              ? "Tailscale"
+                              : t("settings.mobile.netOther")}
+                          </Badge>
+                        </div>
+                        <Switch
+                          checked={net.selected}
+                          onCheckedChange={() => handleToggleNetwork(net.id, net.selected)}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-muted-foreground py-2 text-center">
+                      {t("settings.mobile.noNetworksFound")}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

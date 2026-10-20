@@ -52,7 +52,8 @@ type LibraryManager struct {
 	db          *sql.DB
 	userData    *UserDataStore
 	pluginMgr   *PluginManager
-	assetServer *AssetServer
+	assetServer  *AssetServer
+	mobileServer *MobileServer
 	// High-speed in-memory index for sub-millisecond queries and searches
 	cacheMu     sync.RWMutex
 	cacheLoaded bool
@@ -90,6 +91,11 @@ func NewLibraryManager() *LibraryManager {
 	}
 	// Start internal HTTP asset streaming server
 	mgr.assetServer = newAssetServer(mgr)
+	// Start mobile LAN HTTP and discovery server
+	mgr.mobileServer = newMobileServer(mgr)
+	if err := mgr.mobileServer.Start(); err != nil {
+		log.Printf("[Core] failed to start mobile server: %v", err)
+	}
 
 	// Automatically mount remembered library on launch
 	if store != nil {
@@ -179,6 +185,23 @@ func (m *LibraryManager) GetAssetServerPort() int {
 	return 0
 }
 
+// GetMobileServer returns the mobile LAN server instance.
+func (m *LibraryManager) GetMobileServer() *MobileServer {
+	return m.mobileServer
+}
+
+func (m *LibraryManager) notifyItemsUpdated() {
+	if m.mobileServer != nil {
+		var libID string
+		if active := m.GetActiveLibrary(); active != nil {
+			libID = active.ID
+		}
+		m.mobileServer.Broadcast("items_updated", map[string]any{
+			"libraryId": libID,
+		})
+	}
+}
+
 // CreateLibrary creates a new xxx.library container, initializes SQLite, and remembers it in user data.
 func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*LibraryInfo, error) {
 	if strings.TrimSpace(parentDir) == "" {
@@ -249,6 +272,14 @@ func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*Libra
 	if m.userData != nil {
 		_ = m.userData.SetActiveLibraryPath(fullLibPath)
 	}
+	if m.mobileServer != nil {
+		m.mobileServer.Broadcast("library_changed", map[string]any{
+			"id":        libID,
+			"name":      strings.TrimSuffix(cleanName, ".library"),
+			"path":      fullLibPath,
+			"itemCount": 0,
+		})
+	}
 
 	return m.activeLib, nil
 }
@@ -315,6 +346,15 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 		_ = m.userData.SetActiveLibraryPath(libraryPath)
 	}
 
+	if m.mobileServer != nil {
+		m.mobileServer.Broadcast("library_changed", map[string]any{
+			"id":        meta.ID,
+			"name":      meta.Name,
+			"path":      libraryPath,
+			"itemCount": count,
+		})
+	}
+
 	RecordLog("info", "core", "Opened library", fmt.Sprintf("name=%s items=%d path=%s", meta.Name, count, libraryPath), time.Since(start).Milliseconds())
 	return m.activeLib, nil
 }
@@ -332,6 +372,14 @@ func (m *LibraryManager) CloseLibrary() error {
 	m.invalidateCache()
 	if m.userData != nil {
 		_ = m.userData.ClearActiveLibraryPath()
+	}
+	if m.mobileServer != nil {
+		m.mobileServer.Broadcast("library_changed", map[string]any{
+			"id":        "",
+			"name":      "",
+			"path":      "",
+			"itemCount": 0,
+		})
 	}
 	return nil
 }
@@ -1128,6 +1176,9 @@ func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress Pr
 			imported = append(imported, *it)
 		}
 	}
+	if len(imported) > 0 {
+		m.notifyItemsUpdated()
+	}
 	return imported, nil
 }
 
@@ -1216,6 +1267,9 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 	// single-file imports and final completion already emit import-completed with the full items slice.
 	if m.app != nil && len(batchItems) > 1 {
 		m.app.Event.Emit("library-items-upserted", batchItems)
+	}
+	if len(batchItems) > 0 {
+		m.notifyItemsUpdated()
 	}
 	RecordLog(
 		"perf",
@@ -2076,6 +2130,7 @@ func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, vid
 		m.app.Event.Emit("library-items-upserted", []Item{*item})
 	}
 
+	m.notifyItemsUpdated()
 	return item, nil
 }
 
@@ -2267,6 +2322,7 @@ func (m *LibraryManager) DeleteItem(id string) error {
 	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
 	_, err := db.Exec("DELETE FROM items WHERE id = ? OR hex = ?", id, id)
 	m.removeCachedItem(id)
+	m.notifyItemsUpdated()
 	return err
 }
 
@@ -2357,6 +2413,15 @@ func IsImageExtension(ext string) bool {
 func IsVideoExtension(ext string) bool {
 	switch strings.ToLower(ext) {
 	case "mp4", "mov", "qt", "webm", "mkv", "avi", "m4v", "flv", "f4v", "mts", "m2ts", "m3u8", "m3u", "mpd", "ogv", "ogm", "3gp", "3g2", "wmv", "asf", "mpg", "mpeg", "m2v", "vob", "rmvb", "rm":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsAudioExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case "mp3", "wav", "flac", "aac", "m4a", "ogg", "oga", "opus", "wma", "aiff", "aif":
 		return true
 	default:
 		return false
@@ -2686,6 +2751,7 @@ func (m *LibraryManager) DeleteFolder(id string) error {
 		}
 	}
 	m.cacheMu.Unlock()
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -2711,6 +2777,7 @@ func (m *LibraryManager) AddItemToFolder(itemID string, folderID string) error {
 			}
 			it.Folders = append(append([]string{}, it.Folders...), folderID)
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -2736,6 +2803,7 @@ func (m *LibraryManager) RemoveItemFromFolder(itemID string, folderID string) er
 			}
 			it.Folders = next
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -2783,6 +2851,7 @@ func (m *LibraryManager) SetItemFolders(itemID string, folderIDs []string) error
 		m.mutateCachedItem(itemID, func(it *Item) {
 			it.Folders = cleanFolders
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -2855,6 +2924,7 @@ func (m *LibraryManager) MoveToTrash(id string) error {
 		it.Folders = currentFolders
 	})
 	RecordLog("perf", "core", "Backend MoveToTrash executed", fmt.Sprintf("id=%s", id), time.Since(tMoveStart).Milliseconds())
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -2997,6 +3067,7 @@ func (m *LibraryManager) BatchMoveToTrash(ids []string) error {
 	}()
 
 	RecordLog("perf", "core", "Backend BatchMoveToTrash executed", fmt.Sprintf("count=%d", len(ids)), time.Since(tBatchStart).Milliseconds())
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3060,6 +3131,7 @@ func (m *LibraryManager) RestoreFromTrash(id string) error {
 			it.Folders = restoredFolders
 		}
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3138,6 +3210,7 @@ func (m *LibraryManager) EmptyTrash() error {
 		}()
 	}
 
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3276,6 +3349,7 @@ func (m *LibraryManager) MoveItemToFolder(itemID string, fromFolderID string, to
 			}
 			it.Folders = next
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -3597,6 +3671,7 @@ func (m *LibraryManager) DeleteTag(name string) error {
 		}
 	}
 	m.invalidateCache()
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3664,6 +3739,7 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 		it.Tags = existingTags
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3725,6 +3801,7 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 		}
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3779,6 +3856,7 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 		it.Tags = cleanTags
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3881,6 +3959,7 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 		it.UpdatedAt = now
 		m.populateItemPaths(it, active.Path, port)
 	})
+	m.notifyItemsUpdated()
 	return item, nil
 }
 
@@ -3944,6 +4023,7 @@ func (m *LibraryManager) UpdateItemDetails(id string, note string, rawURL string
 		it.Prompt = prompt
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return item, nil
 }
 

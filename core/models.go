@@ -117,3 +117,21 @@ type ImportItemOptions struct {
 	FolderIDs []string          `json:"folderIds,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
 }
+
+// NetworkInterfaceInfo describes an available network interface for mobile discovery.
+type NetworkInterfaceInfo struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Type     string   `json:"type"` // "lan" | "tailscale" | "other"
+	IPs      []string `json:"ips"`
+	Selected bool     `json:"selected"`
+}
+
+// MobileLibraryEntry represents a library for mobile listing and switching.
+type MobileLibraryEntry struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	ItemCount int64  `json:"itemCount"`
+	IsActive  bool   `json:"isActive"`
+}

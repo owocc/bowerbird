@@ -190,6 +190,27 @@ export function GetLogs(): $CancellablePromise<$models.LogEntry[] | null> {
 }
 
 /**
+ * GetMobilePairingCode returns the active pairing code.
+ */
+export function GetMobilePairingCode(): $CancellablePromise<string> {
+    return $Call.ByID(3805040947);
+}
+
+/**
+ * GetMobilePairingURL returns the bowerbird://pair?data= URL for mobile QR code connection.
+ */
+export function GetMobilePairingURL(): $CancellablePromise<string> {
+    return $Call.ByID(2939401407);
+}
+
+/**
+ * GetMobileServerStatus returns the operational status and pairing code of the mobile LAN server.
+ */
+export function GetMobileServerStatus(): $CancellablePromise<$models.MobileServerStatus | null> {
+    return $Call.ByID(2182531999);
+}
+
+/**
  * GetNetworkSettings returns the persisted network/proxy configuration.
  */
 export function GetNetworkSettings(): $CancellablePromise<$models.NetworkSettings> {
@@ -384,6 +405,13 @@ export function PermanentDeleteItem(id: string): $CancellablePromise<void> {
     return $Call.ByID(1495285998, id);
 }
 
+/**
+ * RegenerateMobilePairingCode generates and returns a new 6-digit pairing code.
+ */
+export function RegenerateMobilePairingCode(): $CancellablePromise<string> {
+    return $Call.ByID(3650949389);
+}
+
 export function RemoveItemFromFolder(itemID: string, folderID: string): $CancellablePromise<void> {
     return $Call.ByID(4055258539, itemID, folderID);
 }
@@ -454,6 +482,19 @@ export function SetLanguage(language: string): $CancellablePromise<void> {
 
 export function SetManager(mgr: $models.LibraryManager | null): $CancellablePromise<void> {
     return $Call.ByID(3918042731, mgr);
+}
+
+/**
+ * SetMobileServerEnabled enables or disables the LAN mobile server and updates user data.
+ */
+export function SetMobileServerEnabled(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(4032638114, enabled);
+}
+/**
+ * SetMobileAllowedNetworks updates the network interfaces allowed for mobile discovery.
+ */
+export function SetMobileAllowedNetworks(networks: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4120056697, networks);
 }
 
 /**

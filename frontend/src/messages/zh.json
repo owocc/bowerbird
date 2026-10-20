@@ -323,7 +323,8 @@
       "plugins": "插件管理",
       "network": "网络设置",
       "data": "数据与存储",
-      "extension": "浏览器插件"
+      "extension": "浏览器插件",
+      "mobile": "移动端连接"
     },
     "data": {
       "title": "数据与存储管理",
@@ -432,6 +433,30 @@
       "scanLocal": "扫描本地插件",
       "scanning": "正在扫描…",
       "scanSuccess": "插件扫描完成，已同步本地插件目录"
+    },
+    "mobile": {
+      "title": "移动端连接",
+      "description": "通过局域网或 Tailscale 虚拟网连接手机 App，实时浏览与同步资源库素材。",
+      "serverStatus": "局域网服务",
+      "running": "运行中 (端口: {{port}})",
+      "stopped": "已停止",
+      "enableServer": "启用移动端局域网服务",
+      "pairingCodeTitle": "设备配对码",
+      "pairingCodeDesc": "手机首次连接时需输入的 6 位验证码，确保同一网络下仅授权设备可访问。",
+      "regenerate": "重新生成",
+      "regenerating": "生成中…",
+      "qrTitle": "扫码快捷连接",
+      "qrDesc": "使用 Bowerbird 手机 App 扫描下方二维码，自动获取最佳连接 IP 并完成安全配对。",
+      "qrTip": "支持局域网直连与 Tailscale 远程访问，手机会自动测试各 IP 可用性并切换最佳线路。",
+      "candidateIPs": "候选连接 IP",
+      "pairedDevices": "已配对设备数：{{count}}",
+      "copyUrl": "复制配对协议 URL",
+      "copiedUrl": "配对 URL 已复制！",
+      "discoveryNetworks": "开放发现的网络",
+      "discoveryNetworksDesc": "配置允许通过 mDNS 广播发现与二维码直连的网络接口（默认仅局域网，Tailscale 需手动勾选）。",
+      "netLan": "局域网",
+      "netOther": "其他",
+      "noNetworksFound": "未检测到可用网络接口"
     },
     "subtitle": "偏好设置与个性化配置",
     "title": "偏好设置"

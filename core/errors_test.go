@@ -82,6 +82,7 @@ func TestLanguageSettingsValidation(t *testing.T) {
 }
 
 func TestUserDataLanguagePersistence(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
 	store, err := NewUserDataStore()
 	if err != nil {
 		t.Fatalf("failed to create UserDataStore: %v", err)

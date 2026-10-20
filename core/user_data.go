@@ -16,6 +16,7 @@ type UserData struct {
 	Theme     string          `json:"theme,omitempty"`
 	Language  string          `json:"language,omitempty"`
 	Network   NetworkSettings `json:"network,omitempty"`
+	Mobile    *MobileSettings `json:"mobile,omitempty"`
 	UpdatedAt int64           `json:"updatedAt"`
 }
 
@@ -184,6 +185,137 @@ func (s *UserDataStore) SetNetworkSettings(settings NetworkSettings) error {
 	defer s.mu.Unlock()
 
 	s.data.Network = settings
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// MobileSettings holds LAN server configuration and authorized tokens.
+type MobileSettings struct {
+	Enabled         bool               `json:"enabled"`
+	Port            int                `json:"port,omitempty"`
+	PairingRequired bool               `json:"pairingRequired"`
+	Tokens          []MobileTokenEntry `json:"tokens,omitempty"`
+	AllowedNetworks []string           `json:"allowedNetworks,omitempty"`
+}
+
+// MobileTokenEntry represents an authorized mobile client token.
+type MobileTokenEntry struct {
+	Token      string `json:"token"`
+	DeviceName string `json:"deviceName,omitempty"`
+	CreatedAt  int64  `json:"createdAt"`
+	LastUsedAt int64  `json:"lastUsedAt,omitempty"`
+}
+
+// GetMobileSettings returns persisted mobile LAN settings or safe defaults.
+func (s *UserDataStore) GetMobileSettings() MobileSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.Mobile == nil {
+		return MobileSettings{
+			Enabled:         true,
+			Port:            17878,
+			PairingRequired: true,
+			Tokens:          []MobileTokenEntry{},
+		}
+	}
+	ms := *s.data.Mobile
+	if ms.Port <= 0 {
+		ms.Port = 17878
+	}
+	if ms.Tokens == nil {
+		ms.Tokens = []MobileTokenEntry{}
+	}
+	return ms
+}
+
+// SetMobileSettings persists mobile server settings.
+func (s *UserDataStore) SetMobileSettings(settings MobileSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if settings.Port <= 0 {
+		settings.Port = 17878
+	}
+	if settings.Tokens == nil {
+		settings.Tokens = []MobileTokenEntry{}
+	}
+	s.data.Mobile = &settings
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// AddMobileToken stores a new authorized token.
+func (s *UserDataStore) AddMobileToken(entry MobileTokenEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Mobile == nil {
+		s.data.Mobile = &MobileSettings{
+			Enabled:         true,
+			Port:            17878,
+			PairingRequired: true,
+			Tokens:          []MobileTokenEntry{},
+		}
+	}
+	// Avoid duplicates
+	found := false
+	for i, t := range s.data.Mobile.Tokens {
+		if t.Token == entry.Token {
+			s.data.Mobile.Tokens[i] = entry
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.data.Mobile.Tokens = append(s.data.Mobile.Tokens, entry)
+	}
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// HasMobileToken checks if the given token is recognized.
+func (s *UserDataStore) HasMobileToken(token string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.Mobile == nil {
+		return false
+	}
+	for _, t := range s.data.Mobile.Tokens {
+		if t.Token == token {
+			return true
+		}
+	}
+	return false
+}
+
+// TouchMobileToken updates the lastUsedAt timestamp of a token.
+func (s *UserDataStore) TouchMobileToken(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Mobile == nil {
+		return
+	}
+	for i, t := range s.data.Mobile.Tokens {
+		if t.Token == token {
+			s.data.Mobile.Tokens[i].LastUsedAt = time.Now().Unix()
+			_ = s.saveLocked()
+			return
+		}
+	}
+}
+
+// RemoveMobileToken deletes a token.
+func (s *UserDataStore) RemoveMobileToken(token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Mobile == nil {
+		return nil
+	}
+	newTokens := make([]MobileTokenEntry, 0, len(s.data.Mobile.Tokens))
+	for _, t := range s.data.Mobile.Tokens {
+		if t.Token != token {
+			newTokens = append(newTokens, t)
+		}
+	}
+	s.data.Mobile.Tokens = newTokens
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }
