@@ -2,14 +2,20 @@ package core
 
 import (
 	"bytes"
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestMobileAPIEndpoints(t *testing.T) {
@@ -83,7 +89,7 @@ func TestMobileAPIEndpoints(t *testing.T) {
 		t.Fatalf("expected 401 unauthorized, got %d", resp.StatusCode)
 	}
 
-	// 3. Test POST /api/v1/pair with wrong code (should fail 401)
+	// 3. Test POST /api/v1/pair with wrong code (should fail 401 and return {"error":"invalid_code"})
 	pairPayload := map[string]string{
 		"code":       "000000_wrong",
 		"deviceName": "TestPhone",
@@ -93,11 +99,15 @@ func TestMobileAPIEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /api/v1/pair failed: %v", err)
 	}
-	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for wrong pairing code, got %d", resp.StatusCode)
 	}
-
+	var errResp map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&errResp)
+	resp.Body.Close()
+	if errResp["error"] != "invalid_code" {
+		t.Errorf("expected error field to be 'invalid_code', got %v", errResp["error"])
+	}
 	// 4. Test POST /api/v1/pair with correct pairing code
 	activeCode := mobileSrv.GetPairingCode()
 	if len(activeCode) != 6 {
@@ -380,7 +390,8 @@ func TestMobileAPIEndpoints(t *testing.T) {
 	if !mobileSrv.IsRunning() {
 		t.Errorf("expected mobile server to be running again")
 	}
-
+	port = mobileSrv.GetPort()
+	baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 	// Test GetMobilePairingURL
 	pairingURL, err := svc.GetMobilePairingURL()
 	if err != nil {
@@ -388,5 +399,129 @@ func TestMobileAPIEndpoints(t *testing.T) {
 	}
 	if !strings.HasPrefix(pairingURL, "bowerbird://pair?data=") {
 		t.Fatalf("expected bowerbird://pair?data= prefix, got %s", pairingURL)
+	}
+	// 14. Test WebSocket connection and events
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer wsCancel()
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/api/v1/ws?token=%s", port, token)
+	wsConn, _, wsErr := websocket.Dial(wsCtx, wsURL, nil)
+	if wsErr != nil {
+		t.Fatalf("WebSocket connection failed: %v", wsErr)
+	}
+	defer wsConn.Close(websocket.StatusNormalClosure, "test done")
+
+	// Trigger library switch to test library_changed ws event
+	secondLib, err := mgr.CreateLibrary(tempDir, "SecondLib")
+	if err != nil {
+		t.Fatalf("failed to create second library: %v", err)
+	}
+	_ = secondLib
+
+	// Read ws event
+	_, msg, err := wsConn.Read(wsCtx)
+	if err != nil {
+		t.Fatalf("failed to read ws event: %v", err)
+	}
+	var wsEv map[string]any
+	if err := json.Unmarshal(msg, &wsEv); err != nil {
+		t.Fatalf("failed to parse ws event: %v", err)
+	}
+	if wsEv["event"] != "library_changed" {
+		t.Errorf("expected library_changed event, got %v", wsEv["event"])
+	}
+
+	// 15. Test GET /api/v1/libraries
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/libraries", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/v1/libraries failed: %v, status %d", err, resp.StatusCode)
+	}
+	var libsResp struct {
+		Libraries []MobileLibraryEntry `json:"libraries"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&libsResp)
+	resp.Body.Close()
+	if len(libsResp.Libraries) < 2 {
+		t.Errorf("expected at least 2 libraries, got %d", len(libsResp.Libraries))
+	}
+
+	// 16. Test POST /api/v1/libraries/switch (switch back to first library)
+	switchPayload, _ := json.Marshal(map[string]string{
+		"path": info.Path,
+	})
+	req, _ = http.NewRequest(http.MethodPost, baseURL+"/api/v1/libraries/switch", bytes.NewReader(switchPayload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/v1/libraries/switch failed: %v, status %d", err, resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	if mgr.GetActiveLibraryPath() != info.Path {
+		t.Errorf("expected active library to switch back to %s, got %s", info.Path, mgr.GetActiveLibraryPath())
+	}
+	// Read ws event for switch
+	_, msg, err = wsConn.Read(wsCtx)
+	if err != nil {
+		t.Fatalf("failed to read switch ws event: %v", err)
+	}
+	var switchEv map[string]any
+	_ = json.Unmarshal(msg, &switchEv)
+	if switchEv["event"] != "library_changed" {
+		t.Errorf("expected library_changed event after switch, got %v", switchEv["event"])
+	}
+
+	// 17. Test POST /api/v1/upload multipart upload
+	var uploadBuf bytes.Buffer
+	mw := multipart.NewWriter(&uploadBuf)
+	filePart, err := mw.CreateFormFile("file", "uploaded_photo.png")
+	if err != nil {
+		t.Fatalf("failed to create multipart file part: %v", err)
+	}
+	pngBytes, _ := hex.DecodeString("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360606060000000050001a7e48b520000000049454e44ae426082")
+	_, _ = filePart.Write(pngBytes)
+	mw.Close()
+
+	req, _ = http.NewRequest(http.MethodPost, baseURL+"/api/v1/upload", &uploadBuf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err = client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /api/v1/upload failed: %v, status %d", err, resp.StatusCode)
+	}
+	var uploadResp struct {
+		Status string `json:"status"`
+		Count  int    `json:"count"`
+		Items  []Item `json:"items"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&uploadResp)
+	resp.Body.Close()
+	if uploadResp.Status != "success" || uploadResp.Count != 1 {
+		t.Errorf("expected upload success with 1 item, got status %s count %d", uploadResp.Status, uploadResp.Count)
+	}
+
+	// Read ws event for items_updated
+	_, msg, err = wsConn.Read(wsCtx)
+	if err != nil {
+		t.Fatalf("failed to read items_updated ws event: %v", err)
+	}
+	var itemsEv map[string]any
+	_ = json.Unmarshal(msg, &itemsEv)
+	if itemsEv["event"] != "items_updated" {
+		t.Errorf("expected items_updated event, got %v", itemsEv["event"])
+	}
+
+	// 18. Test SetMobileAllowedNetworks and discovery filtering
+	if err := svc.SetMobileAllowedNetworks([]string{"en0"}); err != nil {
+		t.Fatalf("SetMobileAllowedNetworks failed: %v", err)
+	}
+	updatedStatus, err := svc.GetMobileServerStatus()
+	if err != nil {
+		t.Fatalf("GetMobileServerStatus failed: %v", err)
+	}
+	if len(updatedStatus.AllowedNetworks) != 1 || updatedStatus.AllowedNetworks[0] != "en0" {
+		t.Errorf("expected allowedNetworks [en0], got %v", updatedStatus.AllowedNetworks)
 	}
 }

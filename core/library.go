@@ -190,6 +190,18 @@ func (m *LibraryManager) GetMobileServer() *MobileServer {
 	return m.mobileServer
 }
 
+func (m *LibraryManager) notifyItemsUpdated() {
+	if m.mobileServer != nil {
+		var libID string
+		if active := m.GetActiveLibrary(); active != nil {
+			libID = active.ID
+		}
+		m.mobileServer.Broadcast("items_updated", map[string]any{
+			"libraryId": libID,
+		})
+	}
+}
+
 // CreateLibrary creates a new xxx.library container, initializes SQLite, and remembers it in user data.
 func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*LibraryInfo, error) {
 	if strings.TrimSpace(parentDir) == "" {
@@ -260,6 +272,14 @@ func (m *LibraryManager) CreateLibrary(parentDir string, libName string) (*Libra
 	if m.userData != nil {
 		_ = m.userData.SetActiveLibraryPath(fullLibPath)
 	}
+	if m.mobileServer != nil {
+		m.mobileServer.Broadcast("library_changed", map[string]any{
+			"id":        libID,
+			"name":      strings.TrimSuffix(cleanName, ".library"),
+			"path":      fullLibPath,
+			"itemCount": 0,
+		})
+	}
 
 	return m.activeLib, nil
 }
@@ -326,6 +346,15 @@ func (m *LibraryManager) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 		_ = m.userData.SetActiveLibraryPath(libraryPath)
 	}
 
+	if m.mobileServer != nil {
+		m.mobileServer.Broadcast("library_changed", map[string]any{
+			"id":        meta.ID,
+			"name":      meta.Name,
+			"path":      libraryPath,
+			"itemCount": count,
+		})
+	}
+
 	RecordLog("info", "core", "Opened library", fmt.Sprintf("name=%s items=%d path=%s", meta.Name, count, libraryPath), time.Since(start).Milliseconds())
 	return m.activeLib, nil
 }
@@ -343,6 +372,14 @@ func (m *LibraryManager) CloseLibrary() error {
 	m.invalidateCache()
 	if m.userData != nil {
 		_ = m.userData.ClearActiveLibraryPath()
+	}
+	if m.mobileServer != nil {
+		m.mobileServer.Broadcast("library_changed", map[string]any{
+			"id":        "",
+			"name":      "",
+			"path":      "",
+			"itemCount": 0,
+		})
 	}
 	return nil
 }
@@ -1139,6 +1176,9 @@ func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress Pr
 			imported = append(imported, *it)
 		}
 	}
+	if len(imported) > 0 {
+		m.notifyItemsUpdated()
+	}
 	return imported, nil
 }
 
@@ -1227,6 +1267,9 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 	// single-file imports and final completion already emit import-completed with the full items slice.
 	if m.app != nil && len(batchItems) > 1 {
 		m.app.Event.Emit("library-items-upserted", batchItems)
+	}
+	if len(batchItems) > 0 {
+		m.notifyItemsUpdated()
 	}
 	RecordLog(
 		"perf",
@@ -2278,6 +2321,7 @@ func (m *LibraryManager) DeleteItem(id string) error {
 	_, _ = db.Exec("DELETE FROM item_folders WHERE item_id = ?", id)
 	_, err := db.Exec("DELETE FROM items WHERE id = ? OR hex = ?", id, id)
 	m.removeCachedItem(id)
+	m.notifyItemsUpdated()
 	return err
 }
 

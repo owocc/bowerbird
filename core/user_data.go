@@ -195,6 +195,7 @@ type MobileSettings struct {
 	Port            int                `json:"port,omitempty"`
 	PairingRequired bool               `json:"pairingRequired"`
 	Tokens          []MobileTokenEntry `json:"tokens,omitempty"`
+	AllowedNetworks []string           `json:"allowedNetworks,omitempty"`
 }
 
 // MobileTokenEntry represents an authorized mobile client token.

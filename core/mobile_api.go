@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -21,11 +22,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/grandcat/zeroconf"
 )
 
 // MobileServerVersion is the mobile API contract version.
 const MobileServerVersion = "1.0.0"
+
+// MobileServer handles LAN HTTP endpoints and mDNS discovery for mobile clients.
+type wsClient struct {
+	conn  *websocket.Conn
+	send  chan []byte
+	token string
+}
 
 // MobileServer handles LAN HTTP endpoints and mDNS discovery for mobile clients.
 type MobileServer struct {
@@ -38,6 +47,8 @@ type MobileServer struct {
 	running     bool
 	pairingCode string
 	codeMu      sync.RWMutex
+	clientsMu   sync.Mutex
+	clients     map[*wsClient]bool
 }
 
 // MobileItemSummary represents an item in the lightweight mobile timeline view.
@@ -78,14 +89,16 @@ type MobileStatusResponse struct {
 
 // MobileServerStatus contains desktop-facing diagnostics and pairing details.
 type MobileServerStatus struct {
-	Enabled         bool     `json:"enabled"`
-	Running         bool     `json:"running"`
-	Port            int      `json:"port"`
-	PairingCode     string   `json:"pairingCode"`
-	Addresses       []string `json:"addresses"`
-	PairedDevices   int      `json:"pairedDevices"`
-	ItemCount       int64    `json:"itemCount"`
-	PairingRequired bool     `json:"pairingRequired"`
+	Enabled           bool                   `json:"enabled"`
+	Running           bool                   `json:"running"`
+	Port              int                    `json:"port"`
+	PairingCode       string                 `json:"pairingCode"`
+	Addresses         []string               `json:"addresses"`
+	PairedDevices     int                    `json:"pairedDevices"`
+	ItemCount         int64                  `json:"itemCount"`
+	PairingRequired   bool                   `json:"pairingRequired"`
+	AllowedNetworks   []string               `json:"allowedNetworks"`
+	AvailableNetworks []NetworkInterfaceInfo `json:"availableNetworks"`
 }
 
 // newMobileServer initializes the mobile server instance.
@@ -93,6 +106,7 @@ func newMobileServer(manager *LibraryManager) *MobileServer {
 	s := &MobileServer{
 		manager: manager,
 		port:    17878,
+		clients: make(map[*wsClient]bool),
 	}
 	s.regeneratePairingCodeInternal()
 	return s
@@ -138,6 +152,11 @@ func (s *MobileServer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/status", s.handleStatus)
 	mux.HandleFunc("/api/v1/pair", s.handlePair)
+	mux.HandleFunc("/api/v1/ws", s.handleWebSocket)
+	mux.HandleFunc("/ws", s.handleWebSocket)
+	mux.HandleFunc("/api/v1/libraries", s.authMiddleware(s.handleLibrariesList))
+	mux.HandleFunc("/api/v1/libraries/switch", s.authMiddleware(s.handleLibrarySwitch))
+	mux.HandleFunc("/api/v1/upload", s.authMiddleware(s.handleUpload))
 	mux.HandleFunc("/api/v1/tags", s.authMiddleware(s.handleTagsList))
 	mux.HandleFunc("/api/v1/folders", s.authMiddleware(s.handleFoldersList))
 	mux.HandleFunc("/api/v1/colors", s.authMiddleware(s.handleColorsList))
@@ -177,6 +196,12 @@ func (s *MobileServer) Stop() error {
 	log.Printf("[MobileServer] stopping mobile server...")
 	s.stopMDNSInternal()
 
+	s.clientsMu.Lock()
+	for c := range s.clients {
+		_ = c.conn.Close(websocket.StatusNormalClosure, "server stopped")
+	}
+	s.clients = make(map[*wsClient]bool)
+	s.clientsMu.Unlock()
 	var err error
 	if s.httpServer != nil {
 		err = s.httpServer.Close()
@@ -231,6 +256,22 @@ func (s *MobileServer) regeneratePairingCodeInternal() {
 	s.pairingCode = fmt.Sprintf("%06d", n.Int64())
 }
 
+// RestartMDNS re-registers mDNS service with current allowed network interfaces.
+func (s *MobileServer) RestartMDNS() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if !s.running {
+		return
+	}
+	s.stopMDNSInternal()
+	pairingRequired := true
+	if s.manager != nil && s.manager.userData != nil {
+		pairingRequired = s.manager.userData.GetMobileSettings().PairingRequired
+	}
+	s.startMDNS(pairingRequired)
+}
+
 // startMDNS announces _bowerbird._tcp via Bonjour/mDNS.
 func (s *MobileServer) startMDNS(pairingRequired bool) {
 	hostname, _ := os.Hostname()
@@ -244,20 +285,74 @@ func (s *MobileServer) startMDNS(pairingRequired bool) {
 		fmt.Sprintf("pairingRequired=%t", pairingRequired),
 	}
 
+	var allowed []string
+	if s.manager != nil && s.manager.userData != nil {
+		allowed = s.manager.userData.GetMobileSettings().AllowedNetworks
+	}
+
+	avail := GetAvailableNetworkInterfaces(allowed)
+	selectedMap := make(map[string]bool)
+	for _, a := range avail {
+		if a.Selected {
+			selectedMap[a.ID] = true
+		}
+	}
+	var targetIfaces []net.Interface
+	allIfaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range allIfaces {
+			if selectedMap[iface.Name] {
+				targetIfaces = append(targetIfaces, iface)
+			}
+		}
+	}
+
+	if allowed != nil && len(targetIfaces) == 0 {
+		log.Printf("[MobileServer] all discovery interfaces deselected, skipping mDNS registration")
+		return
+	}
+
 	mdns, err := zeroconf.Register(
 		instanceName,
 		"_bowerbird._tcp",
 		"local.",
 		s.port,
 		txtRecords,
-		nil,
+		targetIfaces,
 	)
 	if err != nil {
 		log.Printf("[MobileServer] failed to register mDNS service: %v", err)
 		return
 	}
 	s.mdnsServer = mdns
-	log.Printf("[MobileServer] mDNS announced: %s._bowerbird._tcp on port %d", instanceName, s.port)
+	log.Printf("[MobileServer] mDNS announced: %s._bowerbird._tcp on port %d (interfaces: %d)", instanceName, s.port, len(targetIfaces))
+}
+
+// Broadcast sends a JSON event message to all connected WebSocket clients.
+func (s *MobileServer) Broadcast(event string, data any) {
+	payload := map[string]any{
+		"event": event,
+		"data":  data,
+	}
+	if m, ok := data.(map[string]any); ok {
+		for k, v := range m {
+			payload[k] = v
+		}
+	}
+	msgBytes, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+	for client := range s.clients {
+		select {
+		case client.send <- msgBytes:
+		default:
+			// drop if buffer full
+		}
+	}
 }
 
 func (s *MobileServer) stopMDNSInternal() {
@@ -379,7 +474,13 @@ func (s *MobileServer) handlePair(w http.ResponseWriter, r *http.Request) {
 
 	if inputCode == "" || inputCode != activeCode {
 		log.Printf("[MobileServer] invalid pairing attempt: input=%s active=%s", inputCode, activeCode)
-		writeError(w, http.StatusUnauthorized, "INVALID_PAIRING_CODE", "invalid or expired pairing code")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":   "invalid_code",
+			"code":    "invalid_code",
+			"message": "invalid or expired pairing code",
+		})
 		return
 	}
 
@@ -414,6 +515,332 @@ func (s *MobileServer) handlePair(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, map[string]any{
 		"token": token,
 		"name":  "Bowerbird",
+	})
+}
+// handleWebSocket upgrades incoming requests to a full-duplex WebSocket connection.
+func (s *MobileServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if s.manager != nil && s.manager.userData != nil {
+		settings := s.manager.userData.GetMobileSettings()
+		if settings.PairingRequired {
+			token := extractToken(r)
+			if token == "" || !s.manager.userData.HasMobileToken(token) {
+				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized: valid pairing token required")
+				return
+			}
+			go s.manager.userData.TouchMobileToken(token)
+		}
+	}
+
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		log.Printf("[MobileServer] websocket handshake failed: %v", err)
+		return
+	}
+
+	client := &wsClient{
+		conn: conn,
+		send: make(chan []byte, 64),
+	}
+
+	s.clientsMu.Lock()
+	s.clients[client] = true
+	s.clientsMu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Write pump with heartbeat ping
+	go func() {
+		ticker := time.NewTicker(25 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-client.send:
+				if !ok {
+					return
+				}
+				wCtx, wCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := client.conn.Write(wCtx, websocket.MessageText, msg)
+				wCancel()
+				if err != nil {
+					cancel()
+					return
+				}
+			case <-ticker.C:
+				pCtx, pCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := client.conn.Ping(pCtx)
+				pCancel()
+				if err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	// Read pump to detect disconnections and handle ping messages
+	defer func() {
+		s.clientsMu.Lock()
+		delete(s.clients, client)
+		s.clientsMu.Unlock()
+		close(client.send)
+		_ = client.conn.Close(websocket.StatusNormalClosure, "disconnect")
+	}()
+
+	for {
+		_, msg, err := client.conn.Read(ctx)
+		if err != nil {
+			break
+		}
+		var req map[string]any
+		if json.Unmarshal(msg, &req) == nil && req["type"] == "ping" {
+			pong, _ := json.Marshal(map[string]string{"type": "pong"})
+			select {
+			case client.send <- pong:
+			default:
+			}
+		}
+	}
+}
+
+// handleLibrariesList lists user libraries with their active status and item counts.
+func (s *MobileServer) handleLibrariesList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var activePath string
+	var activeLib *LibraryInfo
+	var recentPaths []string
+	if s.manager != nil {
+		activePath = s.manager.GetActiveLibraryPath()
+		activeLib = s.manager.GetActiveLibrary()
+		if s.manager.userData != nil {
+			recentPaths = s.manager.userData.GetRecentLibraries()
+		}
+	}
+
+	allPaths := make([]string, 0, len(recentPaths)+1)
+	seen := make(map[string]bool)
+	if activePath != "" {
+		allPaths = append(allPaths, activePath)
+		seen[filepath.Clean(activePath)] = true
+	}
+	for _, p := range recentPaths {
+		clean := filepath.Clean(p)
+		if !seen[clean] {
+			seen[clean] = true
+			allPaths = append(allPaths, clean)
+		}
+	}
+
+	libraries := make([]MobileLibraryEntry, 0, len(allPaths))
+	for _, p := range allPaths {
+		stat, err := os.Stat(p)
+		if err != nil || !stat.IsDir() {
+			continue
+		}
+
+		libJSONPath := filepath.Join(p, "library.json")
+		data, err := os.ReadFile(libJSONPath)
+		if err != nil {
+			continue
+		}
+		var meta struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(data, &meta)
+
+		name := meta.Name
+		if strings.TrimSpace(name) == "" {
+			name = strings.TrimSuffix(filepath.Base(p), ".library")
+		}
+
+		isActive := (activePath != "" && filepath.Clean(activePath) == filepath.Clean(p))
+		var count int64
+		if isActive && activeLib != nil {
+			count = activeLib.ItemCount
+		} else {
+			dbPath := filepath.Join(p, "index.db")
+			if _, dbStatErr := os.Stat(dbPath); dbStatErr == nil {
+				if db, openErr := openLibraryDB(dbPath); openErr == nil {
+					_ = db.QueryRow("SELECT COUNT(*) FROM items").Scan(&count)
+					_ = db.Close()
+				}
+			}
+		}
+
+		libraries = append(libraries, MobileLibraryEntry{
+			ID:        meta.ID,
+			Name:      name,
+			Path:      p,
+			ItemCount: count,
+			IsActive:  isActive,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"libraries": libraries,
+	})
+}
+
+// handleLibrarySwitch changes the active library and notifies desktop and mobile clients.
+func (s *MobileServer) handleLibrarySwitch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ID   string `json:"id"`
+		Path string `json:"path"`
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 1024*1024))
+	_ = json.Unmarshal(body, &req)
+
+	targetPath := strings.TrimSpace(req.Path)
+	if targetPath == "" && req.ID != "" && s.manager != nil && s.manager.userData != nil {
+		for _, p := range s.manager.userData.GetRecentLibraries() {
+			data, _ := os.ReadFile(filepath.Join(p, "library.json"))
+			var meta struct{ ID string `json:"id"` }
+			_ = json.Unmarshal(data, &meta)
+			if meta.ID == req.ID {
+				targetPath = p
+				break
+			}
+		}
+	}
+
+	if targetPath == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAM", "library path or id is required")
+		return
+	}
+
+	if _, err := os.Stat(filepath.Join(targetPath, "library.json")); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_LIB_DIR", "invalid library directory: library.json not found")
+		return
+	}
+
+	info, err := s.manager.OpenLibrary(targetPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "SWITCH_FAILED", err.Error())
+		return
+	}
+
+	// Notify desktop UI via LibraryOpenedEvent
+	if app := s.manager.GetApp(); app != nil {
+		app.Event.Emit(LibraryOpenedEvent, info)
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status":  "success",
+		"library": info,
+	})
+}
+
+// handleUpload accepts multipart uploaded media, imports them into the active library, and broadcasts items_updated.
+func (s *MobileServer) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, "NO_ACTIVE_LIBRARY", "no active library opened")
+		return
+	}
+
+	// 500 MB max request body
+	r.Body = http.MaxBytesReader(w, r.Body, 500<<20)
+	mr, err := r.MultipartReader()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_MULTIPART", "invalid multipart request: "+err.Error())
+		return
+	}
+
+	tempDir, err := os.MkdirTemp("", "bowerbird_upload_*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to create temporary upload directory")
+		return
+	}
+	defer os.RemoveAll(tempDir)
+
+	var savedPaths []string
+	for {
+		part, pErr := mr.NextPart()
+		if pErr == io.EOF {
+			break
+		}
+		if pErr != nil {
+			writeError(w, http.StatusBadRequest, "INVALID_MULTIPART", pErr.Error())
+			return
+		}
+		filename := part.FileName()
+		if filename == "" {
+			_ = part.Close()
+			continue
+		}
+
+		// Security: prevent path traversal
+		cleanName := filepath.Base(filepath.Clean(filename))
+		if cleanName == "." || cleanName == "/" || strings.Contains(cleanName, "..") {
+			_ = part.Close()
+			writeError(w, http.StatusBadRequest, "INVALID_FILENAME", "unsafe filename provided")
+			return
+		}
+
+		destPath := filepath.Join(tempDir, cleanName)
+		out, cErr := os.Create(destPath)
+		if cErr != nil {
+			_ = part.Close()
+			writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "failed to save uploaded file")
+			return
+		}
+		_, copyErr := io.Copy(out, part)
+		_ = out.Close()
+		_ = part.Close()
+		if copyErr != nil {
+			writeError(w, http.StatusBadRequest, "UPLOAD_FAILED", "file upload interrupted: "+copyErr.Error())
+			return
+		}
+		savedPaths = append(savedPaths, destPath)
+	}
+
+	if len(savedPaths) == 0 {
+		writeError(w, http.StatusBadRequest, "NO_FILES", "no files found in upload request")
+		return
+	}
+
+	items, importErr := s.manager.ImportFilesWithProgress(savedPaths, nil)
+	if importErr != nil {
+		writeError(w, http.StatusInternalServerError, "IMPORT_FAILED", importErr.Error())
+		return
+	}
+
+	var libID string
+	if active := s.manager.GetActiveLibrary(); active != nil {
+		libID = active.ID
+	}
+	s.Broadcast("items_updated", map[string]any{
+		"libraryId": libID,
+		"count":     len(items),
+	})
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"status": "success",
+		"count":  len(items),
+		"items":  items,
 	})
 }
 
@@ -893,21 +1320,14 @@ func (s *MobileServer) handleOriginal(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, originalPath)
 }
 
-// GetLocalIPs enumerates non-loopback active IPv4 addresses, prioritized by:
-// 1) LAN addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
-// 2) Tailscale addresses (100.64-127.x.x)
-// 3) Other IPv4 addresses
-func GetLocalIPs() []string {
-	var lanIPs []string
-	var tailscaleIPs []string
-	var otherIPs []string
-	seen := make(map[string]bool)
-
+// GetAvailableNetworkInterfaces returns all active non-loopback network interfaces with their candidate status.
+func GetAvailableNetworkInterfaces(allowedNetworks []string) []NetworkInterfaceInfo {
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return []string{}
+		return []NetworkInterfaceInfo{}
 	}
 
+	var results []NetworkInterfaceInfo
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
@@ -916,6 +1336,7 @@ func GetLocalIPs() []string {
 		if err != nil {
 			continue
 		}
+		var ips []string
 		for _, addr := range addrs {
 			var ip net.IP
 			switch v := addr.(type) {
@@ -931,18 +1352,88 @@ func GetLocalIPs() []string {
 			if ip4 == nil {
 				continue
 			}
-			ipStr := ip4.String()
-			if seen[ipStr] {
+			ips = append(ips, ip4.String())
+		}
+		if len(ips) == 0 {
+			continue
+		}
+
+		sort.Strings(ips)
+		netType := "other"
+		hasLAN := false
+		hasTailscale := false
+		for _, ipStr := range ips {
+			parsed := net.ParseIP(ipStr)
+			if parsed != nil {
+				if isLANIP(parsed.To4()) {
+					hasLAN = true
+				} else if isTailscaleIP(parsed.To4()) {
+					hasTailscale = true
+				}
+			}
+		}
+		if hasLAN {
+			netType = "lan"
+		} else if hasTailscale {
+			netType = "tailscale"
+		}
+
+		selected := false
+		if allowedNetworks == nil {
+			// Default: only LAN interfaces are selected
+			selected = (netType == "lan")
+		} else {
+			for _, allowed := range allowedNetworks {
+				if allowed == iface.Name || allowed == netType {
+					selected = true
+					break
+				}
+				for _, ipStr := range ips {
+					if allowed == ipStr {
+						selected = true
+						break
+					}
+				}
+			}
+		}
+
+		displayName := fmt.Sprintf("%s (%s)", iface.Name, strings.Join(ips, ", "))
+		results = append(results, NetworkInterfaceInfo{
+			ID:       iface.Name,
+			Name:     displayName,
+			Type:     netType,
+			IPs:      ips,
+			Selected: selected,
+		})
+	}
+
+	return results
+}
+
+// GetFilteredLocalIPs returns candidate IPv4 addresses according to allowed networks configuration.
+func GetFilteredLocalIPs(allowedNetworks []string) []string {
+	avail := GetAvailableNetworkInterfaces(allowedNetworks)
+	var lanIPs []string
+	var tailscaleIPs []string
+	var otherIPs []string
+	seen := make(map[string]bool)
+
+	for _, item := range avail {
+		if !item.Selected {
+			continue
+		}
+		for _, ip := range item.IPs {
+			if seen[ip] {
 				continue
 			}
-			seen[ipStr] = true
-
-			if isLANIP(ip4) {
-				lanIPs = append(lanIPs, ipStr)
-			} else if isTailscaleIP(ip4) {
-				tailscaleIPs = append(tailscaleIPs, ipStr)
-			} else {
-				otherIPs = append(otherIPs, ipStr)
+			seen[ip] = true
+			switch item.Type {
+			case "lan":
+				lanIPs = append(lanIPs, ip)
+			case "tailscale":
+				tailscaleIPs = append(tailscaleIPs, ip)
+			default:
+				otherIPs = append(otherIPs, ip)
 			}
 		}
 	}
@@ -956,6 +1447,11 @@ func GetLocalIPs() []string {
 	result = append(result, tailscaleIPs...)
 	result = append(result, otherIPs...)
 	return result
+}
+
+// GetLocalIPs enumerates default local IPv4 addresses (LAN first, then Tailscale, then others).
+func GetLocalIPs() []string {
+	return GetFilteredLocalIPs(nil)
 }
 
 func isLANIP(ip net.IP) bool {
@@ -991,17 +1487,21 @@ func (s *MobileServer) GetPairingURL() string {
 	port := s.port
 	s.mu.RUnlock()
 
+	var allowed []string
 	name := "Bowerbird"
 	if s.manager != nil {
 		if active := s.manager.GetActiveLibrary(); active != nil && strings.TrimSpace(active.Name) != "" {
 			name = active.Name
+		}
+		if s.manager.userData != nil {
+			allowed = s.manager.userData.GetMobileSettings().AllowedNetworks
 		}
 	}
 
 	payload := PairingPayload{
 		V:    1,
 		Name: name,
-		IPs:  GetLocalIPs(),
+		IPs:  GetFilteredLocalIPs(allowed),
 		Port: port,
 		Code: s.GetPairingCode(),
 	}
@@ -1022,11 +1522,13 @@ func (s *MobileServer) GetStatus() MobileServerStatus {
 	enabled := true
 	pairedCount := 0
 	pairingRequired := true
+	var allowed []string
 	if s.manager != nil && s.manager.userData != nil {
 		ms := s.manager.userData.GetMobileSettings()
 		enabled = ms.Enabled
 		pairedCount = len(ms.Tokens)
 		pairingRequired = ms.PairingRequired
+		allowed = ms.AllowedNetworks
 	}
 
 	var itemCount int64
@@ -1037,13 +1539,15 @@ func (s *MobileServer) GetStatus() MobileServerStatus {
 	}
 
 	return MobileServerStatus{
-		Enabled:         enabled,
-		Running:         s.running,
-		Port:            s.port,
-		PairingCode:     s.GetPairingCode(),
-		Addresses:       GetLocalIPs(),
-		PairedDevices:   pairedCount,
-		ItemCount:       itemCount,
-		PairingRequired: pairingRequired,
+		Enabled:           enabled,
+		Running:           s.running,
+		Port:              s.port,
+		PairingCode:       s.GetPairingCode(),
+		Addresses:         GetFilteredLocalIPs(allowed),
+		PairedDevices:     pairedCount,
+		ItemCount:         itemCount,
+		PairingRequired:   pairingRequired,
+		AllowedNetworks:   allowed,
+		AvailableNetworks: GetAvailableNetworkInterfaces(allowed),
 	}
 }

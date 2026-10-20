@@ -451,7 +451,12 @@
       "candidateIPs": "候选连接 IP",
       "pairedDevices": "已配对设备数：{{count}}",
       "copyUrl": "复制配对协议 URL",
-      "copiedUrl": "配对 URL 已复制！"
+      "copiedUrl": "配对 URL 已复制！",
+      "discoveryNetworks": "开放发现的网络",
+      "discoveryNetworksDesc": "配置允许通过 mDNS 广播发现与二维码直连的网络接口（默认仅局域网，Tailscale 需手动勾选）。",
+      "netLan": "局域网",
+      "netOther": "其他",
+      "noNetworksFound": "未检测到可用网络接口"
     },
     "subtitle": "偏好设置与个性化配置",
     "title": "偏好设置"

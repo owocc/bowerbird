@@ -731,3 +731,19 @@ func (s *Service) GetMobilePairingURL() (string, error) {
 	}
 	return s.mgr.GetMobileServer().GetPairingURL(), nil
 }
+
+// SetMobileAllowedNetworks updates the network interfaces allowed for mobile discovery.
+func (s *Service) SetMobileAllowedNetworks(networks []string) error {
+	if s.mgr == nil {
+		return ErrCoreNotInitialized
+	}
+	ms := s.mgr.userData.GetMobileSettings()
+	ms.AllowedNetworks = networks
+	if err := s.mgr.userData.SetMobileSettings(ms); err != nil {
+		return err
+	}
+	if server := s.mgr.GetMobileServer(); server != nil && server.IsRunning() {
+		server.RestartMDNS()
+	}
+	return nil
+}

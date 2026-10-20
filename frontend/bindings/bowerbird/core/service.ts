@@ -490,6 +490,12 @@ export function SetManager(mgr: $models.LibraryManager | null): $CancellableProm
 export function SetMobileServerEnabled(enabled: boolean): $CancellablePromise<void> {
     return $Call.ByID(4032638114, enabled);
 }
+/**
+ * SetMobileAllowedNetworks updates the network interfaces allowed for mobile discovery.
+ */
+export function SetMobileAllowedNetworks(networks: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(4120056697, networks);
+}
 
 /**
  * SetNetworkSettings validates, persists, and applies network/proxy configuration.

@@ -39,6 +39,7 @@ import {
   Radio,
   Smartphone,
   QrCode,
+  Wifi,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
@@ -62,6 +63,7 @@ import {
   SetMobileServerEnabled,
   RegenerateMobilePairingCode,
   GetMobilePairingURL,
+  SetMobileAllowedNetworks,
 } from "../../bindings/bowerbird/core/service";
 import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult, MobileServerStatus } from "../../bindings/bowerbird/core/models";
 import { QRCodeSVG } from "qrcode.react";
@@ -477,6 +479,18 @@ export function SettingsPage() {
     setCopiedMobileUrl(true);
     notifySuccess(t("settings.mobile.copiedUrl"));
     setTimeout(() => setCopiedMobileUrl(false), 2000);
+  };
+  const handleToggleNetwork = async (ifaceId: string, currentSelected: boolean) => {
+    if (!mobileStatus?.availableNetworks) return;
+    const currentAllowed = mobileStatus.availableNetworks
+      .filter((n) => (n.id === ifaceId ? !currentSelected : n.selected))
+      .map((n) => n.id);
+    try {
+      await SetMobileAllowedNetworks(currentAllowed);
+      loadMobileData();
+    } catch (err) {
+      notifyError(err);
+    }
   };
   useEffect(() => {
     GetNetworkSettings()
@@ -1687,6 +1701,56 @@ export function SettingsPage() {
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+              {/* Discovery Networks Section */}
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Wifi className="size-4 text-primary" />
+                    {t("settings.mobile.discoveryNetworks")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.mobile.discoveryNetworksDesc")}
+                  </p>
+                </div>
+
+                <div className="space-y-2 pt-1">
+                  {mobileStatus?.availableNetworks && mobileStatus.availableNetworks.length > 0 ? (
+                    mobileStatus.availableNetworks.map((net) => (
+                      <div
+                        key={net.id}
+                        className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-muted/20 hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-mono text-xs font-medium text-foreground">
+                            {net.id}
+                          </span>
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            ({net.ips?.join(", ")})
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="text-[9px] px-1.5 py-0 h-4 uppercase"
+                          >
+                            {net.type === "lan"
+                              ? t("settings.mobile.netLan")
+                              : net.type === "tailscale"
+                              ? "Tailscale"
+                              : t("settings.mobile.netOther")}
+                          </Badge>
+                        </div>
+                        <Switch
+                          checked={net.selected}
+                          onCheckedChange={() => handleToggleNetwork(net.id, net.selected)}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-muted-foreground py-2 text-center">
+                      {t("settings.mobile.noNetworksFound")}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
