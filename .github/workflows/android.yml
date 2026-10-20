@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - "feature/mobile-flutter-app"
   workflow_dispatch:
 
 permissions:
