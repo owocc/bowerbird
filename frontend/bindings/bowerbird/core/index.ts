@@ -16,6 +16,7 @@ export type {
     LibraryInfo,
     LibraryManager,
     LogEntry,
+    MobileServerStatus,
     NetworkSettings,
     NetworkTestResult,
     PluginInstallRequest,

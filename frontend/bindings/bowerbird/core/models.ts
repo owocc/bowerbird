@@ -225,6 +225,20 @@ export interface LogEntry {
 }
 
 /**
+ * MobileServerStatus contains desktop-facing diagnostics and pairing details.
+ */
+export interface MobileServerStatus {
+    "enabled": boolean;
+    "running": boolean;
+    "port": number;
+    "pairingCode": string;
+    "addresses": string[] | null;
+    "pairedDevices": number;
+    "itemCount": number;
+    "pairingRequired": boolean;
+}
+
+/**
  * NetworkSettings stores user-configured proxy settings.
  */
 export interface NetworkSettings {
