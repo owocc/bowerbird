@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -8,7 +9,6 @@ import 'package:photo_view/photo_view_gallery.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
-
 class DetailScreen extends StatefulWidget {
   final List<MobileItem> items;
   final int initialIndex;
@@ -29,7 +29,7 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _showOverlays = true;
   ItemDetail? _currentDetail;
   bool _isSharing = false;
-
+  bool _isDownloading = false;
   @override
   void initState() {
     super.initState();
@@ -114,6 +114,63 @@ class _DetailScreenState extends State<DetailScreen> {
         setState(() => _isSharing = false);
       }
     }
+  }
+  Future<void> _downloadCurrentItem() async {
+    if (_isDownloading) return;
+    setState(() => _isDownloading = true);
+
+    final item = widget.items[_currentIndex];
+    try {
+      final originalUrl = ApiService.instance.getOriginalUrl(item.id);
+      final response = await http.get(
+        Uri.parse(originalUrl),
+        headers: ApiService.instance.authHeaders,
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+
+      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
+      await ApiService.instance.saveMediaToGallery(response.bodyBytes, filename, item.mimeType);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已保存至手机相册/下载目录: $filename')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('下载失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  void _copyCurrentInfo() {
+    final item = widget.items[_currentIndex];
+    final detail = _currentDetail;
+    final info = [
+      '名称: ${item.name.isNotEmpty ? item.name : item.filename}',
+      '文件名: ${item.filename}',
+      if (detail != null && detail.url.isNotEmpty) '来源链接: ${detail.url}',
+      '尺寸: ${item.width} x ${item.height}',
+      '大小: ${item.formattedSize}',
+      '格式: ${item.extension.toUpperCase()}',
+      if (item.tags.isNotEmpty) '标签: ${item.tags.join(", ")}',
+      if (detail != null && detail.note.isNotEmpty) '备注: ${detail.note}',
+    ].join('\n');
+
+    Clipboard.setData(ClipboardData(text: info));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('素材关键信息已复制到剪贴板')),
+    );
   }
 
   void _showFullMetadataSheet(MobileItem item) {
@@ -380,9 +437,29 @@ class _DetailScreenState extends State<DetailScreen> {
                         style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
                       ),
                     ),
+                    if (_isDownloading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        ),
+                      )
+                    else
+                      IconButton(
+                        icon: const Icon(Icons.download_rounded, color: Colors.white),
+                        tooltip: '下载原图',
+                        onPressed: _downloadCurrentItem,
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.copy_rounded, color: Colors.white),
+                      tooltip: '复制信息',
+                      onPressed: _copyCurrentInfo,
+                    ),
                     if (_isSharing)
                       const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        padding: EdgeInsets.symmetric(horizontal: 10),
                         child: SizedBox(
                           width: 20,
                           height: 20,

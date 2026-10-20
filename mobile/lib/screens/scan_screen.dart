@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:http/http.dart' as http;
+import '../models/item.dart';
 import '../services/api_service.dart';
 import 'home_screen.dart';
 
@@ -76,8 +77,9 @@ class _ScanScreenState extends State<ScanScreen> {
         host: responsiveHost,
         code: code,
         deviceName: 'Mobile Scanner',
+        candidateIps: ips,
+        port: port,
       );
-
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
@@ -92,7 +94,11 @@ class _ScanScreenState extends State<ScanScreen> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(e.toString().replaceAll('Exception: ', '')),
+            content: Text(
+              e is PairingException
+                  ? e.message
+                  : '连接失败: ${e.toString().replaceAll('Exception: ', '')}',
+            ),
             backgroundColor: Colors.red.shade700,
             duration: const Duration(seconds: 4),
           ),
@@ -163,6 +169,38 @@ class _ScanScreenState extends State<ScanScreen> {
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
+            errorBuilder: (context, error, child) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.videocam_off_outlined, color: Colors.amber, size: 52),
+                      const SizedBox(height: 16),
+                      Text(
+                        '相机启动异常',
+                        style: theme.textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        error.errorCode == MobileScannerErrorCode.permissionDenied
+                            ? '未授予相机使用权限，请在手机系统设置中允许 Bowerbird 访问相机'
+                            : (error.errorDetails?.message ?? '无法调起相机硬件，请检查设备相机或重启 App 重试'),
+                        style: const TextStyle(color: Colors.white70, fontSize: 13),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('重试'),
+                        onPressed: () => _controller.start(),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
           // Viewfinder overlay
           Center(

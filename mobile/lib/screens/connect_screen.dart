@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/discovery_service.dart';
 import 'home_screen.dart';
@@ -15,14 +16,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
   final _portController = TextEditingController(text: '17878');
 
   List<DiscoveredServer> _discoveredServers = [];
+  List<HistoryConnection> _historyConnections = [];
   bool _isScanning = false;
   bool _isConnecting = false;
   String? _errorMessage;
+  String? _dialogError;
 
   @override
   void initState() {
     super.initState();
     _startScan();
+    _loadHistory();
   }
 
   @override
@@ -32,6 +36,44 @@ class _ConnectScreenState extends State<ConnectScreen> {
     super.dispose();
   }
 
+  Future<void> _loadHistory() async {
+    final list = await ApiService.instance.getHistoryConnections();
+    if (mounted) setState(() => _historyConnections = list);
+  }
+
+  Future<void> _reconnect(HistoryConnection conn) async {
+    setState(() {
+      _isConnecting = true;
+      _errorMessage = null;
+    });
+    try {
+      final success = await ApiService.instance.reconnect(conn);
+      if (!mounted) return;
+      setState(() => _isConnecting = false);
+      if (success) {
+        _navigateToHome();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('重连失败：候选 IP (${conn.ips.join(", ")}) 均无法连通电脑，请确认设备在同一网络'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isConnecting = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
+      }
+    }
+  }
+
+  Future<void> _removeHistory(String id) async {
+    await ApiService.instance.removeHistoryConnection(id);
+    _loadHistory();
+  }
   Future<void> _startScan() async {
     if (_isScanning) return;
     setState(() {
@@ -84,8 +126,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
 
   void _showPairingDialog(String hostUrl, String libraryName) {
     final codeController = TextEditingController();
-    String? dialogError;
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -112,7 +152,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                     style: const TextStyle(fontSize: 28, letterSpacing: 8, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       hintText: '000000',
-                      errorText: dialogError,
+                      errorText: _dialogError,
                       border: const OutlineInputBorder(),
                     ),
                     onSubmitted: (code) async {
@@ -132,10 +172,9 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   onPressed: () {
                     final code = codeController.text.trim();
                     if (code.length != 6) {
-                      setDialogState(() => dialogError = 'Please enter a 6-digit code');
+                      setDialogState(() => _dialogError = 'Please enter a 6-digit code');
                       return;
                     }
-                    _performPair(hostUrl, code, setDialogState);
                   },
                   child: const Text('Pair & Connect'),
                 ),
@@ -155,9 +194,19 @@ class _ConnectScreenState extends State<ConnectScreen> {
         _navigateToHome();
       }
     } catch (e) {
+      final msg = e is PairingException
+          ? e.message
+          : (e.toString().contains('invalid_code') || e.toString().contains('401')
+              ? '连接码错误，请重新核对桌面端显示的 6 位配对码'
+              : e.toString().replaceAll('Exception: ', ''));
       setDialogState(() {
-        _errorMessage = e.toString().replaceAll('Exception: ', '');
+        _dialogError = msg;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700),
+        );
+      }
     }
   }
 
@@ -249,6 +298,47 @@ class _ConnectScreenState extends State<ConnectScreen> {
             const SizedBox(height: 20),
             const SizedBox(height: 24),
 
+            // History Connections
+            if (_historyConnections.isNotEmpty) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'HISTORICAL CONNECTIONS / 历史连接',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ..._historyConnections.map((conn) {
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    leading: const CircleAvatar(child: Icon(Icons.history_rounded)),
+                    title: Text(conn.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text('${conn.ips.join(", ")} • 端口: ${conn.port}'),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.tonal(
+                          onPressed: _isConnecting ? null : () => _reconnect(conn),
+                          child: const Text('重连'),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          tooltip: '删除此连接',
+                          onPressed: () => _removeHistory(conn.id),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
+              const SizedBox(height: 16),
+            ],
             // Discovered Servers Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,

@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import '../models/item.dart';
@@ -7,11 +10,12 @@ class ApiService {
   static final ApiService instance = ApiService._internal();
   ApiService._internal();
 
+  static const _nativeBridge = MethodChannel('com.bowerbird.mobile/native_bridge');
   final _storage = const FlutterSecureStorage();
   static const _keyBaseUrl = 'bowerbird_base_url';
   static const _keyToken = 'bowerbird_token';
   static const _keyLibraryName = 'bowerbird_library_name';
-
+  static const _keyHistory = 'bowerbird_history_connections';
   String? baseUrl;
   String? token;
   String? libraryName;
@@ -77,10 +81,12 @@ class ApiService {
     }
   }
 
-  Future<void> pair({
+  Future<String> pair({
     required String host,
     required String code,
     String? deviceName,
+    List<String>? candidateIps,
+    int? port,
   }) async {
     final cleanHost = host.endsWith('/') ? host.substring(0, host.length - 1) : host;
     final uri = Uri.parse('$cleanHost/api/v1/pair');
@@ -90,18 +96,27 @@ class ApiService {
       'deviceName': deviceName ?? 'Flutter Mobile',
     };
 
-    final response = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(payload),
-    ).timeout(const Duration(seconds: 10));
+    http.Response response;
+    try {
+      response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 10));
+    } on SocketException {
+      throw PairingException(PairingErrorType.networkError, '网络连接失败，请检查手机与电脑是否在同一 Wi-Fi 或 Tailscale 网络');
+    } on TimeoutException {
+      throw PairingException(PairingErrorType.networkError, '连接电脑超时，请检查网络设置或防火墙');
+    } catch (e) {
+      throw PairingException(PairingErrorType.networkError, '网络请求异常: $e');
+    }
 
     if (response.statusCode == 200) {
       final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       final data = json['data'] as Map<String, dynamic>? ?? json;
       final receivedToken = data['token'] as String?;
       if (receivedToken == null || receivedToken.isEmpty) {
-        throw Exception('Server did not return a valid authentication token');
+        throw PairingException(PairingErrorType.unknown, '服务端未返回有效认证 Token');
       }
 
       baseUrl = cleanHost;
@@ -109,10 +124,40 @@ class ApiService {
 
       await _storage.write(key: _keyBaseUrl, value: baseUrl);
       await _storage.write(key: _keyToken, value: token);
+
+      // Fetch and save active library name
+      try {
+        final status = await getStatus(targetHost: cleanHost);
+        libraryName = status.name;
+        await _storage.write(key: _keyLibraryName, value: status.name);
+      } catch (_) {}
+
+      // Save to history connections
+      final parsedUri = Uri.parse(cleanHost);
+      final hostPort = port ?? parsedUri.port;
+      final hostIps = candidateIps ?? [parsedUri.host];
+      await saveHistoryConnection(HistoryConnection(
+        id: '${libraryName ?? 'Desktop'}-$hostPort',
+        name: libraryName ?? 'Bowerbird Desktop',
+        ips: hostIps,
+        port: hostPort,
+        token: receivedToken,
+        lastConnectedAt: DateTime.now().millisecondsSinceEpoch,
+      ));
+
+      return receivedToken;
     } else if (response.statusCode == 401) {
-      throw Exception('Invalid or expired pairing code. Please check your desktop.');
+      try {
+        final json = jsonDecode(utf8.decode(response.bodyBytes));
+        if (json is Map && (json['error'] == 'invalid_code' || json['code'] == 'invalid_code')) {
+          throw PairingException(PairingErrorType.invalidCode, '连接码错误，请重新核对桌面端显示的 6 位配对码');
+        }
+      } catch (e) {
+        if (e is PairingException) rethrow;
+      }
+      throw PairingException(PairingErrorType.invalidCode, '连接码错误或已过期，请重新核对');
     } else {
-      throw Exception('Pairing failed: HTTP ${response.statusCode} - ${response.body}');
+      throw PairingException(PairingErrorType.unknown, '配对失败: HTTP ${response.statusCode}');
     }
   }
 
@@ -226,5 +271,163 @@ class ApiService {
     await _storage.delete(key: _keyBaseUrl);
     await _storage.delete(key: _keyToken);
     await _storage.delete(key: _keyLibraryName);
+  }
+  // --- History Connections ---
+
+  Future<List<HistoryConnection>> getHistoryConnections() async {
+    final raw = await _storage.read(key: _keyHistory);
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List<dynamic>;
+      return list.map((e) => HistoryConnection.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveHistoryConnection(HistoryConnection conn) async {
+    final history = await getHistoryConnections();
+    history.removeWhere((e) => e.id == conn.id || (e.name == conn.name && e.port == conn.port));
+    history.insert(0, conn);
+    if (history.length > 10) {
+      history.removeRange(10, history.length);
+    }
+    await _storage.write(key: _keyHistory, value: jsonEncode(history.map((e) => e.toJson()).toList()));
+  }
+
+  Future<void> removeHistoryConnection(String id) async {
+    final history = await getHistoryConnections();
+    history.removeWhere((e) => e.id == id);
+    await _storage.write(key: _keyHistory, value: jsonEncode(history.map((e) => e.toJson()).toList()));
+  }
+
+  Future<bool> reconnect(HistoryConnection conn) async {
+    for (final ip in conn.ips) {
+      final candidateHost = 'http://$ip:${conn.port}';
+      try {
+        final statusUri = Uri.parse('$candidateHost/api/v1/status');
+        final res = await http.get(statusUri).timeout(const Duration(seconds: 3));
+        if (res.statusCode == 200) {
+          final itemsUri = Uri.parse('$candidateHost/api/v1/items?limit=1');
+          final itemsRes = await http.get(
+            itemsUri,
+            headers: {'Authorization': 'Bearer ${conn.token}'},
+          ).timeout(const Duration(seconds: 3));
+
+          if (itemsRes.statusCode == 200) {
+            baseUrl = candidateHost;
+            token = conn.token;
+            libraryName = conn.name;
+            await _storage.write(key: _keyBaseUrl, value: baseUrl);
+            await _storage.write(key: _keyToken, value: token);
+            await _storage.write(key: _keyLibraryName, value: libraryName);
+            await saveHistoryConnection(HistoryConnection(
+              id: conn.id,
+              name: conn.name,
+              ips: conn.ips,
+              port: conn.port,
+              token: conn.token,
+              lastConnectedAt: DateTime.now().millisecondsSinceEpoch,
+            ));
+            return true;
+          }
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    return false;
+  }
+
+  // --- Libraries ---
+
+  Future<List<MobileLibrary>> getLibraries() async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/libraries');
+    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final list = json['libraries'] as List<dynamic>? ?? [];
+      return list.map((e) => MobileLibrary.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    return [];
+  }
+
+  Future<MobileLibrary> switchLibrary(String pathOrId) async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/libraries/switch');
+    final response = await http.post(
+      uri,
+      headers: authHeaders,
+      body: jsonEncode({'path': pathOrId, 'id': pathOrId}),
+    ).timeout(const Duration(seconds: 10));
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final libJson = json['library'] as Map<String, dynamic>? ?? {};
+      final switched = MobileLibrary.fromJson(libJson);
+      libraryName = switched.name;
+      await _storage.write(key: _keyLibraryName, value: switched.name);
+      return switched;
+    } else {
+      throw Exception('Failed to switch library: HTTP ${response.statusCode} - ${response.body}');
+    }
+  }
+
+  // --- Upload ---
+
+  Future<int> uploadFiles(List<String> filePaths) async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/upload');
+    final request = http.MultipartRequest('POST', uri);
+    if (token != null && token!.isNotEmpty) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
+
+    for (final path in filePaths) {
+      final file = File(path);
+      if (await file.exists()) {
+        final multipartFile = await http.MultipartFile.fromPath('file', path);
+        request.files.add(multipartFile);
+      }
+    }
+
+    if (request.files.isEmpty) {
+      throw Exception('No valid files to upload');
+    }
+
+    final streamedResponse = await request.send().timeout(const Duration(minutes: 5));
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      return (json['count'] as num?)?.toInt() ?? request.files.length;
+    } else {
+      throw Exception('Upload failed: HTTP ${response.statusCode} - ${response.body}');
+    }
+  }
+
+  // --- Native Bridge (File Picker & Gallery Save) ---
+
+  Future<List<String>> pickMediaFiles() async {
+    try {
+      final List<dynamic>? paths = await _nativeBridge.invokeMethod('pickMediaFiles');
+      return paths?.map((e) => e.toString()).toList() ?? [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<String> saveMediaToGallery(Uint8List bytes, String filename, String mimeType) async {
+    try {
+      final String? uri = await _nativeBridge.invokeMethod('saveMediaToGallery', {
+        'bytes': bytes,
+        'filename': filename,
+        'mimeType': mimeType,
+      });
+      return uri ?? '';
+    } catch (e) {
+      throw Exception('Failed to save to gallery: $e');
+    }
   }
 }

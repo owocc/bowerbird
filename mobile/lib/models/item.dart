@@ -218,3 +218,91 @@ class MobileFolder {
     );
   }
 }
+enum PairingErrorType {
+  invalidCode,
+  networkError,
+  unauthorized,
+  unknown,
+}
+
+class PairingException implements Exception {
+  final PairingErrorType type;
+  final String message;
+
+  PairingException(this.type, this.message);
+
+  @override
+  String toString() => message;
+}
+
+class MobileLibrary {
+  final String id;
+  final String name;
+  final String path;
+  final int itemCount;
+  final bool isActive;
+
+  MobileLibrary({
+    required this.id,
+    required this.name,
+    required this.path,
+    required this.itemCount,
+    required this.isActive,
+  });
+
+  factory MobileLibrary.fromJson(Map<String, dynamic> json) {
+    return MobileLibrary(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      path: json['path'] as String? ?? '',
+      itemCount: (json['itemCount'] as num?)?.toInt() ?? 0,
+      isActive: json['isActive'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'path': path,
+    'itemCount': itemCount,
+    'isActive': isActive,
+  };
+}
+
+class HistoryConnection {
+  final String id;
+  final String name;
+  final List<String> ips;
+  final int port;
+  final String token;
+  final int lastConnectedAt;
+
+  HistoryConnection({
+    required this.id,
+    required this.name,
+    required this.ips,
+    required this.port,
+    required this.token,
+    required this.lastConnectedAt,
+  });
+
+  factory HistoryConnection.fromJson(Map<String, dynamic> json) {
+    return HistoryConnection(
+      id: json['id'] as String? ?? '${json['name']}-${json['port']}',
+      name: json['name'] as String? ?? 'Bowerbird Desktop',
+      ips: (json['ips'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? [],
+      port: (json['port'] as num?)?.toInt() ?? 17878,
+      token: json['token'] as String? ?? '',
+      lastConnectedAt: (json['lastConnectedAt'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'ips': ips,
+    'port': port,
+    'token': token,
+    'lastConnectedAt': lastConnectedAt,
+  };
+}

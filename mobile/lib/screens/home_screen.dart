@@ -1,11 +1,17 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
+import '../services/websocket_service.dart';
 import 'connect_screen.dart';
 import 'detail_screen.dart';
 import 'search_screen.dart';
-
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -22,20 +28,67 @@ class _HomeScreenState extends State<HomeScreen> {
   int _offset = 0;
   static const int _pageSize = 60;
   String? _errorMessage;
+  bool _isUploading = false;
+  StreamSubscription? _wsLibSub;
+  StreamSubscription? _wsItemsSub;
+  StreamSubscription? _wsRevokedSub;
 
   @override
   void initState() {
     super.initState();
     _loadItems(refresh: true);
     _scrollController.addListener(_onScroll);
+    _initWebSocket();
+  }
+
+  void _initWebSocket() {
+    WebSocketService.instance.connect();
+    _wsLibSub = WebSocketService.instance.onLibraryChanged.listen((event) {
+      if (mounted) {
+        final data = event['data'] as Map<String, dynamic>? ?? event;
+        final newName = data['name'] as String?;
+        if (newName != null && newName.isNotEmpty) {
+          setState(() => ApiService.instance.libraryName = newName);
+        }
+        _loadItems(refresh: true);
+      }
+    });
+    _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((event) {
+      if (mounted) {
+        _loadItems(refresh: true);
+      }
+    });
+    _wsRevokedSub = WebSocketService.instance.onPairingRevoked.listen((_) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('授权已撤销'),
+            content: const Text('桌面端已撤销此设备的连接授权，请重新配对。'),
+            actions: [
+              FilledButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _disconnect(silent: true);
+                },
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
+    _wsLibSub?.cancel();
+    _wsItemsSub?.cancel();
+    _wsRevokedSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
-
   void _onScroll() {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
       if (!_isLoading && _hasMore) {
@@ -109,29 +162,309 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _disconnect() async {
-    final confirm = await showDialog<bool>(
+  Future<void> _disconnect({bool silent = false}) async {
+    if (!silent) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Disconnect Server'),
+          content: const Text('Disconnect from current Bowerbird desktop server?'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect')),
+          ],
+        ),
+      );
+      if (confirm != true) return;
+    }
+
+    WebSocketService.instance.disconnect();
+    await ApiService.instance.disconnect();
+    if (mounted) {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const ConnectScreen()),
+      );
+    }
+  }
+
+  Future<void> _showLibraryPicker() async {
+    List<MobileLibrary> libraries = [];
+    try {
+      libraries = await ApiService.instance.getLibraries();
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Disconnect Server'),
-        content: const Text('Disconnect from current Bowerbird desktop server?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect')),
-        ],
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        '切换资源库 / Switch Library',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                ),
+                const Divider(),
+                if (libraries.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(24.0),
+                    child: Center(child: Text('未发现其他资源库')),
+                  )
+                else
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: libraries.length,
+                      itemBuilder: (tileCtx, i) {
+                        final lib = libraries[i];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: lib.isActive
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : Theme.of(context).colorScheme.surfaceContainerHighest,
+                            child: Icon(
+                              Icons.photo_library_outlined,
+                              color: lib.isActive
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          title: Text(
+                            lib.name,
+                            style: TextStyle(
+                              fontWeight: lib.isActive ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: Text('${lib.itemCount} 个素材 • ${lib.path}'),
+                          trailing: lib.isActive
+                              ? Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary)
+                              : null,
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            if (!lib.isActive) {
+                              try {
+                                await ApiService.instance.switchLibrary(lib.path);
+                                if (mounted) {
+                                  setState(() => ApiService.instance.libraryName = lib.name);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('已切换至资源库: ${lib.name}')),
+                                  );
+                                  _loadItems(refresh: true);
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('切库失败: $e'), backgroundColor: Colors.red.shade700),
+                                  );
+                                }
+                              }
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handleUpload() async {
+    final paths = await ApiService.instance.pickMediaFiles();
+    if (paths.isEmpty) return;
+
+    if (!mounted) return;
+    setState(() => _isUploading = true);
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Row(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(width: 20),
+              Expanded(
+                child: Text('正在上传 ${paths.length} 个素材到当前资源库...'),
+              ),
+            ],
+          ),
+        ),
       ),
     );
 
-    if (confirm == true) {
-      await ApiService.instance.disconnect();
+    try {
+      final count = await ApiService.instance.uploadFiles(paths);
       if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const ConnectScreen()),
+        Navigator.pop(context); // Close dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('成功上传 $count 个素材到当前资源库')),
+        );
+        _loadItems(refresh: true);
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // Close dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('上传失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
+  void _showItemContextMenu(MobileItem item) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.download_rounded),
+                title: const Text('下载原图至手机'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _downloadItem(item);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.copy_rounded),
+                title: const Text('复制素材信息'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _copyItemInfo(item);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.share_rounded),
+                title: const Text('分享'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _shareItem(item);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _downloadItem(MobileItem item) async {
+    try {
+      final originalUrl = ApiService.instance.getOriginalUrl(item.id);
+      final response = await http.get(
+        Uri.parse(originalUrl),
+        headers: ApiService.instance.authHeaders,
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+
+      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
+      await ApiService.instance.saveMediaToGallery(response.bodyBytes, filename, item.mimeType);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已保存至手机相册/下载目录: $filename')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('下载失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.shade700,
+          ),
         );
       }
     }
   }
 
+  void _copyItemInfo(MobileItem item) {
+    final info = [
+      '名称: ${item.name.isNotEmpty ? item.name : item.filename}',
+      '文件名: ${item.filename}',
+      '尺寸: ${item.width} x ${item.height}',
+      '大小: ${_formatSize(item.size)}',
+      '格式: ${item.extension.toUpperCase()}',
+      if (item.tags.isNotEmpty) '标签: ${item.tags.join(", ")}',
+    ].join('\n');
+
+    Clipboard.setData(ClipboardData(text: info));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('素材关键信息已复制到剪贴板')),
+    );
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _shareItem(MobileItem item) async {
+    try {
+      final originalUrl = ApiService.instance.getOriginalUrl(item.id);
+      final response = await http.get(
+        Uri.parse(originalUrl),
+        headers: ApiService.instance.authHeaders,
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
+
+      final tempDir = await getTemporaryDirectory();
+      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
+      final file = File('${tempDir.path}/$filename');
+      await file.writeAsBytes(response.bodyBytes);
+
+      if (mounted) {
+        final xFile = XFile(file.path, mimeType: item.mimeType);
+        await Share.shareXFiles([xFile], text: item.name.isNotEmpty ? item.name : item.filename);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分享失败: $e'), backgroundColor: Colors.red.shade700),
+        );
+      }
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -139,18 +472,42 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              ApiService.instance.libraryName ?? 'Bowerbird',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+        title: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: _showLibraryPicker,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              ApiService.instance.libraryName ?? 'Bowerbird',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(Icons.arrow_drop_down, size: 20),
+                        ],
+                      ),
+                      Text(
+                        '${_items.length} 个素材 • 点击切库',
+                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            Text(
-              '${_items.length} items loaded',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-            ),
-          ],
+          ),
         ),
         actions: [
           IconButton(
@@ -249,6 +606,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                                   return GestureDetector(
                                     onTap: () => _openDetail(globalIndex),
+                                    onLongPress: () => _showItemContextMenu(item),
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
@@ -351,6 +709,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        heroTag: 'upload_fab',
+        tooltip: '上传素材到电脑',
+        onPressed: _isUploading ? null : _handleUpload,
+        child: const Icon(Icons.add_photo_alternate_rounded),
       ),
     );
   }
