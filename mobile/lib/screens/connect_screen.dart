@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../services/discovery_service.dart';
 import 'home_screen.dart';
-
+import 'scan_screen.dart';
 class ConnectScreen extends StatefulWidget {
   const ConnectScreen({super.key});
 
@@ -186,6 +186,17 @@ class _ConnectScreenState extends State<ConnectScreen> {
       appBar: AppBar(
         title: const Text('Connect to Bowerbird'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'Scan QR Code',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ScanScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -222,6 +233,20 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 ),
               ),
             ),
+            // Quick QR Scan Button Card
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ScanScreen()),
+                );
+              },
+              icon: const Icon(Icons.qr_code_scanner),
+              label: const Text('Scan Desktop QR Code'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+            const SizedBox(height: 20),
             const SizedBox(height: 24),
 
             // Discovered Servers Header

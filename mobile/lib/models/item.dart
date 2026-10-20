@@ -172,3 +172,49 @@ class ItemDetail {
     );
   }
 }
+
+class MobileTag {
+  final String name;
+  final int itemCount;
+
+  MobileTag({
+    required this.name,
+    required this.itemCount,
+  });
+
+  factory MobileTag.fromJson(Map<String, dynamic> json) {
+    return MobileTag(
+      name: json['name'] as String? ?? '',
+      itemCount: (json['itemCount'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class MobileFolder {
+  final String id;
+  final String name;
+  final String parentId;
+  final int itemCount;
+  final List<MobileFolder> children;
+
+  MobileFolder({
+    required this.id,
+    required this.name,
+    required this.parentId,
+    required this.itemCount,
+    required this.children,
+  });
+
+  factory MobileFolder.fromJson(Map<String, dynamic> json) {
+    final rawChildren = json['children'] as List<dynamic>? ?? [];
+    return MobileFolder(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      parentId: json['parentId'] as String? ?? '',
+      itemCount: (json['itemCount'] as num?)?.toInt() ?? 0,
+      children: rawChildren
+          .map((c) => MobileFolder.fromJson(c as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}

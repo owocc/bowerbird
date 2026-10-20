@@ -34,7 +34,41 @@ The desktop application continuously broadcasts its availability on the local su
 
 ---
 
-## 3. Pairing & Authentication Workflow
+## 3. Pairing & Deep Link Protocol (`bowerbird://`)
+
+### 3.1 QR Code & Deep Link Specification
+The desktop application presents a QR code containing a custom scheme URI:
+```text
+bowerbird://pair?data=<urlencoded-json>
+```
+
+The encoded JSON structure:
+```json
+{
+  "v": 1,
+  "name": "My Material Library",
+  "ips": ["192.168.1.50", "10.0.0.12", "100.80.20.10"],
+  "port": 17878,
+  "code": "493644"
+}
+```
+
+- `v`: Protocol schema version (currently `1`).
+- `name`: Active library name or application title.
+- `ips`: Candidate IPv4 addresses prioritized as LAN addresses (`192.168.x.x`, `10.x.x.x`, `172.16-31.x.x`), Tailscale addresses (`100.64-127.x.x`), and other active interfaces.
+- `port`: HTTP listener port (default `17878`).
+- `code`: Current 6-digit one-time pairing code.
+
+### 3.2 Connection & Probing Workflow
+1. The mobile client scans the QR code or receives a deep link via Android Intent Filter (`bowerbird://`).
+2. The client parses the JSON payload (or raw JSON fallback).
+3. The client probes candidate IPs sequentially via `GET http://<ip>:<port>/api/v1/status` with a 3-second timeout.
+4. The first responsive candidate IP is selected as the active `baseUrl`.
+5. The client automatically sends `POST /api/v1/pair` with `{"code": "...", "deviceName": "..."}` to obtain a long-lived Bearer token stored securely in `flutter_secure_storage`.
+
+---
+
+## 4. Pairing & Authentication Workflow
 
 ```
 Mobile App                                       Desktop App
@@ -122,9 +156,10 @@ GET /api/v1/originals/{id}?token=<64-character-hex-token>
   | `offset` | integer | `0` | Pagination start index. |
   | `q` | string | `""` | Search keyword matching name, filename, tags, or prompt. |
   | `tag` | string | `""` | Tag filter (exact match, case-insensitive). |
-  | `type` | string | `""` | File category filter: `image`, `video`, `audio`, or extension (e.g. `png`, `mp4`). |
+  | `folder` | string | `""` | Folder ID filter (items belonging to folder). |
+  | `color` | string | `""` | Hex color code (e.g. `#EF4444`). Matches items within redmean perceptual tolerance. |
+  | `type` | string | `""` | File category filter: `image`, `video`, `audio`, `document`, or specific extension. |
   | `orientation` | string | `""` | Orientation filter: `landscape`, `portrait`, `square`. |
-
 - **Response**: `200 OK`
 ```json
 {
@@ -199,9 +234,78 @@ Returns the full `Item` entity containing metadata, dominant color, color palett
 }
 ```
 
+
 ---
 
-### 4.5 Thumbnail Image
+### 4.5 Tags List
+- **Method**: `GET`
+- **Path**: `/api/v1/tags`
+- **Auth**: Required
+- **Response**: `200 OK`
+```json
+[
+  {
+    "name": "Favorites",
+    "createdAt": 1729000000000,
+    "itemCount": 42
+  },
+  {
+    "name": "wallpaper",
+    "createdAt": 1729000050000,
+    "itemCount": 18
+  }
+]
+```
+
+---
+
+### 4.6 Virtual Folders Hierarchy
+- **Method**: `GET`
+- **Path**: `/api/v1/folders`
+- **Auth**: Required
+- **Response**: `200 OK`
+```json
+[
+  {
+    "id": "b041cf50-8b1d-4eb3-81e5-8f6a98765432",
+    "name": "Design Assets",
+    "parentId": "",
+    "sortOrder": 0,
+    "itemCount": 12,
+    "children": [
+      {
+        "id": "c152de61-9c2e-5fc4-92f6-9f7b09876543",
+        "name": "Icons",
+        "parentId": "b041cf50-8b1d-4eb3-81e5-8f6a98765432",
+        "sortOrder": 0,
+        "itemCount": 5
+      }
+    ]
+  }
+]
+```
+
+---
+
+### 4.7 Aggregated Dominant Colors
+- **Method**: `GET`
+- **Path**: `/api/v1/colors`
+- **Auth**: Required
+- **Response**: `200 OK`
+Returns top aggregated dominant hex colors from active library items for color filtering palettes:
+```json
+[
+  "#EF4444",
+  "#F97316",
+  "#EAB308",
+  "#22C55E",
+  "#3B82F6",
+  "#8B5CF6"
+]
+```
+---
+
+### 4.8 Thumbnail Image
 - **Method**: `GET` / `HEAD`
 - **Path**: `/api/v1/thumbs/{id}`
 - **Auth**: Required
@@ -213,7 +317,7 @@ Returns the full `Item` entity containing metadata, dominant color, color palett
 
 ---
 
-### 4.6 Original Media Stream (with Range Seeking)
+### 4.9 Original Media Stream (with Range Seeking)
 - **Method**: `GET` / `HEAD`
 - **Path**: `/api/v1/originals/{id}`
 - **Auth**: Required

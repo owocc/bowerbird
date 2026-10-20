@@ -1,5 +1,11 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:photo_view/photo_view.dart';
+import 'package:photo_view/photo_view_gallery.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
 
@@ -22,6 +28,7 @@ class _DetailScreenState extends State<DetailScreen> {
   late int _currentIndex;
   bool _showOverlays = true;
   ItemDetail? _currentDetail;
+  bool _isSharing = false;
 
   @override
   void initState() {
@@ -63,6 +70,52 @@ class _DetailScreenState extends State<DetailScreen> {
     });
   }
 
+  Future<void> _shareCurrentItem() async {
+    if (_isSharing) return;
+    setState(() => _isSharing = true);
+
+    final item = widget.items[_currentIndex];
+    try {
+      final originalUrl = ApiService.instance.getOriginalUrl(item.id);
+      final response = await http.get(
+        Uri.parse(originalUrl),
+        headers: ApiService.instance.authHeaders,
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to download image: HTTP ${response.statusCode}');
+      }
+
+      final tempDir = await getTemporaryDirectory();
+      final shareFolder = Directory('${tempDir.path}/share');
+      if (!await shareFolder.exists()) {
+        await shareFolder.create(recursive: true);
+      }
+
+      final filename = item.filename.isNotEmpty ? item.filename : 'item_${item.id}.${item.extension}';
+      final file = File('${shareFolder.path}/$filename');
+      await file.writeAsBytes(response.bodyBytes);
+
+      if (mounted) {
+        final xFile = XFile(file.path, mimeType: item.mimeType);
+        await Share.shareXFiles([xFile], text: item.name.isNotEmpty ? item.name : item.filename);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Share failed: ${e.toString().replaceAll('Exception: ', '')}'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSharing = false);
+      }
+    }
+  }
+
   void _showFullMetadataSheet(MobileItem item) {
     final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(item.dateTime);
     final theme = Theme.of(context);
@@ -76,9 +129,9 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
       builder: (context) {
         return DraggableScrollableSheet(
-          initialChildSize: 0.5,
-          minChildSize: 0.3,
-          maxChildSize: 0.85,
+          initialChildSize: 0.6,
+          minChildSize: 0.35,
+          maxChildSize: 0.9,
           expand: false,
           builder: (context, scrollController) {
             return SingleChildScrollView(
@@ -104,36 +157,84 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   const SizedBox(height: 12),
                   const Divider(),
-                  _buildMetaRow(Icons.calendar_today_outlined, 'Date', dateStr),
+                  _buildMetaRow(Icons.title_outlined, 'Title', item.name.isNotEmpty ? item.name : item.filename),
+                  _buildMetaRow(Icons.calendar_today_outlined, 'Captured / Imported', dateStr),
                   _buildMetaRow(Icons.aspect_ratio_outlined, 'Dimensions', '${item.width} × ${item.height} (${item.orientation})'),
                   _buildMetaRow(Icons.data_usage_outlined, 'File Size', item.formattedSize),
                   _buildMetaRow(Icons.category_outlined, 'MIME Type', item.mimeType),
 
                   if (_currentDetail != null) ...[
-                    if (_currentDetail!.dominantColor != null)
+                    if (_currentDetail!.dominantColor != null && _currentDetail!.dominantColor!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         child: Row(
                           children: [
                             const Icon(Icons.palette_outlined, size: 20),
                             const SizedBox(width: 12),
-                            const Text('Dominant Color:'),
-                            const SizedBox(width: 8),
+                            const Text('Dominant Color: ', style: TextStyle(fontWeight: FontWeight.w600)),
                             Container(
-                              width: 20,
-                              height: 20,
+                              width: 18,
+                              height: 18,
                               decoration: BoxDecoration(
                                 color: _parseColor(_currentDetail!.dominantColor!),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white24),
+                                border: Border.all(color: Colors.white30),
                               ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(_currentDetail!.dominantColor!.toUpperCase(), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+                          ],
+                        ),
+                      ),
+                    if (_currentDetail!.palette.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.color_lens_outlined, size: 20),
+                                const SizedBox(width: 12),
+                                const Text('Color Palette: ', style: TextStyle(fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: _currentDetail!.palette.map((hex) {
+                                final c = _parseColor(hex);
+                                return Tooltip(
+                                  message: hex.toUpperCase(),
+                                  child: Container(
+                                    width: 32,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: c,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.white24),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
                             ),
                           ],
                         ),
                       ),
                     if (_currentDetail!.note.isNotEmpty)
                       _buildMetaRow(Icons.notes_outlined, 'Note', _currentDetail!.note),
+                    if (_currentDetail!.url.isNotEmpty)
+                      _buildMetaRow(Icons.link_outlined, 'Source URL', _currentDetail!.url),
+                    if (_currentDetail!.prompt.isNotEmpty)
+                      _buildMetaRow(Icons.psychology_outlined, 'Prompt', _currentDetail!.prompt),
                     if (_currentDetail!.meta != null) ...[
+                      if (_currentDetail!.meta!['colorModel'] != null)
+                        _buildMetaRow(Icons.color_lens_outlined, 'Color Model', _currentDetail!.meta!['colorModel'].toString()),
+                      if (_currentDetail!.meta!['colorSpace'] != null)
+                        _buildMetaRow(Icons.tonality_outlined, 'Color Space', _currentDetail!.meta!['colorSpace'].toString()),
+                      if (_currentDetail!.meta!['megapixels'] != null)
+                        _buildMetaRow(Icons.photo_size_select_actual_outlined, 'Megapixels', _currentDetail!.meta!['megapixels'].toString()),
                       if (_currentDetail!.meta!['exifMake'] != null || _currentDetail!.meta!['exifModel'] != null)
                         _buildMetaRow(
                           Icons.camera_alt_outlined,
@@ -143,6 +244,20 @@ class _DetailScreenState extends State<DetailScreen> {
                     ],
                   ],
 
+                  if (item.folders.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text('Folders', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: item.folders.map((f) => Chip(
+                        avatar: const Icon(Icons.folder_outlined, size: 16),
+                        label: Text(f),
+                      )).toList(),
+                    ),
+                  ],
+
                   if (item.tags.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Text('Tags', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)),
@@ -150,7 +265,10 @@ class _DetailScreenState extends State<DetailScreen> {
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
-                      children: item.tags.map((t) => Chip(label: Text(t))).toList(),
+                      children: item.tags.map((t) => Chip(
+                        avatar: const Icon(Icons.tag, size: 16),
+                        label: Text(t),
+                      )).toList(),
                     ),
                   ],
                 ],
@@ -192,58 +310,38 @@ class _DetailScreenState extends State<DetailScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Swipeable Media Viewer
+          // PhotoViewGallery for gesture zoom, double-tap zoom & smooth swipe
           GestureDetector(
             onTap: _toggleOverlays,
-            child: PageView.builder(
-              controller: _pageController,
+            child: PhotoViewGallery.builder(
+              pageController: _pageController,
               itemCount: widget.items.length,
               onPageChanged: _onPageChanged,
-              itemBuilder: (context, index) {
+              scrollPhysics: const BouncingScrollPhysics(),
+              backgroundDecoration: const BoxDecoration(color: Colors.black),
+              builder: (context, index) {
                 final item = widget.items[index];
-
-                return InteractiveViewer(
-                  minScale: 0.8,
-                  maxScale: 5.0,
-                  child: Center(
-                    child: Image.network(
-                      ApiService.instance.getOriginalUrl(item.id),
-                      fit: BoxFit.contain,
-                      headers: ApiService.instance.authHeaders,
-                      loadingBuilder: (context, child, progress) {
-                        if (progress == null) return child;
-                        // While original loads, show thumbnail immediately as preview
-                        return Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            Image.network(
-                              ApiService.instance.getThumbnailUrl(item.id),
-                              fit: BoxFit.contain,
-                              headers: ApiService.instance.authHeaders,
-                            ),
-                            CircularProgressIndicator(
-                              value: progress.expectedTotalBytes != null
-                                  ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
-                                  : null,
-                              color: Colors.white70,
-                            ),
-                          ],
-                        );
-                      },
-                      errorBuilder: (context, error, stackTrace) {
-                        return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.broken_image, size: 64, color: Colors.white54),
-                              const SizedBox(height: 12),
-                              Text(item.filename, style: const TextStyle(color: Colors.white70)),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                return PhotoViewGalleryPageOptions(
+                  imageProvider: NetworkImage(
+                    ApiService.instance.getOriginalUrl(item.id),
+                    headers: ApiService.instance.authHeaders,
                   ),
+                  initialScale: PhotoViewComputedScale.contained,
+                  minScale: PhotoViewComputedScale.contained * 0.8,
+                  maxScale: PhotoViewComputedScale.covered * 3.5,
+                  heroAttributes: PhotoViewHeroAttributes(tag: item.id),
+                  errorBuilder: (context, error, stackTrace) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.broken_image, size: 64, color: Colors.white54),
+                          const SizedBox(height: 12),
+                          Text(item.filename, style: const TextStyle(color: Colors.white70)),
+                        ],
+                      ),
+                    );
+                  },
                 );
               },
             ),
@@ -282,6 +380,21 @@ class _DetailScreenState extends State<DetailScreen> {
                         style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
                       ),
                     ),
+                    if (_isSharing)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 12),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        ),
+                      )
+                    else
+                      IconButton(
+                        icon: const Icon(Icons.share, color: Colors.white),
+                        tooltip: 'Share',
+                        onPressed: _shareCurrentItem,
+                      ),
                     IconButton(
                       icon: const Icon(Icons.info_outline, color: Colors.white),
                       tooltip: 'Details',

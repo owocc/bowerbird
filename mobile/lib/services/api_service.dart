@@ -121,6 +121,8 @@ class ApiService {
     int offset = 0,
     String? q,
     String? tag,
+    String? folder,
+    String? color,
     String? type,
     String? orientation,
   }) async {
@@ -137,6 +139,12 @@ class ApiService {
     }
     if (tag != null && tag.trim().isNotEmpty) {
       queryParams['tag'] = tag.trim();
+    }
+    if (folder != null && folder.trim().isNotEmpty) {
+      queryParams['folder'] = folder.trim();
+    }
+    if (color != null && color.trim().isNotEmpty) {
+      queryParams['color'] = color.trim();
     }
     if (type != null && type.trim().isNotEmpty) {
       queryParams['type'] = type.trim();
@@ -176,6 +184,39 @@ class ApiService {
     } else {
       throw Exception('Failed to load item detail: HTTP ${response.statusCode}');
     }
+  }
+
+  Future<List<MobileTag>> getTags() async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/tags');
+    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final list = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>? ?? [];
+      return list.map((e) => MobileTag.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    return [];
+  }
+
+  Future<List<MobileFolder>> getFolders() async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/folders');
+    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final list = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>? ?? [];
+      return list.map((e) => MobileFolder.fromJson(e as Map<String, dynamic>)).toList();
+    }
+    return [];
+  }
+
+  Future<List<String>> getColors() async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/colors');
+    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
+    if (response.statusCode == 200) {
+      final list = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>? ?? [];
+      return list.map((e) => e.toString()).toList();
+    }
+    return [];
   }
 
   Future<void> disconnect() async {
