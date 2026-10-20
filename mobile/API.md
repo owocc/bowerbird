@@ -110,7 +110,7 @@ GET /api/v1/originals/{id}?token=<64-character-hex-token>
 ```json
 {
   "name": "My Material Library",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "itemCount": 1420,
   "pairingRequired": true
 }
@@ -237,6 +237,28 @@ Returns the full `Item` entity containing metadata, dominant color, color palett
 
 ---
 
+### 4.4.1 Delete Item (Move to Trash)
+- **Method**: `DELETE`
+- **Path**: `/api/v1/items/{id}`
+- **Auth**: Required
+- **Response**: `200 OK`
+```json
+{
+  "status": "success",
+  "code": "OK",
+  "data": {
+    "id": "A1B2C3D4E5F60123456789ABCDEF...",
+    "inTrash": true
+  }
+}
+```
+Moves the item into the desktop recycle bin (same semantics as `MoveToTrash`). The item can be restored from the desktop trash view; there is no permanent-delete endpoint on the mobile API. On success the server broadcasts `items_updated` over the WebSocket.
+
+Errors: `401 UNAUTHORIZED`, `404 NOT_FOUND`, `409 ERR_ITEM_ALREADY_TRASHED`, `503 ERR_NO_ACTIVE_LIBRARY`, `500 ERR_DELETE_ITEM_FAILED`.
+
+---
+
+
 ### 4.5 Tags List
 - **Method**: `GET`
 - **Path**: `/api/v1/tags`
@@ -349,6 +371,7 @@ All errors return a standard JSON envelope:
 | Code | HTTP Status | Description |
 |---|---|---|
 | `UNAUTHORIZED` | 401 | Missing or invalid bearer token. |
+| `ERR_ITEM_ALREADY_TRASHED` | 409 | The item is already in the recycle bin; repeated DELETE is rejected to preserve restore folders. |
 | `INVALID_PAIRING_CODE` | 401 | The 6-digit pairing code does not match desktop code. |
 | `ITEM_NOT_FOUND` / `NOT_FOUND` | 404 | The requested item ID does not exist in the active library. |
 | `NO_ACTIVE_LIBRARY` | 503 | No library is currently opened in the desktop application. |

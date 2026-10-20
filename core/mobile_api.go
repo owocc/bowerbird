@@ -27,7 +27,7 @@ import (
 )
 
 // MobileServerVersion is the mobile API contract version.
-const MobileServerVersion = "1.0.0"
+const MobileServerVersion = "1.1.0"
 
 // MobileServer handles LAN HTTP endpoints and mDNS discovery for mobile clients.
 type wsClient struct {
@@ -1189,9 +1189,10 @@ func deriveOrientation(it Item) string {
 	return "landscape"
 }
 
-// handleItemDetail returns complete item metadata.
+// handleItemDetail returns complete item metadata, or moves the item to the
+// recycle bin when called with DELETE.
 func (s *MobileServer) handleItemDetail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
 		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
@@ -1214,6 +1215,11 @@ func (s *MobileServer) handleItemDetail(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if r.Method == http.MethodDelete {
+		s.handleItemDelete(w, item)
+		return
+	}
+
 	// Clone and set relative mobile URLs
 	itemCopy := *item
 	itemCopy.ThumbnailURL = fmt.Sprintf("/api/v1/thumbs/%s", item.ID)
@@ -1221,6 +1227,23 @@ func (s *MobileServer) handleItemDetail(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(itemCopy)
+}
+
+// handleItemDelete moves an item to the recycle bin (MoveToTrash). The item can
+// still be restored from the desktop trash view; there is no permanent delete.
+func (s *MobileServer) handleItemDelete(w http.ResponseWriter, item *Item) {
+	if item.InTrash {
+		writeError(w, http.StatusConflict, ErrCodeItemAlreadyTrashed, "item is already in trash")
+		return
+	}
+
+	if err := s.manager.MoveToTrash(item.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeDeleteItemFailed, err.Error())
+		return
+	}
+
+	// MoveToTrash already broadcasts items_updated; do not duplicate it here.
+	writeSuccess(w, map[string]any{"id": item.ID, "inTrash": true})
 }
 
 // handleThumbnail serves thumbnail image or falls back to original.

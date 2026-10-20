@@ -26,6 +26,7 @@ const (
 	ErrCodeCloseLibraryFailed         = "ERR_CLOSE_LIBRARY_FAILED"
 
 	ErrCodeItemNotFound               = "ERR_ITEM_NOT_FOUND"
+	ErrCodeItemAlreadyTrashed         = "ERR_ITEM_ALREADY_TRASHED"
 	ErrCodeDeleteItemFailed           = "ERR_DELETE_ITEM_FAILED"
 	ErrCodeRevealFailed               = "ERR_REVEAL_FAILED"
 	ErrCodeQueryItemsFailed           = "ERR_QUERY_ITEMS_FAILED"
