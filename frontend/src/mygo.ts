@@ -331,7 +331,7 @@ export const Service = {
   },
   /**
    * GetAppMenu returns the menu model rendered by the app's own ≡ button. macOS
-   * ignores it: its menu is registered natively (see BuildNativeAppMenu).
+   * ignores it: its menu is registered natively (see AppMenuModel).
    */
   getAppMenu(): Promise<AppMenuItem[]> {
     return call("Service.GetAppMenu");
