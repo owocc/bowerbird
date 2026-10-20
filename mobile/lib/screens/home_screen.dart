@@ -19,7 +19,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final List<MobileItem> _items = [];
   final ScrollController _scrollController = ScrollController();
 
@@ -32,13 +32,24 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription? _wsLibSub;
   StreamSubscription? _wsItemsSub;
   StreamSubscription? _wsRevokedSub;
-
+  bool _pendingRefresh = false;
   @override
   void initState() {
     super.initState();
     _loadItems(refresh: true);
     _scrollController.addListener(_onScroll);
     _initWebSocket();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (!WebSocketService.instance.isConnected) {
+        WebSocketService.instance.connect();
+      }
+      _loadItems(refresh: true);
+    }
   }
 
   void _initWebSocket() {
@@ -87,6 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _wsItemsSub?.cancel();
     _wsRevokedSub?.cancel();
     _scrollController.dispose();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
   void _onScroll() {
@@ -98,7 +110,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadItems({bool refresh = false}) async {
-    if (_isLoading) return;
+    if (_isLoading) {
+      if (refresh) {
+        _pendingRefresh = true;
+      }
+      return;
+    }
 
     if (refresh) {
       setState(() {
@@ -136,6 +153,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _isLoading = false;
           _errorMessage = e.toString().replaceAll('Exception: ', '');
         });
+      }
+    } finally {
+      if (mounted && _pendingRefresh) {
+        _pendingRefresh = false;
+        _loadItems(refresh: true);
       }
     }
   }

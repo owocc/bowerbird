@@ -19,6 +19,7 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get onLibraryChanged => _libraryChangedController.stream;
   Stream<Map<String, dynamic>> get onItemsUpdated => _itemsUpdatedController.stream;
   Stream<void> get onPairingRevoked => _pairingRevokedController.stream;
+  bool get isConnected => _socket != null && _socket!.readyState == WebSocket.open;
 
   void connect() {
     _isDisposed = false;
