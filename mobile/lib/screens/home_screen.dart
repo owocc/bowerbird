@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -13,6 +12,7 @@ import 'connect_screen.dart';
 import '../services/inbox_service.dart';
 import 'detail_screen.dart';
 import 'inbox_screen.dart';
+import '../widgets/item_preview_overlay.dart';
 import 'search_screen.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -204,6 +204,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _openItemPreview(MobileItem item, int globalIndex) async {
+    final action = await showItemPreviewOverlay(context, item);
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case ItemPreviewAction.viewDetail:
+        await _openDetail(globalIndex);
+      case ItemPreviewAction.copyContent:
+        await _copyItemContent(item);
+      case ItemPreviewAction.download:
+        await _downloadItem(item);
+      case ItemPreviewAction.share:
+        await _shareItem(item);
+      case ItemPreviewAction.delete:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已移入废纸篓')),
+        );
+        await _loadItems(refresh: true);
+    }
+  }
+
   Future<void> _disconnect({bool silent = false}) async {
     if (!silent) {
       final confirm = await showDialog<bool>(
@@ -384,56 +405,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _showItemContextMenu(MobileItem item) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.download_rounded),
-                title: const Text('下载原图至手机'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _downloadItem(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.copy_rounded),
-                title: const Text('复制素材信息'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _copyItemInfo(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.content_copy),
-                title: const Text('复制素材内容'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _copyItemContent(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.share_rounded),
-                title: const Text('分享'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _shareItem(item);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   Future<void> _downloadItem(MobileItem item) async {
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
@@ -466,21 +437,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _copyItemInfo(MobileItem item) {
-    final info = [
-      '名称: ${item.name.isNotEmpty ? item.name : item.filename}',
-      '文件名: ${item.filename}',
-      '尺寸: ${item.width} x ${item.height}',
-      '大小: ${_formatSize(item.size)}',
-      '格式: ${item.extension.toUpperCase()}',
-      if (item.tags.isNotEmpty) '标签: ${item.tags.join(", ")}',
-    ].join('\n');
-
-    Clipboard.setData(ClipboardData(text: info));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('素材关键信息已复制到剪贴板')),
-    );
-  }
 
   Future<void> _copyItemContent(MobileItem item) async {
     if (item.size > ApiService.maxClipboardFileBytes) {
@@ -513,12 +469,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
   Future<void> _shareItem(MobileItem item) async {
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
@@ -527,7 +477,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         headers: ApiService.instance.authHeaders,
       ).timeout(const Duration(seconds: 30));
 
-      if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
 
       final tempDir = await getTemporaryDirectory();
       final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
@@ -701,46 +653,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                                   return GestureDetector(
                                     onTap: () => _openDetail(globalIndex),
-                                    onLongPress: () => _showItemContextMenu(item),
+                                    onLongPress: () => _openItemPreview(item, globalIndex),
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
-                                        Image.network(
-                                          useAnimatedGif
-                                              ? ApiService.instance.getOriginalUrl(item.id)
-                                              : ApiService.instance.getThumbnailUrl(item.id),
-                                          fit: BoxFit.cover,
-                                          headers: ApiService.instance.authHeaders,
-                                          cacheWidth: useAnimatedGif ? 400 : null,
-                                          loadingBuilder: (context, child, progress) {
-                                            if (progress == null) return child;
-                                            return Container(
-                                              color: theme.colorScheme.surfaceContainerHighest,
-                                              child: Center(
-                                                child: SizedBox(
-                                                  width: 20,
-                                                  height: 20,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: progress.expectedTotalBytes != null
-                                                        ? progress.cumulativeBytesLoaded /
-                                                            progress.expectedTotalBytes!
-                                                        : null,
+                                        Hero(
+                                          tag: itemPreviewHeroTag(item.id),
+                                          child: Image.network(
+                                            useAnimatedGif
+                                                ? ApiService.instance.getOriginalUrl(item.id)
+                                                : ApiService.instance.getThumbnailUrl(item.id),
+                                            fit: BoxFit.cover,
+                                            headers: ApiService.instance.authHeaders,
+                                            cacheWidth: useAnimatedGif ? 400 : null,
+                                            loadingBuilder: (context, child, progress) {
+                                              if (progress == null) return child;
+                                              return Container(
+                                                color: theme.colorScheme.surfaceContainerHighest,
+                                                child: Center(
+                                                  child: SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      value: progress.expectedTotalBytes != null
+                                                          ? progress.cumulativeBytesLoaded /
+                                                              progress.expectedTotalBytes!
+                                                          : null,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            );
-                                          },
-                                          errorBuilder: (context, error, stackTrace) {
-                                            return Container(
-                                              color: theme.colorScheme.surfaceContainerHighest,
-                                              child: Icon(
-                                                Icons.broken_image_outlined,
-                                                color: theme.colorScheme.outline,
-                                                size: 28,
-                                              ),
-                                            );
-                                          },
+                                              );
+                                            },
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return Container(
+                                                color: theme.colorScheme.surfaceContainerHighest,
+                                                child: Icon(
+                                                  Icons.broken_image_outlined,
+                                                  color: theme.colorScheme.outline,
+                                                  size: 28,
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
                                         if (item.isVideo)
                                           Positioned(
