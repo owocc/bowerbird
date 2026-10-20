@@ -3,8 +3,6 @@ package core
 import (
 	"fmt"
 	"runtime"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // -----------------------------------------------------------------------------
@@ -12,7 +10,7 @@ import (
 //
 // The menu is declared exactly once, here, and then consumed by three callers:
 //
-//  1. the native macOS menu bar          -> BuildNativeAppMenu (Cmd+, etc.)
+//  1. the native macOS menu bar          -> the mygo entry builds it from AppMenuModel
 //  2. the self-drawn ≡ button on Windows -> Service.GetAppMenu, rendered by
 //     and Linux                              frontend/src/components/AppMenuButton.tsx
 //  3. the in-app shortcut layer on       -> frontend/src/hooks/useAppShortcuts.ts
@@ -235,7 +233,7 @@ func AppMenuModel() []AppMenuItem {
 }
 
 // GetAppMenu returns the menu model rendered by the app's own ≡ button. macOS
-// ignores it: its menu is registered natively (see BuildNativeAppMenu).
+// ignores it: its menu is registered natively (see AppMenuModel).
 func (s *Service) GetAppMenu() []AppMenuItem {
 	return AppMenuModel()
 }
@@ -255,8 +253,8 @@ func (s *Service) InvokeAppMenu(action string) error {
 		_, err := s.CaptureWindow()
 		return err
 	case AppMenuOpenMainWindow:
-		if w := s.mgr.getWindow(); w != nil {
-			w.Show().Focus()
+		if h := s.getHost(); h != nil {
+			h.FocusMainWindow()
 		}
 		return nil
 	case AppMenuSettings:
@@ -266,13 +264,13 @@ func (s *Service) InvokeAppMenu(action string) error {
 		return s.OpenLogsWindow()
 
 	case AppMenuAbout:
-		if app := s.getApp(); app != nil {
-			app.Menu.ShowAbout()
+		if h := s.getHost(); h != nil {
+			h.ShowAbout()
 		}
 		return nil
 	case AppMenuQuit:
-		if app := s.getApp(); app != nil {
-			app.Quit()
+		if h := s.getHost(); h != nil {
+			h.Quit()
 		}
 		return nil
 	}
@@ -280,106 +278,17 @@ func (s *Service) InvokeAppMenu(action string) error {
 	return fmt.Errorf("core: unknown application menu action %q", action)
 }
 
-// BuildNativeAppMenu builds the macOS menu bar. It exists so macOS can register
-// its menu natively instead of drawing the ≡ button: titles and accelerators
-// come from the same AppMenuModel the frontend renders.
-//
-// onAction is called with an AppMenuAction id whenever the user picks one of the
-// app's own items.
-func BuildNativeAppMenu(appName string, onAction func(action string)) *application.Menu {
-	items := AppMenuModel()
-	find := func(action string) AppMenuItem {
-		for _, item := range items {
-			if item.Action == action {
-				return item
-			}
-		}
-		// Unreachable for the actions used below; degrade to the raw id rather
-		// than panicking.
-		return AppMenuItem{Action: action, Title: action}
-	}
-
-	menu := application.NewMenu()
-
-	// The first submenu becomes the application menu; macOS renders it with the
-	// application name.
-	appMenu := menu.AddSubmenu(appName)
-
-	// About and Quit stay OS roles so they keep their standard placement and
-	// localisation.
-	appMenu.AddRole(application.About)
-	appMenu.AddSeparator()
-
-	settings := find(AppMenuSettings)
-	settingsItem := appMenu.Add(settings.Title)
-	if accelerator := appMenuAccelerator(settings.Action); accelerator != "" {
-		settingsItem.SetAccelerator(accelerator)
-	}
-	settingsItem.OnClick(func(*application.Context) {
-		onAction(settings.Action)
-	})
-
-	logs := find(AppMenuLogs)
-	logsItem := appMenu.Add(logs.Title)
-	if accelerator := appMenuAccelerator(logs.Action); accelerator != "" {
-		logsItem.SetAccelerator(accelerator)
-	}
-	logsItem.OnClick(func(*application.Context) {
-		onAction(logs.Action)
-	})
-
-	appMenu.AddSeparator()
-	appMenu.AddRole(application.Hide)
-	appMenu.AddRole(application.HideOthers)
-	appMenu.AddRole(application.UnHide)
-	appMenu.AddSeparator()
-	appMenu.AddRole(application.Quit)
-
-	// Standard macOS menus. View provides Reload / Toggle Full Screen /
-	// Developer Tools, which is why those AppMenuModel rows are rendered by the
-	// frontend only.
-	// Capture menu offers screen capture affordances with native accelerators.
-	captureMenu := menu.AddSubmenu("Capture")
-	area := find(AppMenuCaptureArea)
-	areaItem := captureMenu.Add(area.Title)
-	if accelerator := appMenuAccelerator(area.Action); accelerator != "" {
-		areaItem.SetAccelerator(accelerator)
-	}
-	areaItem.OnClick(func(*application.Context) {
-		onAction(area.Action)
-	})
-
-	fullscreen := find(AppMenuCaptureFullscreen)
-	fullscreenItem := captureMenu.Add(fullscreen.Title)
-	if accelerator := appMenuAccelerator(fullscreen.Action); accelerator != "" {
-		fullscreenItem.SetAccelerator(accelerator)
-	}
-	fullscreenItem.OnClick(func(*application.Context) {
-		onAction(fullscreen.Action)
-	})
-
-	window := find(AppMenuCaptureWindow)
-	windowItem := captureMenu.Add(window.Title)
-	if accelerator := appMenuAccelerator(window.Action); accelerator != "" {
-		windowItem.SetAccelerator(accelerator)
-	}
-	windowItem.OnClick(func(*application.Context) {
-		onAction(window.Action)
-	})
-
-	menu.AddRole(application.FileMenu)
-	menu.AddRole(application.EditMenu)
-	menu.AddRole(application.ViewMenu)
-	menu.AddRole(application.WindowMenu)
-	menu.AddRole(application.HelpMenu)
-
-	return menu
+// TrayMenuItem is one row of the tray menu model. The host turns it into its
+// own native menu type, so core stays free of framework menu types.
+type TrayMenuItem struct {
+	Label       string
+	Action      string
+	Accelerator string
+	Separator   bool
 }
 
-// BuildTrayMenu creates the menu for the system tray / menu bar item.
-func BuildTrayMenu(appName string, isZh bool, onAction func(action string)) *application.Menu {
-	menu := application.NewMenu()
-
+// TrayMenuModel returns the tray menu in display order.
+func TrayMenuModel(appName string, isZh bool) []TrayMenuItem {
 	areaTitle := "Area Capture"
 	fullscreenTitle := "Fullscreen Capture"
 	windowTitle := "Window Capture"
@@ -396,44 +305,14 @@ func BuildTrayMenu(appName string, isZh bool, onAction func(action string)) *app
 		quitTitle = "退出 " + appName
 	}
 
-	areaItem := menu.Add(areaTitle)
-	areaItem.SetAccelerator(appMenuAccelerator(AppMenuCaptureArea))
-	areaItem.OnClick(func(*application.Context) {
-		onAction(AppMenuCaptureArea)
-	})
-
-	windowItem := menu.Add(windowTitle)
-	windowItem.SetAccelerator(appMenuAccelerator(AppMenuCaptureWindow))
-	windowItem.OnClick(func(*application.Context) {
-		onAction(AppMenuCaptureWindow)
-	})
-
-	fullscreenItem := menu.Add(fullscreenTitle)
-	fullscreenItem.SetAccelerator(appMenuAccelerator(AppMenuCaptureFullscreen))
-	fullscreenItem.OnClick(func(*application.Context) {
-		onAction(AppMenuCaptureFullscreen)
-	})
-
-	menu.AddSeparator()
-
-	showItem := menu.Add(showTitle)
-	showItem.OnClick(func(*application.Context) {
-		onAction(AppMenuOpenMainWindow)
-	})
-
-	settingsItem := menu.Add(settingsTitle)
-	settingsItem.SetAccelerator(appMenuAccelerator(AppMenuSettings))
-	settingsItem.OnClick(func(*application.Context) {
-		onAction(AppMenuSettings)
-	})
-
-	menu.AddSeparator()
-
-	quitItem := menu.Add(quitTitle)
-	quitItem.SetAccelerator(appMenuAccelerator(AppMenuQuit))
-	quitItem.OnClick(func(*application.Context) {
-		onAction(AppMenuQuit)
-	})
-
-	return menu
+	return []TrayMenuItem{
+		{Label: areaTitle, Action: AppMenuCaptureArea, Accelerator: appMenuAccelerator(AppMenuCaptureArea)},
+		{Label: windowTitle, Action: AppMenuCaptureWindow, Accelerator: appMenuAccelerator(AppMenuCaptureWindow)},
+		{Label: fullscreenTitle, Action: AppMenuCaptureFullscreen, Accelerator: appMenuAccelerator(AppMenuCaptureFullscreen)},
+		{Separator: true},
+		{Label: showTitle, Action: AppMenuOpenMainWindow},
+		{Label: settingsTitle, Action: AppMenuSettings, Accelerator: appMenuAccelerator(AppMenuSettings)},
+		{Separator: true},
+		{Label: quitTitle, Action: AppMenuQuit, Accelerator: appMenuAccelerator(AppMenuQuit)},
+	}
 }

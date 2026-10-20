@@ -10,14 +10,12 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// Service is the Wails RPC service exposed to the frontend.
+// Service is the RPC surface exposed to the frontend.
 type Service struct {
-	mgr *LibraryManager
-	app *application.App
+	mgr  *LibraryManager
+	host Host
 
 	// settingsMu guards settings-window creation so rapid calls cannot spawn
 	// duplicate windows.
@@ -32,19 +30,30 @@ func NewService(mgr *LibraryManager) *Service {
 
 func (s *Service) SetManager(mgr *LibraryManager) {
 	s.mgr = mgr
+	if mgr != nil && s.host == nil {
+		s.host = mgr.Host()
+	}
 }
 
-func (s *Service) getApp() *application.App {
-	if s.app != nil {
-		return s.app
+// getHost returns the desktop shell attached to the service.
+func (s *Service) getHost() Host {
+	if s.host != nil {
+		return s.host
 	}
 	if s.mgr != nil {
-		return s.mgr.GetApp()
+		return s.mgr.Host()
 	}
 	return nil
 }
 
-// Exported Wails Service RPC methods
+// emit forwards an event to the host when one is attached.
+func (s *Service) emit(name string, payload any) {
+	if h := s.getHost(); h != nil {
+		h.Emit(name, payload)
+	}
+}
+
+// Exported RPC methods
 
 func (s *Service) GetActiveLibrary() (*LibraryInfo, error) {
 	if s.mgr == nil {
@@ -61,9 +70,7 @@ func (s *Service) CreateLibrary(parentDir string, libName string) (*LibraryInfo,
 	if err != nil {
 		return nil, WrapAppError(ErrCodeCreateLibDirFailed, err)
 	}
-	if app := s.getApp(); app != nil {
-		app.Event.Emit(LibraryOpenedEvent, info)
-	}
+	s.emit(LibraryOpenedEvent, info)
 	_ = s.CloseSetupWindow()
 	return info, nil
 }
@@ -76,9 +83,7 @@ func (s *Service) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	if err != nil {
 		return nil, WrapAppError(ErrCodeInvalidLibDir, err)
 	}
-	if app := s.getApp(); app != nil {
-		app.Event.Emit(LibraryOpenedEvent, info)
-	}
+	s.emit(LibraryOpenedEvent, info)
 	_ = s.CloseSetupWindow()
 	return info, nil
 }
@@ -91,9 +96,7 @@ func (s *Service) CloseLibrary() error {
 	if err != nil {
 		return WrapAppError(ErrCodeCloseLibraryFailed, err)
 	}
-	if app := s.getApp(); app != nil {
-		app.Event.Emit(LibraryClosedEvent, "")
-	}
+	s.emit(LibraryClosedEvent, "")
 	return nil
 }
 
@@ -115,25 +118,20 @@ func (s *Service) ImportFiles(sourcePaths []string) ([]Item, error) {
 	if s.mgr == nil {
 		return nil, ErrCoreNotInitialized
 	}
-	app := s.getApp()
-	if app != nil && len(sourcePaths) > 0 {
-		app.Event.Emit("import-started", map[string]any{"total": len(sourcePaths)})
+	if len(sourcePaths) > 0 {
+		s.emit("import-started", map[string]any{"total": len(sourcePaths)})
 	}
 	items, err := s.mgr.ImportFilesWithProgress(sourcePaths, func(current, total int, filename string) {
-		if app != nil {
-			app.Event.Emit("import-progress", map[string]any{
-				"current":  current,
-				"total":    total,
-				"filename": filename,
-			})
-		}
+		s.emit("import-progress", map[string]any{
+			"current":  current,
+			"total":    total,
+			"filename": filename,
+		})
 	})
-	if app != nil {
-		if err != nil {
-			app.Event.Emit("import-error", err.Error())
-		} else {
-			app.Event.Emit("import-completed", map[string]any{"count": len(items), "items": items})
-		}
+	if err != nil {
+		s.emit("import-error", err.Error())
+	} else {
+		s.emit("import-completed", map[string]any{"count": len(items), "items": items})
 	}
 	return items, err
 }
@@ -220,29 +218,19 @@ func (s *Service) GetAPIServerPort() int {
 }
 
 func (s *Service) SelectDirectory() (string, error) {
-	app := s.getApp()
-	if app == nil {
+	host := s.getHost()
+	if host == nil {
 		return "", ErrAppNotInitialized
 	}
-	dialog := app.Dialog.OpenFile().
-		CanChooseDirectories(true).
-		CanChooseFiles(false).
-		CanCreateDirectories(true).
-		SetTitle("Choose a directory for the Library")
-	return dialog.PromptForSingleSelection()
+	return host.OpenDirectory("Choose a directory for the Library")
 }
 
 func (s *Service) SelectLibraryDialog() (string, error) {
-	app := s.getApp()
-	if app == nil {
+	host := s.getHost()
+	if host == nil {
 		return "", ErrAppNotInitialized
 	}
-	dialog := app.Dialog.OpenFile().
-		CanChooseDirectories(true).
-		CanChooseFiles(false).
-		CanCreateDirectories(false).
-		SetTitle("Choose an existing .library folder")
-	return dialog.PromptForSingleSelection()
+	return host.OpenDirectory("Choose an existing .library folder")
 }
 
 func (s *Service) GetRecentLibraries() []string {
@@ -368,25 +356,18 @@ func (s *Service) ImportFolderRecursively(dirPath string, parentFolderID string)
 	if s.mgr == nil {
 		return nil, ErrCoreNotInitialized
 	}
-	app := s.getApp()
-	if app != nil {
-		app.Event.Emit("import-started", map[string]any{"total": 1})
-	}
+	s.emit("import-started", map[string]any{"total": 1})
 	folder, err := s.mgr.ImportFolderRecursivelyWithProgress(dirPath, parentFolderID, func(current, total int, filename string) {
-		if app != nil {
-			app.Event.Emit("import-progress", map[string]any{
-				"current":  current,
-				"total":    total,
-				"filename": filename,
-			})
-		}
+		s.emit("import-progress", map[string]any{
+			"current":  current,
+			"total":    total,
+			"filename": filename,
+		})
 	})
-	if app != nil {
-		if err != nil {
-			app.Event.Emit("import-error", err.Error())
-		} else {
-			app.Event.Emit("import-completed", map[string]any{"count": 1})
-		}
+	if err != nil {
+		s.emit("import-error", err.Error())
+	} else {
+		s.emit("import-completed", map[string]any{"count": 1})
 	}
 	return folder, err
 }
@@ -395,25 +376,20 @@ func (s *Service) ImportFoldersRecursively(dirPaths []string, parentFolderID str
 	if s.mgr == nil {
 		return []Folder{}, ErrCoreNotInitialized
 	}
-	app := s.getApp()
-	if app != nil && len(dirPaths) > 0 {
-		app.Event.Emit("import-started", map[string]any{"total": len(dirPaths)})
+	if len(dirPaths) > 0 {
+		s.emit("import-started", map[string]any{"total": len(dirPaths)})
 	}
 	folders, err := s.mgr.ImportFoldersRecursivelyWithProgress(dirPaths, parentFolderID, func(current, total int, filename string) {
-		if app != nil {
-			app.Event.Emit("import-progress", map[string]any{
-				"current":  current,
-				"total":    total,
-				"filename": filename,
-			})
-		}
+		s.emit("import-progress", map[string]any{
+			"current":  current,
+			"total":    total,
+			"filename": filename,
+		})
 	})
-	if app != nil {
-		if err != nil {
-			app.Event.Emit("import-error", err.Error())
-		} else {
-			app.Event.Emit("import-completed", map[string]any{"count": len(folders)})
-		}
+	if err != nil {
+		s.emit("import-error", err.Error())
+	} else {
+		s.emit("import-completed", map[string]any{"count": len(folders)})
 	}
 	return folders, err
 }
@@ -564,6 +540,7 @@ func (s *Service) SetPluginEnabled(id string, enabled bool) error {
 	}
 	return s.mgr.GetPluginManager().SetPluginEnabled(id, enabled)
 }
+
 // CheckPluginUpdates groups installed plugins by marketplace origin, queries in batch, and returns available updates.
 func (s *Service) CheckPluginUpdates() ([]PluginUpdateInfo, error) {
 	if s.mgr == nil || s.mgr.GetPluginManager() == nil {
@@ -664,9 +641,7 @@ func (s *Service) SetNetworkSettings(settings NetworkSettings) error {
 
 	RecordLog("info", "network", fmt.Sprintf("Network settings updated: mode=%s, customProxy=%s", settings.ProxyMode, settings.CustomProxy), "", 0)
 
-	if app := s.getApp(); app != nil {
-		app.Event.Emit(NetworkSettingsChangedEvent, settings)
-	}
+	s.emit(NetworkSettingsChangedEvent, settings)
 	return nil
 }
 

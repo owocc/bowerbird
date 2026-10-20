@@ -655,15 +655,13 @@ func (s *AssetServer) handleAPIPluginInstall(w http.ResponseWriter, r *http.Requ
 				Name:        req.Name,
 			})
 		}
-		if app := s.manager.GetApp(); app != nil {
-			_ = OpenSettingsWindowWithApp(app)
-			app.Event.Emit("plugin:install-requested", map[string]any{
-				"manifestUrl": req.ManifestURL,
-				"id":          req.ID,
-				"version":     req.Version,
-				"name":        req.Name,
-			})
-		}
+		_ = OpenSettingsWindowWithHost(s.manager.Host())
+		s.manager.emit("plugin:install-requested", map[string]any{
+			"manifestUrl": req.ManifestURL,
+			"id":          req.ID,
+			"version":     req.Version,
+			"name":        req.Name,
+		})
 	}
 
 	// Auto-installation is strictly disallowed; always respond with requested: true
@@ -918,9 +916,7 @@ func (s *AssetServer) handleAPINetworkSettings(w http.ResponseWriter, r *http.Re
 
 		RecordLog("info", "network", fmt.Sprintf("Network settings updated via API: mode=%s, customProxy=%s", settings.ProxyMode, settings.CustomProxy), "", 0)
 
-		if app := s.manager.GetApp(); app != nil {
-			app.Event.Emit(NetworkSettingsChangedEvent, settings)
-		}
+		s.manager.emit(NetworkSettingsChangedEvent, settings)
 		writeSuccess(w, settings)
 
 	default:

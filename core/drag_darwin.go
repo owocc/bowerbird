@@ -415,8 +415,6 @@ import (
 	"errors"
 	"fmt"
 	"unsafe"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func init() {
@@ -448,13 +446,12 @@ func (m *LibraryManager) StartDrag(id string) error {
 		return errors.New("item not found")
 	}
 
-	window := m.getWindow()
-	if window == nil {
-		return errors.New("no window available")
+	host := m.Host()
+	if host == nil {
+		return errors.New("no desktop host available")
 	}
-
-	windowPtr := window.NativeWindow()
-	if windowPtr == nil {
+	handle := host.NativeWindowHandle()
+	if handle == 0 {
 		return errors.New("native window is nil")
 	}
 
@@ -462,10 +459,10 @@ func (m *LibraryManager) StartDrag(id string) error {
 	LogDragTrace("start-drag", fmt.Sprintf("id=%s platform=darwin path=%s", id, filePath))
 
 	var success bool
-	application.InvokeSync(func() {
+	host.RunOnMain(func() {
 		cPath := C.CString(filePath)
 		defer C.free(unsafe.Pointer(cPath))
-		success = bool(C.doNativeFileDrag(windowPtr, cPath))
+		success = bool(C.doNativeFileDrag(unsafe.Pointer(handle), cPath))
 	})
 
 	if !success {
@@ -491,6 +488,12 @@ func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
 	}
 	if len(paths) == 0 {
 		return errors.New("no valid files to copy")
+	}
+
+	// mygo's pure-Go clipboard writes native file lists on every platform; the
+	// cgo pasteboard below remains as the legacy fallback.
+	if host := m.Host(); host != nil {
+		return host.WriteFilesToClipboard(paths)
 	}
 
 	cPaths := make([]*C.char, len(paths))

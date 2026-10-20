@@ -1,4 +1,4 @@
-import { Clipboard } from "@wailsio/runtime";
+import { Clipboard } from "@/lib/host-runtime";
 
 /**
  * Writes plain text to the native OS clipboard via the Wails runtime, falling

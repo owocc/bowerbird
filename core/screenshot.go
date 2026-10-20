@@ -171,9 +171,7 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	}
 	active := s.mgr.GetActiveLibrary()
 	if active == nil {
-		if app := s.getApp(); app != nil {
-			app.Event.Emit("capture-error", "未打开任何资源库，请先打开或创建资源库")
-		}
+		s.emit("capture-error", "未打开任何资源库，请先打开或创建资源库")
 		return nil, ErrNoActiveLibrary
 	}
 
@@ -194,8 +192,8 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	defer func() {
 		_ = os.Remove(rawTmpPath)
 		if s.mgr != nil {
-			if w := s.mgr.getWindow(); w != nil {
-				w.Focus()
+			if h := s.mgr.Host(); h != nil {
+				h.FocusMainWindow()
 			}
 		}
 	}()
@@ -211,9 +209,7 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 		}
 		log.Printf("[Capture] %s screenshot failed: %v", m, err)
 		RecordLog("error", "core", "[Pipeline] Screenshot OS command failed", fmt.Sprintf("mode=%s err=%v", m, err), time.Since(tExecStart).Milliseconds())
-		if app := s.getApp(); app != nil {
-			app.Event.Emit("capture-error", fmt.Sprintf("截图失败: %v", err))
-		}
+		s.emit("capture-error", fmt.Sprintf("截图失败: %v", err))
 		return nil, err
 	}
 	osCaptureMs := time.Since(tExecStart).Milliseconds()
@@ -224,8 +220,8 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 		return nil, nil
 	}
 	if s.mgr != nil {
-		if w := s.mgr.getWindow(); w != nil {
-			w.Focus()
+		if h := s.mgr.Host(); h != nil {
+			h.FocusMainWindow()
 		}
 	}
 	RecordLog("perf", "core", "[Pipeline 2/6] Screenshot saved to temp disk by OS", fmt.Sprintf("mode=%s size=%dB path=%s", m, fi.Size(), rawTmpPath), osCaptureMs)
@@ -258,9 +254,7 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	if err != nil {
 		log.Printf("[Capture] import screenshot failed: %v", err)
 		RecordLog("error", "core", "[Pipeline] Screenshot library import failed", fmt.Sprintf("err=%v", err), importMs)
-		if app := s.getApp(); app != nil {
-			app.Event.Emit("capture-error", fmt.Sprintf("导入截图失败: %v", err))
-		}
+		s.emit("capture-error", fmt.Sprintf("导入截图失败: %v", err))
 		return nil, err
 	}
 
@@ -269,15 +263,13 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	}
 
 	tEmitStart := time.Now()
-	if app := s.getApp(); app != nil {
-		app.Event.Emit("import-completed", map[string]any{
-			"count":    1,
-			"ids":      []string{item.ID},
-			"items":    []Item{*item},
-			"emitTsMs": time.Now().UnixMilli(),
-		})
-		app.Event.Emit("capture-completed", item)
-	}
+	s.emit("import-completed", map[string]any{
+		"count":    1,
+		"ids":      []string{item.ID},
+		"items":    []Item{*item},
+		"emitTsMs": time.Now().UnixMilli(),
+	})
+	s.emit("capture-completed", item)
 	emitMs := time.Since(tEmitStart).Milliseconds()
 	tagMs := int64(0)
 

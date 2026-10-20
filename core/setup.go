@@ -3,8 +3,6 @@ package core
 import (
 	"errors"
 	"sync"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // setupWindowName is the stable identifier of the single library setup window.
@@ -21,49 +19,36 @@ var setupWindowMu sync.Mutex
 // OpenSetupWindow opens the library setup UI in its own window. Only a single
 // instance is created; later calls simply reveal and focus the existing one.
 func (s *Service) OpenSetupWindow() error {
-	app := s.getApp()
-	if app == nil {
+	host := s.getHost()
+	if host == nil {
 		return errors.New("application not initialized")
 	}
 
 	setupWindowMu.Lock()
 	defer setupWindowMu.Unlock()
 
-	if existing, ok := app.Window.GetByName(setupWindowName); ok {
-		existing.Show()
-		existing.Focus()
-		return nil
-	}
-
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             setupWindowName,
-		Title:            "Set up your library",
-		URL:              "/#/setup",
-		Width:            680,
-		Height:           620,
-		MinWidth:         560,
-		MinHeight:        520,
-		BackgroundColour: application.NewRGB(6, 7, 15),
-		Mac: application.MacWindow{
-			Backdrop: application.MacBackdropTranslucent,
-			TitleBar: application.MacTitleBarHiddenInset,
-		},
+	return host.OpenWindow(WindowSpec{
+		Name:           setupWindowName,
+		Title:          "Set up your library",
+		URL:            "/#/setup",
+		Width:          680,
+		Height:         620,
+		MinWidth:       560,
+		MinHeight:      520,
+		TitleBarHidden: true,
 	})
-	return nil
 }
 
 // CloseSetupWindow destroys or closes the library setup window if currently open.
 func (s *Service) CloseSetupWindow() error {
-	app := s.getApp()
-	if app == nil {
+	host := s.getHost()
+	if host == nil {
 		return nil
 	}
 
 	setupWindowMu.Lock()
 	defer setupWindowMu.Unlock()
 
-	if existing, ok := app.Window.GetByName(setupWindowName); ok {
-		existing.Close()
-	}
+	host.CloseWindow(setupWindowName)
 	return nil
 }

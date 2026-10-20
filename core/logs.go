@@ -12,8 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 const (
@@ -29,8 +27,8 @@ const (
 type LogEntry struct {
 	ID         int64  `json:"id"`
 	Timestamp  string `json:"timestamp"`
-	Level      string `json:"level"`      // "info" | "warn" | "error" | "perf"
-	Category   string `json:"category"`   // "core" | "perf" | "ui" | "drag" | "asset" | "menu"
+	Level      string `json:"level"`    // "info" | "warn" | "error" | "perf"
+	Category   string `json:"category"` // "core" | "perf" | "ui" | "drag" | "asset" | "menu"
 	Message    string `json:"message"`
 	Detail     string `json:"detail,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
@@ -41,13 +39,26 @@ var (
 	logSeq     int64
 	logEntries = make([]LogEntry, 0, 256)
 	logInitDir string
-	logAppRef  atomic.Pointer[application.App]
+
+	logHostMu sync.RWMutex
+	logHost   Host
 )
 
-// SetLogApp wires the Wails application instance so new logs can be broadcast
-// live to the Logs window.
-func SetLogApp(app *application.App) {
-	logAppRef.Store(app)
+// SetLogHost wires the desktop shell so new logs can be broadcast live to the
+// Logs window.
+func SetLogHost(host Host) {
+	logHostMu.Lock()
+	logHost = host
+	logHostMu.Unlock()
+}
+
+func emitLogEvent(name string, payload any) {
+	logHostMu.RLock()
+	host := logHost
+	logHostMu.RUnlock()
+	if host != nil {
+		host.Emit(name, payload)
+	}
 }
 
 // AppLogFilePath returns the absolute path of the persistent app.log file.
@@ -148,9 +159,7 @@ func RecordLog(level, category, message, detail string, durationMs int64) LogEnt
 	writeAppLogLineLocked(formatted)
 	logMu.Unlock()
 
-	if app := logAppRef.Load(); app != nil {
-		app.Event.Emit(LogEntryEvent, entry)
-	}
+	emitLogEvent(LogEntryEvent, entry)
 
 	return entry
 }
@@ -172,9 +181,7 @@ func ClearLogsBuffer() {
 	_ = os.Truncate(path, 0)
 	logMu.Unlock()
 
-	if app := logAppRef.Load(); app != nil {
-		app.Event.Emit(LogsClearedEvent, "")
-	}
+	emitLogEvent(LogsClearedEvent, "")
 }
 
 // -----------------------------------------------------------------------------
@@ -223,33 +230,22 @@ func (s *Service) RevealLogFile() error {
 // OpenLogsWindow opens the diagnostic Logs UI in its own window. Only a single
 // instance is created; later calls simply reveal and focus the existing one.
 func (s *Service) OpenLogsWindow() error {
-	app := s.getApp()
-	if app == nil {
+	host := s.getHost()
+	if host == nil {
 		return errors.New("application not initialized")
 	}
 
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 
-	if existing, ok := app.Window.GetByName(logsWindowName); ok {
-		existing.Show()
-		existing.Focus()
-		return nil
-	}
-
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:             logsWindowName,
-		Title:            "Logs",
-		URL:              "/#/logs",
-		Width:            920,
-		Height:           640,
-		MinWidth:         680,
-		MinHeight:        440,
-		BackgroundColour: application.NewRGB(6, 7, 15),
-		Mac: application.MacWindow{
-			Backdrop: application.MacBackdropTranslucent,
-			TitleBar: application.MacTitleBarHiddenInset,
-		},
+	return host.OpenWindow(WindowSpec{
+		Name:           logsWindowName,
+		Title:          "Logs",
+		URL:            "/#/logs",
+		Width:          920,
+		Height:         640,
+		MinWidth:       680,
+		MinHeight:      440,
+		TitleBarHidden: true,
 	})
-	return nil
 }

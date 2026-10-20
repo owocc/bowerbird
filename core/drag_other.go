@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"strings"
 )
 
 // Cross-platform Native File Drag & Drop Architecture Reference:
@@ -60,8 +59,8 @@ func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
 	if len(paths) == 0 {
 		return errors.New("no valid files to copy")
 	}
-	if app := m.GetApp(); app != nil && app.Clipboard != nil {
-		app.Clipboard.SetText(strings.Join(paths, "\n"))
+	if host := m.Host(); host != nil {
+		return host.WriteFilesToClipboard(paths)
 	}
 	return nil
 }

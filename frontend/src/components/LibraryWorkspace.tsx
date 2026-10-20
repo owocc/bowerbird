@@ -105,6 +105,7 @@ import { HistoryNavButtons } from "@/components/HistoryNavButtons";
 import { getFileCategory } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { setInternalDragActive } from "@/lib/drag-state";
+import { isDesktopHost } from "@/lib/host-runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   useWorkspaceSearch,
@@ -1780,10 +1781,7 @@ export function LibraryWorkspace({
     e.preventDefault();
     e.stopPropagation();
 
-    const hostWin = window as Window & {
-      _wails?: { flags?: { enableFileDrop?: boolean } };
-    };
-    if (hostWin._wails?.flags?.enableFileDrop === true) {
+    if (isDesktopHost()) {
       return;
     }
     const folderPaths: string[] = [];
@@ -2484,11 +2482,8 @@ export function LibraryWorkspace({
                                       return;
                                     }
 
-                                    // 2. External files/folders dropped in browser or non-Wails host
-                                    const hostWin = window as Window & {
-                                      _wails?: { flags?: { enableFileDrop?: boolean } };
-                                    };
-                                    if (hostWin._wails?.flags?.enableFileDrop === true) {
+                                    // 2. External files/folders dropped in a plain browser
+                                    if (isDesktopHost()) {
                                       return;
                                     }
                                     if (

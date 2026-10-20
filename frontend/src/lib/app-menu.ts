@@ -1,4 +1,4 @@
-import { Window } from "@wailsio/runtime";
+import { Window } from "@/lib/host-runtime";
 import { GetAppMenu, InvokeAppMenu } from "../../bindings/bowerbird/core/service";
 import type { AppMenuItem } from "../../bindings/bowerbird/core/models";
 

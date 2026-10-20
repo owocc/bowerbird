@@ -1,7 +1,7 @@
 import * as React from "react";
 import * as ReactDOM from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import * as PluginSdk from "@bowerbird/plugin-sdk";
 import type { PluginManifest } from "@bowerbird/plugin-sdk";
 import type { PreviewPlugin } from "./types";

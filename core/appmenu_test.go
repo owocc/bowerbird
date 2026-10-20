@@ -109,20 +109,39 @@ func TestInvokeAppMenuRejectsWindowScopedAction(t *testing.T) {
 	}
 }
 
-func TestBuildTrayMenu(t *testing.T) {
-	var invokedAction string
-	menu := core.BuildTrayMenu("Bowerbird", true, func(action string) {
-		invokedAction = action
-	})
-	if menu == nil {
-		t.Fatal("expected non-nil tray menu")
+func TestTrayMenuModel(t *testing.T) {
+	menu := core.TrayMenuModel("Bowerbird", true)
+	if len(menu) == 0 {
+		t.Fatal("expected non-empty tray menu")
+	}
+	seen := map[string]bool{}
+	for _, item := range menu {
+		if item.Separator {
+			continue
+		}
+		seen[item.Action] = true
+	}
+	for _, action := range []string{
+		core.AppMenuCaptureArea,
+		core.AppMenuCaptureWindow,
+		core.AppMenuCaptureFullscreen,
+		core.AppMenuOpenMainWindow,
+		core.AppMenuSettings,
+		core.AppMenuQuit,
+	} {
+		if !seen[action] {
+			t.Errorf("tray menu is missing %q", action)
+		}
 	}
 
-	menuEn := core.BuildTrayMenu("Bowerbird", false, func(action string) {
-		invokedAction = action
-	})
-	if menuEn == nil {
-		t.Fatal("expected non-nil English tray menu")
+	menuEn := core.TrayMenuModel("Bowerbird", false)
+	if len(menuEn) != len(menu) {
+		t.Fatalf("English tray menu has %d rows, Chinese has %d", len(menuEn), len(menu))
 	}
-	_ = invokedAction
+	if menuEn[0].Label != "Area Capture" {
+		t.Errorf("English first row = %q, want Area Capture", menuEn[0].Label)
+	}
+	if menu[0].Label != "区域截图" {
+		t.Errorf("Chinese first row = %q, want 区域截图", menu[0].Label)
+	}
 }

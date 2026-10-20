@@ -1,0 +1,14 @@
+{
+  "name": "Bowerbird",
+  "identifier": "io.github.owocc.bowerbird",
+  "version": "1.0.0-alpha-1",
+  "copyright": "© 2026, owocc",
+  "devUrl": "http://127.0.0.1:9245",
+  "devCommand": "pnpm --filter bowerbird dev",
+  "buildCommand": "pnpm --filter bowerbird build",
+  "frontendDist": "frontend/dist",
+  "bindings": "frontend/src/mygo.ts",
+  "out": "build/mygo",
+  "urlSchemes": ["bowerbird"],
+  "icon": "assets/branding/app-icon.png"
+}

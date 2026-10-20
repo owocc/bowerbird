@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Events } from "@wailsio/runtime";
+import { Events, isDesktopHost } from "@/lib/host-runtime";
 import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { isInternalDragActive } from "../lib/drag-state";
@@ -9,13 +9,8 @@ import { logDiagnostic } from "@/lib/logger";
 import { useTranslation } from "react-i18next";
 export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "error";
 
-interface WailsFlagWindow extends Window {
-  _wails?: { flags?: { enableFileDrop?: boolean } };
-}
-
 function hostReceivesFileDrops(): boolean {
-  const host = window as WailsFlagWindow;
-  return host._wails?.flags?.enableFileDrop === true;
+  return isDesktopHost();
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { Events } from "@wailsio/runtime";
+import { Events } from "@/lib/host-runtime";
 import {
   Terminal,
   Search,

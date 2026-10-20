@@ -31,8 +31,6 @@ import (
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 	_ "modernc.org/sqlite"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // FavoriteTagName is the built-in "Favorites" tag.
@@ -45,13 +43,12 @@ const FavoriteTagName = "收藏"
 
 // LibraryManager coordinates library lifecycle, storage, SQLite indexing, and user data.
 type LibraryManager struct {
-	mu          sync.RWMutex
-	app         *application.App
-	window      application.Window
-	activeLib   *LibraryInfo
-	db          *sql.DB
-	userData    *UserDataStore
-	pluginMgr   *PluginManager
+	mu           sync.RWMutex
+	host         Host
+	activeLib    *LibraryInfo
+	db           *sql.DB
+	userData     *UserDataStore
+	pluginMgr    *PluginManager
 	assetServer  *AssetServer
 	mobileServer *MobileServer
 	// High-speed in-memory index for sub-millisecond queries and searches
@@ -114,10 +111,27 @@ func NewLibraryManager() *LibraryManager {
 	return mgr
 }
 
-func (m *LibraryManager) SetApp(app *application.App) {
-	m.app = app
+// SetHost wires the desktop shell into the manager and its plugin manager.
+func (m *LibraryManager) SetHost(h Host) {
+	m.mu.Lock()
+	m.host = h
+	m.mu.Unlock()
 	if m.pluginMgr != nil {
-		m.pluginMgr.SetApp(app)
+		m.pluginMgr.SetHost(h)
+	}
+}
+
+// Host returns the desktop shell, if one was attached.
+func (m *LibraryManager) Host() Host {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.host
+}
+
+// emit forwards an event to the host when one is attached.
+func (m *LibraryManager) emit(name string, payload any) {
+	if h := m.Host(); h != nil {
+		h.Emit(name, payload)
 	}
 }
 
@@ -148,28 +162,6 @@ func (m *LibraryManager) SetNetworkSettings(settings NetworkSettings) error {
 
 func (m *LibraryManager) GetPluginManager() *PluginManager {
 	return m.pluginMgr
-}
-
-func (m *LibraryManager) GetWindow() application.Window {
-	return m.getWindow()
-}
-
-func (m *LibraryManager) GetApp() *application.App {
-	return m.app
-}
-
-func (m *LibraryManager) SetWindow(w application.Window) {
-	m.window = w
-}
-
-func (m *LibraryManager) getWindow() application.Window {
-	if m.window != nil {
-		return m.window
-	}
-	if m.app != nil {
-		return m.app.Window.Current()
-	}
-	return nil
 }
 
 // GetUserDataStore returns the user data store instance.
@@ -1265,8 +1257,8 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 
 	// Only emit mid-stream incremental batch updates when importing multiple batches (>1 item);
 	// single-file imports and final completion already emit import-completed with the full items slice.
-	if m.app != nil && len(batchItems) > 1 {
-		m.app.Event.Emit("library-items-upserted", batchItems)
+	if len(batchItems) > 1 {
+		m.emit("library-items-upserted", batchItems)
 	}
 	if len(batchItems) > 0 {
 		m.notifyItemsUpdated()
@@ -1668,9 +1660,7 @@ func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data
 			_, _ = m.UpdateItemDetails(existing.ID, note, rawURL, rating, prompt)
 		}
 		if updatedItem, gErr := m.GetItem(existing.ID); gErr == nil && updatedItem != nil {
-			if m.app != nil {
-				m.app.Event.Emit("library-items-upserted", []Item{*updatedItem})
-			}
+			m.emit("library-items-upserted", []Item{*updatedItem})
 			return updatedItem, nil
 		}
 		return m.GetItem(existing.ID)
@@ -1846,10 +1836,8 @@ func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data
 	}
 
 	m.upsertItemsInCache([]Item{item}, "")
-	if m.app != nil {
-		m.app.Event.Emit("library-items-upserted", []Item{item})
-		m.app.Event.Emit("library-item-imported", item)
-	}
+	m.emit("library-items-upserted", []Item{item})
+	m.emit("library-item-imported", item)
 	return &item, nil
 }
 
@@ -2126,9 +2114,7 @@ func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, vid
 	m.populateItemPaths(item, active.Path, port)
 	m.upsertItemsInCache([]Item{*item}, "")
 
-	if m.app != nil {
-		m.app.Event.Emit("library-items-upserted", []Item{*item})
-	}
+	m.emit("library-items-upserted", []Item{*item})
 
 	m.notifyItemsUpdated()
 	return item, nil
@@ -2300,8 +2286,8 @@ func (m *LibraryManager) backfillImageMetadata(libPath string) {
 		_ = tx.Commit()
 	}
 
-	if len(updatedItems) > 0 && m.app != nil {
-		m.app.Event.Emit("library-items-upserted", updatedItems)
+	if len(updatedItems) > 0 {
+		m.emit("library-items-upserted", updatedItems)
 	}
 }
 
