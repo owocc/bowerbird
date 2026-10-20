@@ -10,7 +10,9 @@ import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import 'connect_screen.dart';
+import '../services/inbox_service.dart';
 import 'detail_screen.dart';
+import 'inbox_screen.dart';
 import 'search_screen.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,6 +38,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? _wsItemsSub;
   StreamSubscription? _wsRevokedSub;
   bool _pendingRefresh = false;
+  int _inboxCount = InboxService.instance.count;
+
+  void _onInboxChanged() {
+    if (!mounted) return;
+    setState(() => _inboxCount = InboxService.instance.count);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scrollController.addListener(_onScroll);
     _initWebSocket();
     WidgetsBinding.instance.addObserver(this);
+    InboxService.instance.addListener(_onInboxChanged);
   }
 
   @override
@@ -100,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _wsLibSub?.cancel();
     _wsItemsSub?.cancel();
     _wsRevokedSub?.cancel();
+    InboxService.instance.removeListener(_onInboxChanged);
     _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -580,6 +591,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         actions: [
+          Badge.count(
+            count: _inboxCount,
+            isLabelVisible: _inboxCount > 0,
+            child: IconButton(
+              icon: const Icon(Icons.inbox_outlined),
+              tooltip: '收件箱',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const InboxScreen()),
+                );
+              },
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             tooltip: 'Search & Filter',
