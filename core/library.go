@@ -2130,6 +2130,7 @@ func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, vid
 		m.app.Event.Emit("library-items-upserted", []Item{*item})
 	}
 
+	m.notifyItemsUpdated()
 	return item, nil
 }
 
@@ -2750,6 +2751,7 @@ func (m *LibraryManager) DeleteFolder(id string) error {
 		}
 	}
 	m.cacheMu.Unlock()
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -2775,6 +2777,7 @@ func (m *LibraryManager) AddItemToFolder(itemID string, folderID string) error {
 			}
 			it.Folders = append(append([]string{}, it.Folders...), folderID)
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -2800,6 +2803,7 @@ func (m *LibraryManager) RemoveItemFromFolder(itemID string, folderID string) er
 			}
 			it.Folders = next
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -2847,6 +2851,7 @@ func (m *LibraryManager) SetItemFolders(itemID string, folderIDs []string) error
 		m.mutateCachedItem(itemID, func(it *Item) {
 			it.Folders = cleanFolders
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -2919,6 +2924,7 @@ func (m *LibraryManager) MoveToTrash(id string) error {
 		it.Folders = currentFolders
 	})
 	RecordLog("perf", "core", "Backend MoveToTrash executed", fmt.Sprintf("id=%s", id), time.Since(tMoveStart).Milliseconds())
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3061,6 +3067,7 @@ func (m *LibraryManager) BatchMoveToTrash(ids []string) error {
 	}()
 
 	RecordLog("perf", "core", "Backend BatchMoveToTrash executed", fmt.Sprintf("count=%d", len(ids)), time.Since(tBatchStart).Milliseconds())
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3124,6 +3131,7 @@ func (m *LibraryManager) RestoreFromTrash(id string) error {
 			it.Folders = restoredFolders
 		}
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3202,6 +3210,7 @@ func (m *LibraryManager) EmptyTrash() error {
 		}()
 	}
 
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3340,6 +3349,7 @@ func (m *LibraryManager) MoveItemToFolder(itemID string, fromFolderID string, to
 			}
 			it.Folders = next
 		})
+		m.notifyItemsUpdated()
 	}
 	return err
 }
@@ -3661,6 +3671,7 @@ func (m *LibraryManager) DeleteTag(name string) error {
 		}
 	}
 	m.invalidateCache()
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3728,6 +3739,7 @@ func (m *LibraryManager) AddTagToItem(itemID string, tag string) error {
 		it.Tags = existingTags
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3789,6 +3801,7 @@ func (m *LibraryManager) RemoveTagFromItem(itemID string, tag string) error {
 		}
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3843,6 +3856,7 @@ func (m *LibraryManager) SetItemTags(itemID string, tags []string) error {
 		it.Tags = cleanTags
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return nil
 }
 
@@ -3945,6 +3959,7 @@ func (m *LibraryManager) RenameItem(id string, newName string) (*Item, error) {
 		it.UpdatedAt = now
 		m.populateItemPaths(it, active.Path, port)
 	})
+	m.notifyItemsUpdated()
 	return item, nil
 }
 
@@ -4008,6 +4023,7 @@ func (m *LibraryManager) UpdateItemDetails(id string, note string, rawURL string
 		it.Prompt = prompt
 		it.UpdatedAt = now
 	})
+	m.notifyItemsUpdated()
 	return item, nil
 }
 

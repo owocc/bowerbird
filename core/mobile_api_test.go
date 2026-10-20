@@ -525,3 +525,117 @@ func TestMobileAPIEndpoints(t *testing.T) {
 		t.Errorf("expected allowedNetworks [en0], got %v", updatedStatus.AllowedNetworks)
 	}
 }
+
+func TestMobileWebSocketItemsUpdatedCoverage(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "mobile_ws_cov_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", filepath.Join(tempDir, "userdata"))
+
+	mgr := NewLibraryManager()
+	defer func() {
+		if mgr.assetServer != nil {
+			_ = mgr.assetServer.Stop()
+		}
+		if mgr.mobileServer != nil {
+			_ = mgr.mobileServer.Stop()
+		}
+	}()
+
+	info, err := mgr.CreateLibrary(tempDir, "WSCovLib")
+	if err != nil || info == nil {
+		t.Fatalf("failed to create library: %v", err)
+	}
+
+	mobileSrv := mgr.GetMobileServer()
+	if mobileSrv == nil {
+		t.Fatal("expected non-nil mobile server")
+	}
+
+	port := mobileSrv.GetPort()
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+
+	// Pair to obtain valid token
+	pairPayload, _ := json.Marshal(map[string]string{
+		"code":       mobileSrv.GetPairingCode(),
+		"deviceName": "WSTester",
+	})
+	resp, err := http.Post(baseURL+"/api/v1/pair", "application/json", bytes.NewReader(pairPayload))
+	if err != nil {
+		t.Fatalf("pair request failed: %v", err)
+	}
+	var pairResp APIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&pairResp); err != nil {
+		t.Fatalf("failed to decode pair response: %v", err)
+	}
+	resp.Body.Close()
+	pairData, ok := pairResp.Data.(map[string]any)
+	if !ok || pairData["token"] == nil {
+		t.Fatalf("expected token in response, got %v", pairResp.Data)
+	}
+	token := pairData["token"].(string)
+
+	// Connect websocket
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/api/v1/ws?token=%s", port, token)
+	wsConn, _, err := websocket.Dial(context.Background(), wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to connect ws: %v", err)
+	}
+	defer wsConn.Close(websocket.StatusNormalClosure, "done")
+
+	readNextItemsUpdated := func(actionName string) {
+		t.Helper()
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		for {
+			_, msg, rErr := wsConn.Read(ctx)
+			if rErr != nil {
+				t.Fatalf("[%s] failed to read ws event: %v", actionName, rErr)
+			}
+			var ev map[string]any
+			if err := json.Unmarshal(msg, &ev); err != nil {
+				t.Fatalf("[%s] failed to parse ws event: %v", actionName, err)
+			}
+			if ev["event"] == "items_updated" {
+				return
+			}
+			// Skip any other unexpected broadcast events (e.g. initial library events)
+		}
+	}
+
+	// 1. Create a test image item directly
+	testImgPath := filepath.Join(tempDir, "sample.png")
+	pngBytes, _ := hex.DecodeString("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360606060000000050001a7e48b520000000049454e44ae426082")
+	if err := os.WriteFile(testImgPath, pngBytes, 0644); err != nil {
+		t.Fatalf("failed to write test img: %v", err)
+	}
+
+	imported, err := mgr.ImportFiles([]string{testImgPath})
+	if err != nil || len(imported) == 0 {
+		t.Fatalf("failed to import test file: %v", err)
+	}
+	item := imported[0]
+	readNextItemsUpdated("ImportFiles")
+
+	// 2. Test UpdateItemDetails
+	_, err = mgr.UpdateItemDetails(item.ID, "updated note test", "https://example.com", 5, "updated prompt")
+	if err != nil {
+		t.Fatalf("UpdateItemDetails failed: %v", err)
+	}
+	readNextItemsUpdated("UpdateItemDetails")
+
+	// 3. Test MoveToTrash
+	if err := mgr.MoveToTrash(item.ID); err != nil {
+		t.Fatalf("MoveToTrash failed: %v", err)
+	}
+	readNextItemsUpdated("MoveToTrash")
+
+	// 4. Test RestoreFromTrash
+	if err := mgr.RestoreFromTrash(item.ID); err != nil {
+		t.Fatalf("RestoreFromTrash failed: %v", err)
+	}
+	readNextItemsUpdated("RestoreFromTrash")
+}
