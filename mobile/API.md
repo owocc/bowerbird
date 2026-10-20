@@ -356,6 +356,28 @@ Returns top aggregated dominant hex colors from active library items for color f
 
 ---
 
+### 4.10 Upload Media
+- **Method**: `POST`
+- **Path**: `/api/v1/upload`
+- **Auth**: Required (`Bearer <token>`)
+- **Body**: `multipart/form-data`; one or more parts named `file`.
+- **Limits**: Request body up to 500 MB. No chunked upload; the whole multipart request is sent as one stream.
+- **Response**: `200 OK`
+```json
+{
+  "status": "success",
+  "count": 2,
+  "items": [ ... ]
+}
+```
+  `count` is the number of newly imported items. Content already present in the library is de-duplicated by the desktop importer, so a successful request may return `count: 0`; the mobile client treats that as success and removes the local inbox copy.
+- **Errors**:
+  - `503 NO_ACTIVE_LIBRARY`: No library is open on the desktop.
+  - `400 NO_FILES`: No non-empty file part was provided.
+  - `500 IMPORT_FAILED`: The desktop importer rejected the batch.
+
+---
+
 ## 5. Error Representation & Status Codes
 
 All errors return a standard JSON envelope:
@@ -378,3 +400,39 @@ All errors return a standard JSON envelope:
 | `INVALID_ID` | 400 | Item ID parameter is empty or malformed. |
 | `METHOD_NOT_ALLOWED` | 405 | The requested HTTP verb is not supported for this route. |
 | `INTERNAL_ERROR` | 500 | Server encountered an unhandled error. |
+
+---
+
+## 6. Android 系统分享入口（收件箱）
+
+移动端把自身注册为 Android 系统分享目标，接收后先落入本地收件箱，再按连接状态决定是否立即上传。
+
+### 6.1 注册方式
+- Manifest 中的 `activity-alias` `.ShareTargetActivity` 指向 `MainActivity`，独立 label 为「保存到 Bowerbird」（不影响桌面图标名称）。
+- 接收 `ACTION_SEND` 与 `ACTION_SEND_MULTIPLE`，覆盖 `image/*`、`video/*`、`*/*`（含 `text/plain`）。
+- 文件 URI 在原生层立即复制到 app 私有暂存目录，不持有源应用 URI 的长期权限。
+
+### 6.2 原生桥接协议
+- Channel：`com.bowerbird.mobile/share`。
+- `consumePendingShares`（Dart → 原生）：返回 JSON 数组，原生随后删除已交付事件。每个事件：
+```json
+{
+  "eventId": "uuid",
+  "receivedAt": 1729000000000,
+  "items": [
+    {"kind": "file", "path": "/data/.../share_inbox/<eventId>/0_photo.jpg", "name": "photo.jpg", "mimeType": "image/jpeg", "size": 4219500},
+    {"kind": "text", "text": "https://example.com", "name": "分享文本"}
+  ],
+  "errors": [{"name": "broken.bin", "reason": "..."}]
+}
+```
+- `onShareAvailable`（原生 → Dart）：事件写入持久队列后通知 Dart 拉取；冷启动时 Dart 在首帧主动调用 `consumePendingShares`，因此两条路径不会漏事件。
+- 同一 `eventId` 只会被处理一次；原生对 15 秒内指纹相同的 intent 去重，避免 Activity 重建时重复入队。
+
+### 6.3 收件箱与上传约定
+- 持久目录：`<app documents>/share_inbox/`，`index.json` 记录条目与已处理事件；文件条目位于 `files/<entryId>/<原始文件名>`。
+- 已连接桌面端：新事件逐条调用 4.10 上传。成功的条目从收件箱删除；失败的条目保留并在结果对话框中给出原因。
+- 未连接或 token 失效：条目全部保留，首页收件箱图标显示角标；打开收件箱后提示先完成配对，不会静默丢弃分享。
+- 文本/URL：保存为文本条目并展示原文；上传时以 UTF-8 临时 `.txt` 文件调用 4.10，随后删除临时文件。本轮不抓取网页内容。
+- 上传成功后的本地时间线刷新复用桌面端 `items_updated` WebSocket 广播与首页既有刷新逻辑。
+- 收件箱支持逐条上传、全部上传、逐条删除；同名文件各自独立保存，最终由服务端内容哈希去重。
