@@ -1,6 +1,6 @@
 # Bowerbird — Local Asset & Design Library Manager
 
-Bowerbird is a cross-platform desktop digital asset manager built with **Wails v3 (Go)** and **React 19 + TypeScript + Tailwind CSS v4**. Every imported asset is stored in an isolated content-addressed directory (`items/<SHA-256>/`) indexed by SQLite and backed by per-item `metadata.json` manifests.
+Bowerbird is a cross-platform desktop digital asset manager built with **mygo (Go)** in webview mode and **React 19 + TypeScript + Tailwind CSS v4**. The desktop shell migrated from Wails v3 to [mygo](https://github.com/egoist/mygo) in `v1.0.0-alpha-4` (see `reports/mygo迁移实施报告.md`); an experimental native-rendering build lives in `cmd/bowerbird-native/`. Every imported asset is stored in an isolated content-addressed directory (`items/<SHA-256>/`) indexed by SQLite and backed by per-item `metadata.json` manifests.
 
 ---
 
@@ -28,13 +28,15 @@ Bowerbird is a cross-platform desktop digital asset manager built with **Wails v
 ## Project Structure
 
 ```text
-├── main.go                           # Wails v3 application entry & native OS file drop routing
+├── main_mygo.go                      # mygo application entry (windows, menus, tray, native OS file drop routing)
+├── mygo.json                         # mygo build configuration (app name, bundle id, version, dev/build commands)
 ├── core/                             # Go backend package
 │   ├── models.go                     # Domain models (Item, ImageMeta, Folder, Tag, LibraryInfo)
 │   ├── library.go                    # SQLite indexing, import pipeline, folder/tag/trash CRUD
 │   ├── color_extractor.go            # Perceptual color palette quantizer & EXIF/image metadata parser
 │   ├── asset_server.go               # Local HTTP streaming server for originals, thumbnails & system icons
-│   ├── service.go                    # Wails RPC service bindings
+│   ├── service.go                    # Application service exposed to the frontend via mygo.Bind
+│   ├── host.go                       # Host abstraction over the desktop runtime (events, dialogs, drag, main thread)
 │   └── drag_*.go                     # Platform-specific native OS drag-out & debug tracing
 └── frontend/                         # React 19 + Vite + Tailwind v4 frontend
     └── src/
@@ -55,7 +57,8 @@ Bowerbird is a cross-platform desktop digital asset manager built with **Wails v
         │   ├── useFileDrop.ts        # Drag-and-drop import state & progress events
         │   └── useHistoryNavigation.ts # Router-backed Back/Forward navigation
         └── lib/
-            └── workspace-search.ts   # URL search schema for navigation & filter state
+            ├── host-runtime.ts       # Desktop runtime adapter (typed events delivered with a {data} envelope)
+            ├── workspace-search.ts   # URL search schema for navigation & filter state
 ```
 
 ---
@@ -159,10 +162,13 @@ Bowerbird enforces a strict physical separation between **User Libraries** and *
 go test ./...
 
 # Typecheck & build frontend bundle
-cd frontend && npm run build
+pnpm --filter bowerbird build
 
-# Run in Wails3 development mode
-wails3 dev
+# Run in mygo development mode (Vite dev server + Go backend, hot reload)
+go tool mygo dev
+
+# Production build (per-platform app bundle / installer / disk image under build/mygo/)
+go tool mygo build
 ```
 
 ### Workspace Package Resolution
@@ -182,23 +188,21 @@ Without the Vite option, dev fails with
 
 ### Windows Installer (NSIS)
 
-`windows:package` produces both the portable executable and an NSIS installer.
+On Windows, `go tool mygo build` produces both the portable executable and an NSIS installer under `build/mygo/windows-amd64/`.
 The installer registers the app under *Apps & features*, installs the WebView2
 runtime when it is missing, and asks the user whether to create shortcuts
 (Start Menu on by default, Desktop optional) plus whether to launch the app.
 
-NSIS is a build-time prerequisite and is **not** shipped by `wails3` — without
-`makensis` on `PATH` the `windows:create:nsis:installer` step fails with
-`"makensis": executable file not found in $PATH` / exit status 127.
-Install it with `scoop install nsis` (shim lands on `PATH`), `choco install nsis`
-(append `C:\Program Files (x86)\NSIS` to `PATH`), or `winget install NSIS.NSIS`
+The NSIS step runs as part of the mygo Windows packaging pipeline; GitHub's
+`windows-latest` runners build it out of the box. For local Windows builds,
+keep `makensis` available on `PATH`: install it with `scoop install nsis`
+(shim lands on `PATH`), `choco install nsis` (append
+`C:\Program Files (x86)\NSIS` to `PATH`), or `winget install NSIS.NSIS`
 (manual `PATH` entry required).
 
 ```bash
-wails3 task windows:package ARCH=amd64
-# -> bin/bowerbird.exe                    portable
-# -> bin/bowerbird-amd64-installer.exe     installer (machine-wide, UAC prompt)
-# windows:package ... INSTALL_SCOPE=user   per-user install in %LOCALAPPDATA%\Programs, no UAC
+go tool mygo build
+# -> build/mygo/windows-amd64/   portable executable + NSIS installer
 ```
 
 CI (`.github/workflows/release-app.yml`) publishes both as
