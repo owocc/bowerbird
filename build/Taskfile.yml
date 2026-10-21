@@ -202,8 +202,10 @@ tasks:
     cmds:
       - |
         export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
-        # On macOS, ImageMagick + iconutil creates top-quality Apple .icns bundles
-        if [ "$(uname)" = "Darwin" ] && command -v magick >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+        # On macOS, ImageMagick + iconutil creates top-quality Apple .icns bundles.
+        # Detect tools instead of calling `uname`, which does not exist in the
+        # Windows shell Wails uses to run task commands.
+        if command -v magick >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
           TMP_DIR=$(mktemp -d)
           ICONSET="$TMP_DIR/icons.iconset"
           mkdir -p "$ICONSET"
