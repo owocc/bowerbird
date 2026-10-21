@@ -8,6 +8,8 @@ import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
+import '../services/item_query.dart';
+import '../services/refresh_gate.dart';
 import 'connect_screen.dart';
 import '../services/inbox_service.dart';
 import '../services/share_tag_service.dart';
@@ -40,6 +42,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? _wsItemsSub;
   StreamSubscription? _wsRevokedSub;
   bool _pendingRefresh = false;
+  int _totalCount = 0;
+  final RefreshGate _refreshGate = RefreshGate();
+  DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
   int _inboxCount = InboxService.instance.count;
 
   void _onInboxChanged() {
@@ -81,13 +86,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (newName != null && newName.isNotEmpty) {
           setState(() => ApiService.instance.libraryName = newName);
         }
-        _loadItems(refresh: true);
+        _refreshGate.schedule(() => _loadItems(refresh: true));
       }
     });
     _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((event) {
-      if (mounted) {
-        _loadItems(refresh: true);
+      if (!mounted) return;
+      if (DateTime.now().difference(_lastLocalMutation) < const Duration(milliseconds: 900)) {
+        return;
       }
+      _refreshGate.schedule(_reloadWindow);
     });
     _wsRevokedSub = WebSocketService.instance.onPairingRevoked.listen((_) {
       if (mounted) {
@@ -121,6 +128,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     ShareTagService.instance.removeListener(_onShareTagsChanged);
     _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    _refreshGate.cancel();
     super.dispose();
   }
   void _onScroll() {
@@ -152,10 +160,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
 
+    final requestOffset = refresh ? 0 : _offset;
     try {
-      final result = await ApiService.instance.getItems(
+      final result = await ApiService.instance.queryItems(
+        query: const ItemQuery(),
         limit: _pageSize,
-        offset: _offset,
+        offset: requestOffset,
       );
 
       if (mounted) {
@@ -164,7 +174,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _items.clear();
           }
           _items.addAll(result.items);
-          _offset += result.items.length;
+          _offset = requestOffset + result.items.length;
+          _totalCount = result.total;
           _hasMore = _items.length < result.total && result.items.isNotEmpty;
           _isLoading = false;
         });
@@ -182,6 +193,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _loadItems(refresh: true);
       }
     }
+  }
+
+  /// Re-runs the first page sized to the currently loaded window so a ws
+  /// refresh does not visibly collapse the timeline back to one page.
+  Future<void> _reloadWindow() async {
+    if (_isLoading) {
+      _pendingRefresh = true;
+      return;
+    }
+    final target = _items.isEmpty ? _pageSize : (_items.length > 500 ? _pageSize : _items.length);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final result = await ApiService.instance.queryItems(
+        query: const ItemQuery(),
+        limit: target,
+        offset: 0,
+      );
+      if (mounted) {
+        setState(() {
+          _items
+            ..clear()
+            ..addAll(result.items);
+          _offset = result.items.length;
+          _totalCount = result.total;
+          _hasMore = _items.length < result.total && result.items.isNotEmpty;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted && _pendingRefresh) {
+        _pendingRefresh = false;
+        _reloadWindow();
+      }
+    }
+  }
+
+  void _markLocalMutation() {
+    _lastLocalMutation = DateTime.now();
+    _refreshGate.cancel();
   }
 
   Map<String, List<MobileItem>> _groupItemsByMonth(List<MobileItem> items) {
@@ -208,7 +268,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已移入废纸篓')),
       );
-      _loadItems(refresh: true);
+      _markLocalMutation();
+      unawaited(_reloadWindow());
     }
   }
 
@@ -229,7 +290,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('已移入废纸篓')),
         );
-        await _loadItems(refresh: true);
+        _markLocalMutation();
+        await _reloadWindow();
     }
   }
 
@@ -397,7 +459,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('成功上传 $count 个素材到当前资源库')),
         );
-        _loadItems(refresh: true);
+        _markLocalMutation();
+        await _reloadWindow();
       }
     } catch (e) {
       if (mounted) {
@@ -541,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ],
                       ),
                       Text(
-                        '${_items.length} 个素材 • 点击切库',
+                        '共 $_totalCount 个素材 • 点击切库',
                         style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
                       ),
                     ],

@@ -110,11 +110,14 @@ GET /api/v1/originals/{id}?token=<64-character-hex-token>
 ```json
 {
   "name": "My Material Library",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "itemCount": 1420,
-  "pairingRequired": true
+  "pairingRequired": true,
+  "capabilities": ["query"]
 }
 ```
+`capabilities` lets clients detect `POST /api/v1/query` without a failed probe. Older desktops omit the field and return version `1.1.0` or lower.
+
 
 ---
 
@@ -145,7 +148,56 @@ GET /api/v1/originals/{id}?token=<64-character-hex-token>
 
 ---
 
-### 4.3 Timeline Item List
+### 4.3 Generic Query
+- **Method**: `POST`
+- **Path**: `/api/v1/query`
+- **Auth**: Required (`Bearer <token>`)
+- **Request Body**:
+```json
+{
+  "query": "type:image tag:red color:#EF4444 orientation:landscape",
+  "sort": "desc",
+  "offset": 0,
+  "limit": 100
+}
+```
+  | Field | Type | Default | Description |
+  |---|---|---|---|
+  | `query` | string | `""` | Query string; empty means browse all. |
+  | `sort` | string | `"desc"` | `desc` or `asc` by `importedAt`. |
+  | `offset` | integer | `0` | Pagination start; values past `total` return an empty `items` array. |
+  | `limit` | integer | `100` | Page size, clamped to 1–500. The full result set is always pageable; the search space is never truncated at 100. |
+- **Response**: `200 OK` — same `{ total, limit, offset, items }` envelope and the same item summary fields as the legacy list below.
+- **Errors**: `400 INVALID_QUERY` for a malformed known filter or unsupported sort; `400 INVALID_BODY` for invalid JSON.
+
+#### Query string grammar
+
+Tokens are separated by whitespace; values containing spaces are double-quoted (`tag:"client work"`). Filters are ANDed; repeated keys are also ANDed. Trashed items are always excluded.
+
+| Token | Meaning |
+|---|---|
+| `foo bar` or `"foo bar"` | Free text matched as a single case-insensitive substring against name, tags, extension, hex, note and prompt (same as the desktop search box). |
+| `type:image\|video\|audio\|document\|archive\|other` | File category (desktop `getFileCategory`). |
+| `type:pdf`, `type:mp4`, ... | Specific extension. |
+| `tag:<name>` | Item has the tag (case-insensitive exact). |
+| `folder:<folderId>` / `folder:none` | Item belongs to the folder / is uncategorized. |
+| `color:#RRGGBB` | Dominant color or palette within redmean distance 115. |
+| `orientation:landscape\|portrait\|square` | Stored orientation, otherwise dimensions with 5% square tolerance. |
+| `size:small\|medium\|large` | `<1MB`, `1–10MB`, `>10MB`. |
+| `rating:1..5` | Exact rating. |
+| `has:url\|note\|prompt\|tag\|folder` | Field is present. |
+| `no:url\|note\|prompt\|tag\|folder` | Field is empty. |
+| `is:untagged` / `is:uncategorized` | No tags / no folders. |
+
+Unknown `key:value` tokens are treated as free text. Invalid values for known filters return `400 INVALID_QUERY`.
+
+#### Capability detection & fallback
+
+Clients should prefer `/api/v1/query`. If it returns `404` or `405` (desktop older than 1.2.0), fall back to `GET /api/v1/items` and remember the decision for the connection. Re-probe after pairing or reconnecting. The legacy endpoint is retained for compatibility and now uses the same query engine internally.
+
+---
+
+### 4.3.1 Legacy Timeline Item List (deprecated)
 - **Method**: `GET`
 - **Path**: `/api/v1/items`
 - **Auth**: Required (`Bearer <token>`)
@@ -376,6 +428,22 @@ Returns top aggregated dominant hex colors from active library items for color f
   - `400 NO_FILES`: No non-empty file part was provided.
   - `500 IMPORT_FAILED`: The desktop importer rejected the batch.
 
+
+---
+
+### 4.11 WebSocket Change Notifications
+- **URL**: `ws://<host>:<port>/api/v1/ws?token=<token>` (or `/ws`)
+- **Auth**: Same bearer token, query parameter accepted for WebSocket handshakes.
+
+Desktop-originated and mobile-originated mutations both notify connected clients. Clients should debounce (≈350 ms) and re-run the current query rather than reloading page 1.
+
+| Event | Payload | When |
+|---|---|---|
+| `items_updated` | `{"libraryId": "...", "count": n}` (count optional) | Import, delete/trash/restore, tags, folders, rename, rating, thumbnail and other item mutations. Emitted once per mutation. |
+| `library_changed` | `{"id", "name", "path", "itemCount"}` | Library opened, switched or closed. |
+| `pairing_revoked` | `{}` | The device token was revoked; the client must re-pair. |
+
+Mobile uploads also emit the desktop event `library-items-upserted`; mobile deletes emit `library-items-trashed` so the desktop UI updates immediately. These desktop events are not part of the mobile wire contract.
 ---
 
 ## 5. Error Representation & Status Codes
@@ -398,6 +466,8 @@ All errors return a standard JSON envelope:
 | `ITEM_NOT_FOUND` / `NOT_FOUND` | 404 | The requested item ID does not exist in the active library. |
 | `NO_ACTIVE_LIBRARY` | 503 | No library is currently opened in the desktop application. |
 | `INVALID_ID` | 400 | Item ID parameter is empty or malformed. |
+| `INVALID_QUERY` | 400 | Query string has an invalid value for a known filter, or `sort` is not `desc`/`asc`. |
+| `INVALID_BODY` | 400 | `/api/v1/query` request body is not valid JSON. |
 | `METHOD_NOT_ALLOWED` | 405 | The requested HTTP verb is not supported for this route. |
 | `INTERNAL_ERROR` | 500 | Server encountered an unhandled error. |
 

@@ -27,7 +27,7 @@ import (
 )
 
 // MobileServerVersion is the mobile API contract version.
-const MobileServerVersion = "1.1.0"
+const MobileServerVersion = "1.2.0"
 
 // MobileServer handles LAN HTTP endpoints and mDNS discovery for mobile clients.
 type wsClient struct {
@@ -81,10 +81,11 @@ type MobileItemsResponse struct {
 
 // MobileStatusResponse represents the unauthenticated status response.
 type MobileStatusResponse struct {
-	Name            string `json:"name"`
-	Version         string `json:"version"`
-	ItemCount       int64  `json:"itemCount"`
-	PairingRequired bool   `json:"pairingRequired"`
+	Name            string   `json:"name"`
+	Version         string   `json:"version"`
+	ItemCount       int64    `json:"itemCount"`
+	PairingRequired bool     `json:"pairingRequired"`
+	Capabilities    []string `json:"capabilities"`
 }
 
 // MobileServerStatus contains desktop-facing diagnostics and pairing details.
@@ -161,6 +162,7 @@ func (s *MobileServer) Start() error {
 	mux.HandleFunc("/api/v1/folders", s.authMiddleware(s.handleFoldersList))
 	mux.HandleFunc("/api/v1/colors", s.authMiddleware(s.handleColorsList))
 	mux.HandleFunc("/api/v1/items", s.authMiddleware(s.handleItemsList))
+	mux.HandleFunc("/api/v1/query", s.authMiddleware(s.handleQuery))
 	mux.HandleFunc("/api/v1/items/", s.authMiddleware(s.handleItemDetail))
 	mux.HandleFunc("/api/v1/thumbs/", s.authMiddleware(s.handleThumbnail))
 	mux.HandleFunc("/api/v1/originals/", s.authMiddleware(s.handleOriginal))
@@ -442,6 +444,7 @@ func (s *MobileServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 		Version:         MobileServerVersion,
 		ItemCount:       itemCount,
 		PairingRequired: pairingRequired,
+		Capabilities:    []string{"query"},
 	}
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -517,6 +520,7 @@ func (s *MobileServer) handlePair(w http.ResponseWriter, r *http.Request) {
 		"name":  "Bowerbird",
 	})
 }
+
 // handleWebSocket upgrades incoming requests to a full-duplex WebSocket connection.
 func (s *MobileServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if s.manager != nil && s.manager.userData != nil {
@@ -710,7 +714,9 @@ func (s *MobileServer) handleLibrarySwitch(w http.ResponseWriter, r *http.Reques
 	if targetPath == "" && req.ID != "" && s.manager != nil && s.manager.userData != nil {
 		for _, p := range s.manager.userData.GetRecentLibraries() {
 			data, _ := os.ReadFile(filepath.Join(p, "library.json"))
-			var meta struct{ ID string `json:"id"` }
+			var meta struct {
+				ID string `json:"id"`
+			}
 			_ = json.Unmarshal(data, &meta)
 			if meta.ID == req.ID {
 				targetPath = p
@@ -818,20 +824,17 @@ func (s *MobileServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items, importErr := s.manager.ImportFilesWithProgress(savedPaths, nil)
+	items, importErr := s.manager.ImportFilesFromMobile(savedPaths)
 	if importErr != nil {
 		writeError(w, http.StatusInternalServerError, "IMPORT_FAILED", importErr.Error())
 		return
 	}
 
-	var libID string
-	if active := s.manager.GetActiveLibrary(); active != nil {
-		libID = active.ID
+	if len(items) > 0 {
+		// The import pipeline already broadcast items_updated to mobile clients;
+		// notify the desktop UI exactly once with the imported summaries.
+		s.manager.emit("library-items-upserted", items)
 	}
-	s.Broadcast("items_updated", map[string]any{
-		"libraryId": libID,
-		"count":     len(items),
-	})
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
@@ -842,31 +845,33 @@ func (s *MobileServer) handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleItemsList returns paginated, filtered library items for the mobile timeline.
+// handleItemsList is the legacy mobile timeline endpoint. It keeps the old
+// query parameters and limit ceiling for compatibility, but delegates all
+// filtering to the shared query engine.
 func (s *MobileServer) handleItemsList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(MobileItemsResponse{
-			Total:  0,
-			Limit:  50,
-			Offset: 0,
-			Items:  []MobileItemSummary{},
-		})
-		return
+	queryVals := r.URL.Query()
+	spec := QuerySpec{Text: strings.TrimSpace(queryVals.Get("q"))}
+	if tag := strings.TrimSpace(queryVals.Get("tag")); tag != "" {
+		spec.Tags = append(spec.Tags, tag)
+	}
+	if folder := strings.TrimSpace(queryVals.Get("folder")); folder != "" {
+		spec.Folders = append(spec.Folders, folder)
+	}
+	if color := strings.TrimSpace(queryVals.Get("color")); color != "" {
+		spec.Colors = append(spec.Colors, color)
+	}
+	if mediaType := strings.TrimSpace(queryVals.Get("type")); mediaType != "" {
+		spec.Types = append(spec.Types, mediaType)
+	}
+	if orientation := strings.TrimSpace(queryVals.Get("orientation")); orientation != "" {
+		spec.Orientations = append(spec.Orientations, orientation)
 	}
 
-	queryVals := r.URL.Query()
-	q := strings.TrimSpace(queryVals.Get("q"))
-	tagFilter := strings.TrimSpace(queryVals.Get("tag"))
-	folderFilter := strings.TrimSpace(queryVals.Get("folder"))
-	colorFilter := strings.TrimSpace(queryVals.Get("color"))
-	typeFilter := strings.ToLower(strings.TrimSpace(queryVals.Get("type")))
-	orientationFilter := strings.ToLower(strings.TrimSpace(queryVals.Get("orientation")))
 	limit := 50
 	if lStr := queryVals.Get("limit"); lStr != "" {
 		if l, err := strconv.Atoi(lStr); err == nil && l > 0 {
@@ -884,94 +889,94 @@ func (s *MobileServer) handleItemsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	allItems, err := s.manager.GetItems(q, "desc")
+	s.writeQueryResponse(w, spec, "desc", offset, limit)
+}
+
+type mobileQueryRequest struct {
+	Query  string `json:"query"`
+	Sort   string `json:"sort"`
+	Offset int    `json:"offset"`
+	Limit  int    `json:"limit"`
+}
+
+// handleQuery executes a query string through the shared engine and returns a
+// paginated summary page plus the full filtered total.
+func (s *MobileServer) handleQuery(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req mobileQueryRequest
+	body := http.MaxBytesReader(w, r.Body, 64<<10)
+	decoder := json.NewDecoder(body)
+	if err := decoder.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid JSON body: "+err.Error())
+		return
+	}
+
+	sortOrder := strings.ToLower(strings.TrimSpace(req.Sort))
+	if sortOrder == "" {
+		sortOrder = "desc"
+	}
+	if sortOrder != "desc" && sortOrder != "asc" {
+		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "sort must be desc or asc")
+		return
+	}
+
+	spec, err := ParseQuery(req.Query)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_QUERY", err.Error())
+		return
+	}
+
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	s.writeQueryResponse(w, spec, sortOrder, offset, limit)
+}
+
+func (s *MobileServer) writeQueryResponse(w http.ResponseWriter, spec QuerySpec, sortOrder string, offset, limit int) {
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(MobileItemsResponse{
+			Total:  0,
+			Limit:  limit,
+			Offset: offset,
+			Items:  []MobileItemSummary{},
+		})
+		return
+	}
+
+	items, total, err := s.manager.QueryItems(spec, sortOrder, offset, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
 		return
 	}
 
-	filtered := make([]Item, 0, len(allItems))
-	for _, it := range allItems {
-		if it.InTrash {
-			continue
-		}
-
-		if tagFilter != "" {
-			hasTag := false
-			for _, t := range it.Tags {
-				if strings.EqualFold(t, tagFilter) {
-					hasTag = true
-					break
-				}
-			}
-			if !hasTag {
-				continue
-			}
-		}
-
-		if folderFilter != "" {
-			hasFolder := false
-			for _, f := range it.Folders {
-				if f == folderFilter {
-					hasFolder = true
-					break
-				}
-			}
-			if !hasFolder {
-				continue
-			}
-		}
-
-		if colorFilter != "" {
-			if !itemMatchesColor(it, colorFilter) {
-				continue
-			}
-		}
-		if typeFilter != "" {
-			switch typeFilter {
-			case "image":
-				if !IsImageExtension(it.Extension) {
-					continue
-				}
-			case "video":
-				if !IsVideoExtension(it.Extension) && !strings.HasPrefix(it.MimeType, "video/") {
-					continue
-				}
-			case "audio":
-				if !IsAudioExtension(it.Extension) && !strings.HasPrefix(it.MimeType, "audio/") {
-					continue
-				}
-			default:
-				if !strings.EqualFold(it.Extension, typeFilter) && !strings.EqualFold(strings.TrimPrefix(it.Extension, "."), typeFilter) {
-					continue
-				}
-			}
-		}
-
-		if orientationFilter != "" {
-			itemOrientation := deriveOrientation(it)
-			if itemOrientation != orientationFilter {
-				continue
-			}
-		}
-
-		filtered = append(filtered, it)
+	resp := MobileItemsResponse{
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+		Items:  mobileItemSummaries(items),
 	}
 
-	total := len(filtered)
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(resp)
+}
 
-	slice := filtered[start:end]
-	summaries := make([]MobileItemSummary, 0, len(slice))
-
-	for _, it := range slice {
+func mobileItemSummaries(items []Item) []MobileItemSummary {
+	summaries := make([]MobileItemSummary, 0, len(items))
+	for _, it := range items {
 		date := it.ImportedAt
 		if it.CreatedAt > 0 {
 			date = it.CreatedAt
@@ -1001,16 +1006,7 @@ func (s *MobileServer) handleItemsList(w http.ResponseWriter, r *http.Request) {
 			Folders:      it.Folders,
 		})
 	}
-
-	resp := MobileItemsResponse{
-		Total:  total,
-		Limit:  limit,
-		Offset: offset,
-		Items:  summaries,
-	}
-
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(resp)
+	return summaries
 }
 
 // handleTagsList returns the tag taxonomy for the active library.
@@ -1173,16 +1169,8 @@ func parseHexRGB(h string) (uint8, uint8, uint8, bool) {
 }
 
 func deriveOrientation(it Item) string {
-	if it.Meta != nil && it.Meta.Orientation != "" {
-		return strings.ToLower(it.Meta.Orientation)
-	}
-	if it.Width > 0 && it.Height > 0 {
-		if it.Width > it.Height {
-			return "landscape"
-		} else if it.Height > it.Width {
-			return "portrait"
-		}
-		return "square"
+	if orientation := itemOrientation(it); orientation != "" {
+		return orientation
 	}
 	return "landscape"
 }
@@ -1240,7 +1228,9 @@ func (s *MobileServer) handleItemDelete(w http.ResponseWriter, item *Item) {
 		return
 	}
 
-	// MoveToTrash already broadcasts items_updated; do not duplicate it here.
+	// MoveToTrash broadcasts items_updated to mobile clients. Tell the desktop
+	// UI to drop the item in place without broadcasting a second ws event.
+	s.manager.emit("library-items-trashed", []string{item.ID})
 	writeSuccess(w, map[string]any{"id": item.ID, "inTrash": true})
 }
 
