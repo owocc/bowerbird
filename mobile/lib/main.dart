@@ -8,6 +8,7 @@ import 'screens/connect_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/api_service.dart';
 import 'services/inbox_service.dart';
+import 'services/share_tag_service.dart';
 import 'services/share_intent_handler.dart';
 
 void main() async {
@@ -19,6 +20,7 @@ void main() async {
     // Share intake stays disabled if the app data directory is unavailable;
     // the rest of the app (pairing, browsing) must still start.
   }
+  await ShareTagService.instance.init();
   runApp(const BowerbirdMobileApp());
 }
 

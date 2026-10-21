@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/inbox_entry.dart';
 import 'api_service.dart';
+import 'share_tag_service.dart';
 
 class IngestFailure {
   IngestFailure(this.name, this.reason);
@@ -315,7 +316,13 @@ class InboxService extends ChangeNotifier {
         if (!await File(path).exists()) {
           throw Exception('收件箱文件已不存在');
         }
-        await ApiService.instance.uploadFiles([path]);
+        final result = await ApiService.instance.uploadFiles([path]);
+        final itemId = result.itemIds.isNotEmpty
+            ? result.itemIds.first
+            : await ShareTagService.hashFile(path);
+        if (itemId != null && itemId.isNotEmpty) {
+          await ShareTagService.instance.mark(itemId);
+        }
         uploaded++;
         await _removeEntry(entry);
       } catch (error) {

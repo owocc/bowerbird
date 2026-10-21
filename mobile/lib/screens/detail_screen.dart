@@ -8,6 +8,8 @@ import 'package:photo_view/photo_view.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
+import '../services/share_tag_service.dart';
+import '../widgets/share_tag_badge.dart';
 import '../widgets/video_player_page.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -262,6 +264,7 @@ class _DetailScreenState extends State<DetailScreen> {
     setState(() => _isDeleting = true);
     try {
       await ApiService.instance.deleteItem(item.id);
+      await ShareTagService.instance.forget(item.id);
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } catch (e) {
@@ -319,6 +322,8 @@ class _DetailScreenState extends State<DetailScreen> {
                   const SizedBox(height: 12),
                   const Divider(),
                   _buildMetaRow(Icons.title_outlined, 'Title', item.name.isNotEmpty ? item.name : item.filename),
+                  if (ShareTagService.instance.isMarked(item.id))
+                    _buildMetaRow(Icons.ios_share, '来源', '手机分享'),
                   _buildMetaRow(Icons.insert_drive_file_outlined, 'Filename', item.filename),
                   _buildMetaRow(Icons.calendar_today_outlined, 'Captured / Imported', dateStr),
                   _buildMetaRow(
@@ -787,6 +792,15 @@ class _DetailScreenState extends State<DetailScreen> {
                           fontSize: 13,
                         ),
                       ),
+                      if (ShareTagService.instance.isMarked(currentItem.id)) ...[
+                        const SizedBox(height: 8),
+                        const ShareTagBadge(
+                          label: '手机分享',
+                          fontSize: 11,
+                          iconSize: 12,
+                          background: Colors.white24,
+                        ),
+                      ],
                       if (currentItem.tags.isNotEmpty) ...[
                         const SizedBox(height: 8),
                         Wrap(

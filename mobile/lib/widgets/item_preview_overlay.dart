@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../models/item.dart';
 import '../services/api_service.dart';
+import '../services/share_tag_service.dart';
 
 /// Actions the preview overlay can hand back to the grid.
 enum ItemPreviewAction { viewDetail, copyContent, download, share, delete }
@@ -143,6 +144,7 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
     setState(() => _deleting = true);
     try {
       await ApiService.instance.deleteItem(_item.id);
+      await ShareTagService.instance.forget(_item.id);
       if (!mounted) return;
       _closing = true;
       Navigator.of(context).pop(ItemPreviewAction.delete);

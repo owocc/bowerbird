@@ -535,7 +535,14 @@ class ApiService {
 
   // --- Upload ---
 
-  Future<int> uploadFiles(List<String> filePaths) async {
+  /// Returns the server-side count plus the created (or deduplicated) item IDs.
+  ///
+  /// The desktop response already carries the imported items
+  /// (`core/mobile_api.go`), which is the authoritative mapping between the
+  /// uploaded file and its content-addressed item ID. IDs are empty when an
+  /// older desktop build omits the `items` array; callers may then fall back
+  /// to hashing the uploaded file locally.
+  Future<UploadResult> uploadFiles(List<String> filePaths) async {
     if (baseUrl == null) throw Exception('Base URL is not configured');
     final uri = Uri.parse('$baseUrl/api/v1/upload');
     final request = http.MultipartRequest('POST', uri);
@@ -559,8 +566,23 @@ class ApiService {
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode == 200) {
-      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      return (json['count'] as num?)?.toInt() ?? request.files.length;
+      try {
+        final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final count = (json['count'] as num?)?.toInt() ?? request.files.length;
+        final itemIds = <String>[];
+        final rawItems = json['items'];
+        if (rawItems is List) {
+          for (final rawItem in rawItems) {
+            if (rawItem is! Map) continue;
+            final id = rawItem['id']?.toString() ?? '';
+            if (id.isNotEmpty) itemIds.add(id);
+          }
+        }
+        return UploadResult(count: count, itemIds: itemIds);
+      } catch (_) {
+        // Upload succeeded even if the body cannot be parsed.
+        return UploadResult(count: request.files.length);
+      }
     } else {
       throw Exception('Upload failed: HTTP ${response.statusCode} - ${response.body}');
     }
@@ -589,4 +611,11 @@ class ApiService {
       throw Exception('Failed to save to gallery: $e');
     }
   }
+}
+
+class UploadResult {
+  const UploadResult({required this.count, this.itemIds = const []});
+
+  final int count;
+  final List<String> itemIds;
 }

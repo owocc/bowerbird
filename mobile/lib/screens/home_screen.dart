@@ -10,6 +10,8 @@ import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import 'connect_screen.dart';
 import '../services/inbox_service.dart';
+import '../services/share_tag_service.dart';
+import '../widgets/share_tag_badge.dart';
 import 'detail_screen.dart';
 import 'inbox_screen.dart';
 import '../widgets/item_preview_overlay.dart';
@@ -45,6 +47,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     setState(() => _inboxCount = InboxService.instance.count);
   }
 
+  void _onShareTagsChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _initWebSocket();
     WidgetsBinding.instance.addObserver(this);
     InboxService.instance.addListener(_onInboxChanged);
+    ShareTagService.instance.addListener(_onShareTagsChanged);
   }
 
   @override
@@ -111,6 +118,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _wsItemsSub?.cancel();
     _wsRevokedSub?.cancel();
     InboxService.instance.removeListener(_onInboxChanged);
+    ShareTagService.instance.removeListener(_onShareTagsChanged);
     _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -382,7 +390,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     try {
-      final count = await ApiService.instance.uploadFiles(paths);
+      final result = await ApiService.instance.uploadFiles(paths);
+      final count = result.count;
       if (mounted) {
         Navigator.pop(context); // Close dialog
         ScaffoldMessenger.of(context).showSnackBar(
@@ -753,6 +762,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                                 size: 14,
                                               ),
                                             ),
+                                          ),
+                                        if (ShareTagService.instance.isMarked(item.id))
+                                          const Positioned(
+                                            left: 4,
+                                            bottom: 4,
+                                            child: ShareTagBadge(),
                                           ),
                                       ],
                                     ),

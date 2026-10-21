@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
+import '../services/share_tag_service.dart';
+import '../widgets/share_tag_badge.dart';
 import 'detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -541,6 +543,12 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                         child: const Icon(Icons.play_arrow, size: 14, color: Colors.white),
                       ),
+                    ),
+                  if (ShareTagService.instance.isMarked(item.id))
+                    const Positioned(
+                      left: 4,
+                      bottom: 4,
+                      child: ShareTagBadge(),
                     ),
                 ],
               ),
