@@ -15,23 +15,23 @@ func (a *App) viewLogs(c *ui.Context) {
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		ui.Row(c).Padding(10, 12).Gap(8).AlignItems(ui.Center).Background(t.Surface).
 			BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-			ui.Text(c, a.tr("Logs", "日志")).FontSize(16).Bold()
+			ui.Text(c, a.t("native.logs")).FontSize(16).Bold()
 			ui.Spacer(c)
-			ui.SearchField(c, &a.logQuery).Width(220).Label(a.tr("Filter logs", "过滤日志"))
-			if ui.Button(c, a.tr("Reload", "刷新")).Clicked() {
+			ui.SearchField(c, &a.logQuery).Width(220).Label(a.t("native.filter.logs"))
+			if ui.Button(c, a.t("appMenu.reload")).Clicked() {
 				a.loadLogs()
 			}
-			if ui.Button(c, a.tr("Clear", "清空")).Clicked() {
+			if ui.Button(c, a.t("logs.clear")).Clicked() {
 				a.clearLogs()
 			}
-			if ui.Button(c, a.tr("Reveal File", "显示日志文件")).Clicked() {
+			if ui.Button(c, a.t("logs.revealFile")).Clicked() {
 				a.revealLogFile()
 			}
 		})
 		logs := a.filteredLogs()
 		if len(logs) == 0 {
 			ui.Column(c).Fill().Center().Children(func() {
-				ui.Text(c, a.tr("No log entries.", "没有日志。")).FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, a.t("native.no.log.entries")).FontSize(12).TextColor(t.TextMuted)
 			})
 			return
 		}

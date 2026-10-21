@@ -121,6 +121,25 @@ func (s *UserDataStore) ClearActiveLibraryPath() error {
 }
 
 // GetRecentLibraries returns recent library paths that still exist on disk.
+// RemoveRecentLibrary forgets a library path, and clears the remembered
+// active path when it was that library. It does not touch the folder.
+func (s *UserDataStore) RemoveRecentLibrary(libPath string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]string, 0, len(s.data.RecentLibraries))
+	for _, p := range s.data.RecentLibraries {
+		if p != libPath {
+			kept = append(kept, p)
+		}
+	}
+	s.data.RecentLibraries = kept
+	if s.data.ActiveLibraryPath == libPath {
+		s.data.ActiveLibraryPath = ""
+	}
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
 func (s *UserDataStore) GetRecentLibraries() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

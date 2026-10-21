@@ -22,11 +22,14 @@ const (
 	viewTrash         = "trash"
 	viewUntagged      = "untagged"
 	viewUncategorized = "uncategorized"
+	viewHistory       = "history"
 )
 
 const (
-	layoutGrid = "grid"
-	layoutList = "list"
+	layoutGrid      = "grid"
+	layoutList      = "list"
+	layoutJustified = "justified"
+	layoutWaterfall = "waterfall"
 )
 
 // App is the native application's model. Views are immediate-mode functions of
@@ -56,21 +59,23 @@ type App struct {
 	visibleSet bool
 
 	// Query and filters.
-	query        string
-	sortAsc      bool
-	view         string
-	folderID     string
-	tagFilter    string
-	category     string
-	colorFilter  string
-	filterFolder string
-	orientation  string
-	sizeFilter   string
-	hasURL       string
-	hasNote      string
-	ratingFilter int
-	layout       string
-	rowHeight    float32
+	query             string
+	sortAsc           bool
+	view              string
+	folderID          string
+	includeSubfolders bool
+	subfolderSet      map[string]bool
+	tagFilter         string
+	category          string
+	colorFilter       string
+	filterFolder      string
+	orientation       string
+	sizeFilter        string
+	hasURL            string
+	hasNote           string
+	ratingFilter      int
+	layout            string
+	rowHeight         float32
 
 	// Layout state.
 	sidebarWidth  float32
@@ -81,11 +86,12 @@ type App struct {
 
 	// Selection. selectedIndex is the GridView's cursor into visible; selectedID
 	// is its stable identity across reloads.
-	grid          ui.GridState
-	listState     ui.ListState
-	selection     ui.Selection[string]
-	selectedIndex int
-	selectedID    string
+	grid            ui.GridState
+	listState       ui.ListState
+	selection       ui.Selection[string]
+	selectedIndex   int
+	selectedID      string
+	selectionAnchor int
 
 	// Inspector drafts.
 	editorItemID string
@@ -96,7 +102,41 @@ type App struct {
 	draftRating  int
 	draftTags    []string
 	bulkTags     []string
+	bulkRating   int
+	bulkNote     string
+	bulkKey      string
 	editorDirty  bool
+
+	// Tag dialog (create) and the tag a confirmation asks to delete.
+	tagDialog struct {
+		open bool
+		name string
+	}
+	confirmTag  string
+	confirmPath string
+
+	// Drag history of this library, most recently dragged out first.
+	history        []dragHistoryEntry
+	historyLibrary string
+	historyCount   int
+
+	// Custom gallery layouts (justified, waterfall) and marquee selection.
+	galleryScroll    ui.ScrollState
+	galleryHandle    ui.Handle
+	galleryBounds    ui.Rect
+	layoutCache      *galleryLayout
+	layoutKey        string
+	layoutGen        int
+	cellRects        map[string]ui.Rect
+	visibleMin       int
+	visibleMax       int
+	marquee          marqueeState
+	lastScrollAt     time.Time
+	lastInternalDrop time.Time
+	prefetching      int
+	prefetchStarted  int
+	lastCacheMetric  time.Time
+	trashPath        func(string) error
 
 	// Overlays.
 	folderDialog struct {
@@ -111,10 +151,21 @@ type App struct {
 		title  string
 		msg    string
 		action string
+		window string
 	}
 	preview struct {
-		open bool
-		id   string
+		open     bool
+		id       string
+		zoom     float32
+		panX     float32
+		panY     float32
+		dragging bool
+		lastX    float32
+		lastY    float32
+		boxW     float32
+		boxH     float32
+		naturalW float32
+		naturalH float32
 	}
 	pendingToast string
 
@@ -125,20 +176,23 @@ type App struct {
 	// Settings window.
 	settingsTab int
 	themeMode   string
-	language    string
-	proxyMode   string
-	customProxy string
-	testURL     string
-	testResult  string
-	testPending bool
-	mobile      *core.MobileServerStatus
-	mobileOn    bool
-	qrURL       string
-	qrBitmap    *ui.Bitmap
-	qrErr       string
-	logs        []core.LogEntry
-	logQuery    string
-	logLevel    string
+	// darkOverride pins the color scheme in headless tests, where asking
+	// the platform theme would call AppKit off the main thread.
+	darkOverride *bool
+	language     string
+	proxyMode    string
+	customProxy  string
+	testURL      string
+	testResult   string
+	testPending  bool
+	mobile       *core.MobileServerStatus
+	mobileOn     bool
+	qrURL        string
+	qrBitmap     *ui.Bitmap
+	qrErr        string
+	logs         []core.LogEntry
+	logQuery     string
+	logLevel     string
 
 	// Import progress.
 	importCur   int
@@ -148,6 +202,7 @@ type App struct {
 	// Thumbnail caches.
 	thumbs   *imageCache
 	previews *imageCache
+	gifs     *gifCache
 
 	// Focus handles.
 	searchHandle ui.Handle
@@ -185,9 +240,11 @@ func NewApp(svc *core.Service) *App {
 		expanded:      map[string]bool{},
 		thumbs:        newImageCache(300, 96<<20),
 		previews:      newImageCache(8, 160<<20),
+		gifs:          newGIFCache(),
 		testURL:       "https://www.google.com",
 		startedAt:     processStart,
 		nudging:       map[*mygo.Window]bool{},
+		trashPath:     mygo.Shell.TrashItem,
 	}
 }
 
@@ -279,7 +336,12 @@ func (a *App) report(err error) {
 // theme resolves the app's colour mode into a ui theme. System follows the
 // desktop and the host redraws when it changes.
 func (a *App) theme() *ui.Theme {
-	dark := mygo.Theme.IsDark()
+	dark := false
+	if a.darkOverride != nil {
+		dark = *a.darkOverride
+	} else {
+		dark = mygo.Theme.IsDark()
+	}
 	switch a.themeMode {
 	case core.ThemeDark:
 		dark = true
@@ -331,10 +393,17 @@ func (a *App) refreshAll() {
 			}
 			a.tags = snap.tags
 			a.trashCount = snap.count
+			if max, budget := thumbLimits(len(snap.items)); max != 0 {
+				a.thumbs.setLimits(max, budget)
+			}
+			a.logCacheMetrics(len(snap.items))
+			a.applyHistory(snap.lib)
 			a.countVirtuals()
 			a.loadErr = ""
 			a.loading = false
 			a.visibleSet = false
+			a.layoutGen++
+			a.layoutCache = nil
 			a.normalizeSelection()
 			a.host.invalidateAll()
 			a.maybeOpenSetup()
@@ -363,9 +432,12 @@ func (a *App) refreshItems() {
 			}
 			a.items = items
 			a.trash = trash
+			a.applyHistory(a.lib)
 			a.countVirtuals()
 			a.loading = false
 			a.visibleSet = false
+			a.layoutGen++
+			a.layoutCache = nil
 			a.normalizeSelection()
 			a.host.invalidateAll()
 		})
@@ -379,6 +451,108 @@ type dataSnapshot struct {
 	count        int
 	lib          *core.LibraryInfo
 	err          error
+}
+
+// itemInActiveFolder applies the sidebar folder filter, including the
+// folders below the selected one when Include Subfolders is on.
+func (a *App) itemInActiveFolder(it core.Item) bool {
+	if len(it.Folders) == 0 {
+		return false
+	}
+	for _, id := range it.Folders {
+		if id == a.folderID {
+			return true
+		}
+		if a.includeSubfolders {
+			if a.subfolderSet == nil {
+				a.rebuildSubfolderSet()
+			}
+			if a.subfolderSet[id] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rebuildSubfolderSet collects the selected folder and all its descendants.
+func (a *App) rebuildSubfolderSet() {
+	a.subfolderSet = map[string]bool{}
+	f := a.findFolder(a.folderID)
+	if f == nil {
+		return
+	}
+	a.subfolderSet[f.ID] = true
+	var walk func([]core.Folder)
+	walk = func(list []core.Folder) {
+		for i := range list {
+			a.subfolderSet[list[i].ID] = true
+			walk(list[i].Children)
+		}
+	}
+	walk(f.Children)
+}
+
+// historyItems resolves the drag history against the current library, most
+// recently dragged out first, skipping items no longer in the library or in
+// the trash, as the webview History collection does.
+func (a *App) historyItems() []core.Item {
+	if len(a.history) == 0 {
+		return nil
+	}
+	byID := make(map[string]*core.Item, len(a.items))
+	for i := range a.items {
+		byID[a.items[i].ID] = &a.items[i]
+	}
+	out := make([]core.Item, 0, len(a.history))
+	entries := a.history
+	if a.sortAsc {
+		entries = reversed(entries)
+	}
+	for _, e := range entries {
+		if it, ok := byID[e.ItemID]; ok {
+			out = append(out, *it)
+		}
+	}
+	return out
+}
+
+func reversed[T any](in []T) []T {
+	out := make([]T, len(in))
+	for i := range in {
+		out[i] = in[len(in)-1-i]
+	}
+	return out
+}
+
+// logCacheMetrics appends the caches' occupancy to the metrics file, for
+// comparing cache policies across runs. Thumbnail loads call it through
+// maybeLogCacheMetrics, throttled so one burst writes one line.
+func (a *App) logCacheMetrics(items int) {
+	path := os.Getenv("BOWERBIRD_NATIVE_METRICS")
+	if path == "" {
+		return
+	}
+	tb, tn := a.thumbs.stats()
+	gb, gn := a.gifs.bytesAndCount()
+	line := fmt.Sprintf("thumb-cache items=%d entries=%d bytes=%d gif-entries=%d gif-bytes=%d\n", items, tn, tb, gn, gb)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(line)
+	_ = f.Close()
+}
+
+func (a *App) maybeLogCacheMetrics() {
+	if os.Getenv("BOWERBIRD_NATIVE_METRICS") == "" {
+		return
+	}
+	if !a.lastCacheMetric.IsZero() && time.Since(a.lastCacheMetric) < 1500*time.Millisecond {
+		return
+	}
+	a.lastCacheMetric = time.Now()
+	a.logCacheMetrics(len(a.items))
 }
 
 func (a *App) countVirtuals() {
@@ -423,11 +597,13 @@ func (a *App) computeVisible() []core.Item {
 		src = filterItems(a.items, func(it core.Item) bool { return len(it.Tags) == 0 })
 	case viewUncategorized:
 		src = filterItems(a.items, func(it core.Item) bool { return len(it.Folders) == 0 })
+	case viewHistory:
+		src = a.historyItems()
 	}
 	q := strings.ToLower(strings.TrimSpace(a.query))
 	out := make([]core.Item, 0, len(src))
 	for _, it := range src {
-		if a.view == viewAll && a.folderID != "" && !contains(it.Folders, a.folderID) {
+		if a.view == viewAll && a.folderID != "" && !a.itemInActiveFolder(it) {
 			continue
 		}
 		if a.tagFilter != "" && !contains(it.Tags, a.tagFilter) {
@@ -688,6 +864,8 @@ func (a *App) tagNames() []string {
 // markDirty is called after a filter or query change.
 func (a *App) markDirty() {
 	a.visibleSet = false
+	a.layoutGen++
+	a.layoutCache = nil
 	a.normalizeSelection()
 }
 

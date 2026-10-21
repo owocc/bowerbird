@@ -31,89 +31,110 @@ func (a *App) viewContent(c *ui.Context) {
 func (a *App) viewToolbar(c *ui.Context) {
 	t := c.Theme()
 	ui.Toolbar(c, func() {
-		if ui.SearchField(c, &a.query).Width(210).Label(a.tr("Search library", "搜索素材库")).
+		if ui.SearchField(c, &a.query).Width(210).Label(a.t("native.search.library")).
 			Bind(&a.searchHandle).Changed() {
 			a.markDirty()
 			a.refreshItems()
 		}
 		a.filterMenu(c)
 		ui.MenuButton(c, a.sortLabel(), func(m *ui.Menu) {
-			if m.Item(a.tr("Newest first", "最新优先")).Checked(!a.sortAsc).Chosen() {
+			if m.Item(a.t("native.newest.first")).Checked(!a.sortAsc).Chosen() {
 				a.setSortAsc(false)
 			}
-			if m.Item(a.tr("Oldest first", "最早优先")).Checked(a.sortAsc).Chosen() {
+			if m.Item(a.t("native.oldest.first")).Checked(a.sortAsc).Chosen() {
 				a.setSortAsc(true)
 			}
 		})
-		layout := a.layoutIndex()
-		if ui.Segmented(c, &layout, a.tr("Grid", "网格"), a.tr("List", "列表")).Changed() {
-			a.setLayoutIndex(layout)
-		}
+		ui.MenuButton(c, a.layoutLabel(), func(m *ui.Menu) {
+			for _, opt := range []struct{ id, en, zh string }{
+				{layoutJustified, "Justified", "木桶等高 (Justified)"},
+				{layoutWaterfall, "Waterfall", "瀑布流 (Waterfall)"},
+				{layoutGrid, "Grid", "网格视图 (Grid)"},
+				{layoutList, "List", "列表视图 (List)"},
+			} {
+				opt := opt
+				if m.Item(a.tr(opt.en, opt.zh)).Checked(a.layout == opt.id).Chosen() {
+					a.setLayout(opt.id)
+				}
+			}
+		})
 		ui.Spacer(c)
-		if ui.Button(c, a.tr("Import", "导入")).Disabled(a.importing).Clicked() {
+		if ui.Button(c, a.t("native.import")).Disabled(a.importing).Clicked() {
 			a.chooseAndImportFiles()
 		}
 		if a.view == viewTrash {
-			if ui.Button(c, a.tr("Restore", "恢复")).Disabled(a.selection.Len() == 0 && a.selectedIndex < 0).Clicked() {
+			if ui.Button(c, a.t("contextMenu.restore")).Disabled(a.selection.Len() == 0 && a.selectedIndex < 0).Clicked() {
 				a.requestRestoreSelected()
 			}
-			if ui.Button(c, a.tr("Empty Trash", "清空废纸篓")).Disabled(a.trashCount == 0).Clicked() {
+			if ui.Button(c, a.t("native.empty.trash.2")).Disabled(a.trashCount == 0).Clicked() {
 				a.requestEmptyTrash()
 			}
-			if ui.Button(c, a.tr("Delete Forever", "永久删除")).Disabled(a.selection.Len() == 0 && a.selectedIndex < 0).Clicked() {
+			if ui.Button(c, a.t("native.delete.forever")).Disabled(a.selection.Len() == 0 && a.selectedIndex < 0).Clicked() {
 				a.requestDeleteSelected()
 			}
 		} else {
-			if ui.Button(c, a.tr("Delete", "删除")).Disabled(a.selection.Len() == 0 && a.selectedIndex < 0).Clicked() {
+			if ui.Button(c, a.t("common.delete")).Disabled(a.selection.Len() == 0 && a.selectedIndex < 0).Clicked() {
 				a.requestDeleteSelected()
 			}
 		}
-		if ui.Button(c, "−").Label(a.tr("Smaller", "缩小")).Width(28).Clicked() {
+		if ui.Button(c, "−").Label(a.t("native.smaller")).Width(28).Clicked() {
 			a.setRowHeight(a.rowHeight - 16)
 		}
-		if ui.Button(c, "+").Label(a.tr("Larger", "放大")).Width(28).Clicked() {
+		if ui.Button(c, "+").Label(a.t("native.larger")).Width(28).Clicked() {
 			a.setRowHeight(a.rowHeight + 16)
 		}
 		ui.MenuButton(c, "⋯", func(m *ui.Menu) {
-			if m.Item(a.tr("Toggle Sidebar", "显示/隐藏侧栏")).Shortcut(ui.Cmd|ui.Shift, ui.KeyB).Chosen() {
+			if m.Item(a.t("common.toggleSidebar")).Shortcut(ui.Cmd|ui.Shift, ui.KeyB).Chosen() {
 				a.showSidebar = !a.showSidebar
 			}
-			if m.Item(a.tr("Toggle Inspector", "显示/隐藏检查器")).Shortcut(ui.Cmd, ui.KeyI).Chosen() {
+			if m.Item(a.t("native.toggle.inspector.2")).Shortcut(ui.Cmd, ui.KeyI).Chosen() {
 				a.showInspector = !a.showInspector
 			}
 			m.Separator()
-			if m.Item(a.tr("Import Folder…", "导入文件夹…")).Chosen() {
+			if m.Item(a.t("native.import.folder")).Chosen() {
 				a.chooseAndImportFolder()
 			}
-			if m.Item(a.tr("New Folder…", "新建文件夹…")).Chosen() {
+			if m.Item(a.t("native.new.folder")).Chosen() {
 				a.openNewFolder(a.currentFolderID())
 			}
-			if m.Item(a.tr("New Library…", "新建素材库…")).Chosen() {
+			if m.Item(a.t("native.new.library")).Chosen() {
 				a.openSetup()
 			}
 			m.Separator()
-			if m.Item(a.tr("Settings…", "设置…")).Shortcut(ui.Cmd, ui.KeyComma).Chosen() {
+			if m.Item(a.t("appMenu.settings")).Shortcut(ui.Cmd, ui.KeyComma).Chosen() {
 				a.openSettings()
 			}
-			if m.Item(a.tr("Logs…", "日志…")).Chosen() {
+			if m.Item(a.t("appMenu.logs")).Chosen() {
 				a.openLogs()
 			}
-			if m.Item(a.tr("About Bowerbird", "关于 Bowerbird")).Chosen() {
+			if m.Item(a.t("appMenu.about")).Chosen() {
 				a.host.ShowAbout()
 			}
 			m.Separator()
-			if m.Item(a.tr("Quit", "退出")).Chosen() {
+			if m.Item(a.t("native.quit")).Chosen() {
 				a.host.Quit()
 			}
 		})
 	}).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
 }
 
+func (a *App) layoutLabel() string {
+	switch a.layout {
+	case layoutList:
+		return a.t("contextMenu.layoutList")
+	case layoutGrid:
+		return a.t("contextMenu.layoutGrid")
+	case layoutWaterfall:
+		return a.t("contextMenu.layoutWaterfall")
+	}
+	return a.t("contextMenu.layoutJustified")
+}
+
 func (a *App) sortLabel() string {
 	if a.sortAsc {
-		return a.tr("Oldest", "最早")
+		return a.t("workspace.oldest")
 	}
-	return a.tr("Newest", "最新")
+	return a.t("workspace.newest")
 }
 
 // layoutIndex binds the segmented control to the App's layout string.
@@ -135,12 +156,12 @@ func (a *App) setLayoutIndex(i int) {
 
 func (a *App) filterMenu(c *ui.Context) {
 	n := a.activeFilterCount()
-	label := a.tr("Filters", "筛选")
+	label := a.t("native.filters")
 	if n > 0 {
 		label = fmt.Sprintf("%s (%d)", label, n)
 	}
 	ui.MenuButton(c, label, func(m *ui.Menu) {
-		m.Submenu(a.tr("Type", "类型"), func(sm *ui.Menu) {
+		m.Submenu(a.t("filters.type"), func(sm *ui.Menu) {
 			for _, typ := range []struct{ id, en, zh string }{
 				{"all", "All types", "全部类型"},
 				{"image", "Images", "图片"},
@@ -157,8 +178,8 @@ func (a *App) filterMenu(c *ui.Context) {
 				}
 			}
 		})
-		m.Submenu(a.tr("Color", "颜色"), func(sm *ui.Menu) {
-			if sm.Item(a.tr("Any color", "全部颜色")).Checked(a.colorFilter == "").Chosen() {
+		m.Submenu(a.t("filters.color"), func(sm *ui.Menu) {
+			if sm.Item(a.t("native.any.color")).Checked(a.colorFilter == "").Chosen() {
 				a.colorFilter = ""
 				a.markDirty()
 			}
@@ -182,12 +203,12 @@ func (a *App) filterMenu(c *ui.Context) {
 			}
 		})
 		if len(a.folders) > 0 {
-			m.Submenu(a.tr("Folder", "文件夹"), func(sm *ui.Menu) {
-				if sm.Item(a.tr("Any folder", "全部文件夹")).Checked(a.filterFolder == "").Chosen() {
+			m.Submenu(a.t("filters.folder"), func(sm *ui.Menu) {
+				if sm.Item(a.t("native.any.folder")).Checked(a.filterFolder == "").Chosen() {
 					a.filterFolder = ""
 					a.markDirty()
 				}
-				if sm.Item(a.tr("Uncategorized", "未分类")).Checked(a.filterFolder == "__uncategorized__").Chosen() {
+				if sm.Item(a.t("native.uncategorized")).Checked(a.filterFolder == "__uncategorized__").Chosen() {
 					a.filterFolder = "__uncategorized__"
 					a.markDirty()
 				}
@@ -200,7 +221,7 @@ func (a *App) filterMenu(c *ui.Context) {
 				}
 			})
 		}
-		m.Submenu(a.tr("Orientation", "方向"), func(sm *ui.Menu) {
+		m.Submenu(a.t("native.orientation"), func(sm *ui.Menu) {
 			for _, o := range []struct{ id, en, zh string }{
 				{"all", "Any", "全部"},
 				{"landscape", "Landscape", "横图"},
@@ -214,7 +235,7 @@ func (a *App) filterMenu(c *ui.Context) {
 				}
 			}
 		})
-		m.Submenu(a.tr("Size", "大小"), func(sm *ui.Menu) {
+		m.Submenu(a.t("filters.size"), func(sm *ui.Menu) {
 			for _, s := range []struct{ id, en, zh string }{
 				{"all", "Any size", "全部大小"},
 				{"small", "Under 1 MB", "小于 1 MB"},
@@ -228,7 +249,7 @@ func (a *App) filterMenu(c *ui.Context) {
 				}
 			}
 		})
-		m.Submenu(a.tr("Link", "链接"), func(sm *ui.Menu) {
+		m.Submenu(a.t("native.link"), func(sm *ui.Menu) {
 			for _, s := range []struct{ id, en, zh string }{
 				{"all", "Any", "全部"},
 				{"has", "Has URL", "有 URL"},
@@ -241,7 +262,7 @@ func (a *App) filterMenu(c *ui.Context) {
 				}
 			}
 		})
-		m.Submenu(a.tr("Note", "备注"), func(sm *ui.Menu) {
+		m.Submenu(a.t("inspector.note"), func(sm *ui.Menu) {
 			for _, s := range []struct{ id, en, zh string }{
 				{"all", "Any", "全部"},
 				{"has", "Has note", "有备注"},
@@ -254,14 +275,14 @@ func (a *App) filterMenu(c *ui.Context) {
 				}
 			}
 		})
-		m.Submenu(a.tr("Rating", "评分"), func(sm *ui.Menu) {
-			if sm.Item(a.tr("Any rating", "全部评分")).Checked(a.ratingFilter < 0).Chosen() {
+		m.Submenu(a.t("filters.rating"), func(sm *ui.Menu) {
+			if sm.Item(a.t("filters.ratingAll")).Checked(a.ratingFilter < 0).Chosen() {
 				a.ratingFilter = -1
 				a.markDirty()
 			}
 			for i := 0; i <= 5; i++ {
 				i := i
-				label := a.tr("Unrated", "未评分")
+				label := a.t("filters.ratingUnrated")
 				if i > 0 {
 					label = strings.Repeat("★", i)
 				}
@@ -273,7 +294,7 @@ func (a *App) filterMenu(c *ui.Context) {
 		})
 		if a.hasFilters() {
 			m.Separator()
-			if m.Item(a.tr("Clear All Filters", "清除全部筛选")).Chosen() {
+			if m.Item(a.t("native.clear.all.filters")).Chosen() {
 				a.clearFilters()
 			}
 		}
@@ -315,7 +336,7 @@ func (a *App) viewFilterChips(c *ui.Context) {
 			}
 		}
 		if a.category != "all" {
-			add(a.tr("Type: ", "类型：")+a.category, func() { a.category = "all" })
+			add(a.t("native.type")+a.category, func() { a.category = "all" })
 		}
 		if a.colorFilter != "" {
 			add(a.colorFilter, func() { a.colorFilter = "" })
@@ -326,27 +347,27 @@ func (a *App) viewFilterChips(c *ui.Context) {
 			if f := a.findFolder(ff); f != nil {
 				name = f.Name
 			} else if ff == "__uncategorized__" {
-				name = a.tr("Uncategorized", "未分类")
+				name = a.t("native.uncategorized")
 			}
-			add(a.tr("Folder: ", "文件夹：")+name, func() { a.filterFolder = "" })
+			add(a.t("native.folder")+name, func() { a.filterFolder = "" })
 		}
 		if a.orientation != "all" {
-			add(a.tr("Orientation: ", "方向：")+a.orientation, func() { a.orientation = "all" })
+			add(a.t("native.orientation.2")+a.orientation, func() { a.orientation = "all" })
 		}
 		if a.sizeFilter != "all" {
-			add(a.tr("Size: ", "大小：")+a.sizeFilter, func() { a.sizeFilter = "all" })
+			add(a.t("native.size")+a.sizeFilter, func() { a.sizeFilter = "all" })
 		}
 		if a.hasURL != "all" {
-			add(a.tr("Link: ", "链接：")+a.hasURL, func() { a.hasURL = "all" })
+			add(a.t("native.link.2")+a.hasURL, func() { a.hasURL = "all" })
 		}
 		if a.hasNote != "all" {
-			add(a.tr("Note: ", "备注：")+a.hasNote, func() { a.hasNote = "all" })
+			add(a.t("native.note")+a.hasNote, func() { a.hasNote = "all" })
 		}
 		if a.ratingFilter >= 0 {
-			add(fmt.Sprintf(a.tr("Rating: %d", "评分：%d"), a.ratingFilter), func() { a.ratingFilter = -1 })
+			add(fmt.Sprintf(a.t("native.rating.d"), a.ratingFilter), func() { a.ratingFilter = -1 })
 		}
 		ui.Spacer(c)
-		if ui.Button(c, a.tr("Clear all", "清除全部")).FontSize(10).Clicked() {
+		if ui.Button(c, a.t("native.clear.all")).FontSize(10).Clicked() {
 			a.clearFilters()
 		}
 	})
@@ -354,6 +375,7 @@ func (a *App) viewFilterChips(c *ui.Context) {
 
 func (a *App) viewGallery(c *ui.Context) {
 	t := c.Theme()
+	a.beginGalleryFrame()
 	ui.Column(c).Fill().Background(t.Background).Children(func() {
 		if a.folderBreadcrumb() != "" {
 			ui.Row(c).Padding(4, 12).Height(26).Children(func() {
@@ -365,11 +387,11 @@ func (a *App) viewGallery(c *ui.Context) {
 			ui.Column(c).Fill().Center().Gap(8).Children(func() {
 				if a.loading {
 					ui.Spinner(c).Size(22, 22)
-					ui.Text(c, a.tr("Loading library…", "正在加载素材库…")).FontSize(12).TextColor(t.TextMuted)
+					ui.Text(c, a.t("native.loading.library")).FontSize(12).TextColor(t.TextMuted)
 				} else {
-					ui.Text(c, a.tr("Nothing here", "这里还没有素材")).FontSize(15).Bold()
-					ui.Text(c, a.tr("Import files or adjust the filters.", "导入文件，或调整筛选条件。")).FontSize(12).TextColor(t.TextMuted)
-					if ui.Button(c, a.tr("Import files…", "导入文件…")).Clicked() {
+					ui.Text(c, a.t("native.nothing.here")).FontSize(15).Bold()
+					ui.Text(c, a.t("native.import.files.or.adjust.the.filters")).FontSize(12).TextColor(t.TextMuted)
+					if ui.Button(c, a.t("native.import.files")).Clicked() {
 						a.chooseAndImportFiles()
 					}
 				}
@@ -379,9 +401,12 @@ func (a *App) viewGallery(c *ui.Context) {
 		switch a.layout {
 		case layoutList:
 			a.viewListLayout(c, vis)
+		case layoutJustified, layoutWaterfall:
+			a.viewCustomGallery(c, vis)
 		default:
 			a.viewGridLayout(c, vis)
 		}
+		a.prefetchAround(vis)
 	})
 }
 
@@ -392,7 +417,12 @@ func (a *App) viewGridLayout(c *ui.Context, vis []core.Item) {
 	a.grid.Selection = &a.selection
 	g := ui.GridView(c, &a.grid, len(vis), a.rowHeight*1.15, a.rowHeight+34, func(i int) {
 		a.gridCell(c, &vis[i], i)
-	}).Grow(1).Padding(6)
+	}).Grow(1).Padding(6).HandleInput(func(ev ui.InputEvent) bool {
+		return a.handleGalleryInput(ev)
+	})
+	if r := g.Bounds(); r.W > 0 {
+		a.galleryBounds = r
+	}
 	if g.Changed() {
 		if a.selectedIndex >= 0 && a.selectedIndex < len(vis) {
 			a.selectedID = vis[a.selectedIndex].ID
@@ -409,6 +439,7 @@ func (a *App) viewGridLayout(c *ui.Context, vis []core.Item) {
 func (a *App) gridCell(c *ui.Context, it *core.Item, idx int) {
 	t := c.Theme()
 	selected := a.selection.Has(it.ID)
+
 	cell := ui.Column(c).Key("cell:" + it.ID).FillHeight().Gap(4).Padding(4).Radius(8)
 	if selected {
 		cell.Background(t.Accent.Alpha(0.16)).Border(1, t.Accent)
@@ -419,9 +450,9 @@ func (a *App) gridCell(c *ui.Context, it *core.Item, idx int) {
 		box := ui.Box(c).Grow(1).FillWidth().Radius(6).Clip().
 			Background(themeHex(it.DominantColor, t.Surface))
 		box.Children(func() {
-			if bmp := a.thumbnail(it, a.rowHeight); bmp != nil {
+			if bmp := a.galleryBitmap(it, a.rowHeight); bmp != nil {
 				ui.Image(c, bmp).Fill().Fit(ui.Cover)
-			} else if a.thumbs.hasFailed(thumbKey(it, a.rowHeight)) {
+			} else if a.galleryFailed(it, a.rowHeight) {
 				ui.Column(c).Fill().Center().Children(func() {
 					ui.Text(c, extensionLabel(it.Extension)).FontSize(18).Bold().TextColor(t.TextMuted)
 				})
@@ -438,8 +469,17 @@ func (a *App) gridCell(c *ui.Context, it *core.Item, idx int) {
 			ui.Text(c, formatBytes(it.Size, 0)).FontSize(9).TextColor(t.TextMuted)
 		})
 	})
-	cell.DragDataFrom(func() transfer.Data { return a.fileDragData(it) }).
+	cell.DragDataFrom(func() transfer.Data { return a.fileDragData(it) }, a.dragOptionsFor(it)).
 		Drag(a.dragValuesFor(it))
+	if r := cell.Bounds(); r.W > 0 {
+		a.cellRects[it.ID] = r
+	}
+	if idx < a.visibleMin || a.visibleMin < 0 {
+		a.visibleMin = idx
+	}
+	if idx > a.visibleMax {
+		a.visibleMax = idx
+	}
 	cell.ContextMenu(func(m *ui.Menu) {
 		a.itemContextMenu(m, it)
 	})
@@ -452,7 +492,12 @@ func (a *App) viewListLayout(c *ui.Context, vis []core.Item) {
 	a.listState.Selection = &a.selection
 	l := ui.List(c, &a.listState, len(vis), func(i int) {
 		a.listRow(c, &vis[i], i)
-	}).Grow(1)
+	}).Grow(1).HandleInput(func(ev ui.InputEvent) bool {
+		return a.handleGalleryInput(ev)
+	})
+	if r := l.Bounds(); r.W > 0 {
+		a.galleryBounds = r
+	}
 	if l.Changed() {
 		if a.selectedIndex >= 0 && a.selectedIndex < len(vis) {
 			a.selectedID = vis[a.selectedIndex].ID
@@ -494,29 +539,38 @@ func (a *App) listRow(c *ui.Context, it *core.Item, idx int) {
 		})
 		ui.Text(c, formatDate(it.ImportedAt)).FontSize(10).TextColor(t.TextMuted)
 	})
-	row.DragDataFrom(func() transfer.Data { return a.fileDragData(it) }).Drag(a.dragValuesFor(it))
+	row.DragDataFrom(func() transfer.Data { return a.fileDragData(it) }, a.dragOptionsFor(it)).Drag(a.dragValuesFor(it))
+	if r := row.Bounds(); r.W > 0 {
+		a.cellRects[it.ID] = r
+	}
+	if idx < a.visibleMin || a.visibleMin < 0 {
+		a.visibleMin = idx
+	}
+	if idx > a.visibleMax {
+		a.visibleMax = idx
+	}
 	row.ContextMenu(func(m *ui.Menu) { a.itemContextMenu(m, it) })
 }
 
 func (a *App) itemContextMenu(m *ui.Menu, it *core.Item) {
-	if m.Item(a.tr("Preview", "预览")).Shortcut(0, ui.KeySpace).Chosen() {
+	if m.Item(a.t("inspector.preview")).Shortcut(0, ui.KeySpace).Chosen() {
 		a.openPreview(it.ID)
 	}
-	if m.Item(a.tr("Open", "用默认应用打开")).Chosen() {
+	if m.Item(a.t("native.open")).Chosen() {
 		a.openSelected()
 	}
-	if m.Item(a.tr("Reveal in Finder", "在访达中显示")).Chosen() {
+	if m.Item(a.t("native.reveal.in.finder")).Chosen() {
 		a.revealSelected()
 	}
 	m.Separator()
-	if m.Item(a.tr("Copy Path", "复制路径")).Chosen() {
+	if m.Item(a.t("settings.data.copyPath")).Chosen() {
 		a.copySelectedPaths()
 	}
-	if m.Item(a.tr("Copy Files", "复制文件")).Chosen() {
+	if m.Item(a.t("native.copy.files")).Chosen() {
 		a.copySelectedFiles()
 	}
 	if len(a.folders) > 0 {
-		m.Submenu(a.tr("Add to Folder", "加入文件夹"), func(sm *ui.Menu) {
+		m.Submenu(a.t("native.add.to.folder"), func(sm *ui.Menu) {
 			for _, row := range flattenFolderTree(a.folders) {
 				r := row
 				if sm.Item(r.Folder.Name).Chosen() {
@@ -525,23 +579,23 @@ func (a *App) itemContextMenu(m *ui.Menu, it *core.Item) {
 			}
 		})
 	}
-	fav := "☆ " + a.tr("Favorite", "收藏")
+	fav := "☆ " + a.t("inspector.favorite")
 	if contains(it.Tags, core.FavoriteTagName) {
-		fav = "★ " + a.tr("Unfavorite", "取消收藏")
+		fav = "★ " + a.t("native.unfavorite")
 	}
 	if m.Item(fav).Chosen() {
 		a.toggleFavorite(it.ID)
 	}
 	m.Separator()
 	if a.view == viewTrash {
-		if m.Item(a.tr("Restore", "恢复")).Chosen() {
+		if m.Item(a.t("contextMenu.restore")).Chosen() {
 			a.requestRestoreSelected()
 		}
-		if m.Item(a.tr("Delete Permanently", "永久删除")).Chosen() {
+		if m.Item(a.t("native.delete.permanently.2")).Chosen() {
 			a.requestDeleteSelected()
 		}
 	} else {
-		if m.Item(a.tr("Move to Trash", "移入废纸篓")).Chosen() {
+		if m.Item(a.t("native.move.to.trash.2")).Chosen() {
 			a.requestDeleteSelected()
 		}
 	}

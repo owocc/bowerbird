@@ -197,10 +197,7 @@ func (a *App) HandleProtocol(raw string) {
 			a.host.rebuildAll()
 		})
 		_ = a.svc.OpenSettingsWindow()
-		a.toast(a.tr(
-			"Plugins are not supported by the native build yet.",
-			"native 版暂不支持插件，已打开设置页说明。",
-		))
+		a.toast(a.t("native.plugins.are.not.supported.by.the.native."))
 		return
 	}
 	log.Printf("[NativeProtocol] unhandled deep link: %s", raw)

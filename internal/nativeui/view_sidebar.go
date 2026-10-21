@@ -29,75 +29,83 @@ func (a *App) viewSidebar(c *ui.Context) {
 				if len(recent) > 0 {
 					m.Separator()
 				}
-				if m.Item(a.tr("Open Library…", "打开素材库…")).Chosen() {
+				if m.Item(a.t("native.open.library")).Chosen() {
 					a.openLibraryDialog()
 				}
-				if m.Item(a.tr("New Library…", "新建素材库…")).Chosen() {
+				if m.Item(a.t("native.new.library")).Chosen() {
 					a.openSetup()
 				}
 				m.Separator()
-				if m.Item(a.tr("Close Library", "关闭素材库")).Chosen() {
+				if m.Item(a.t("sidebar.closeLibrary")).Chosen() {
 					a.closeLibrary()
 				}
 				m.Separator()
-				if m.Item(a.tr("Settings…", "设置…")).Chosen() {
+				if m.Item(a.t("appMenu.settings")).Chosen() {
 					a.openSettings()
 				}
-				if m.Item(a.tr("Logs…", "日志…")).Chosen() {
+				if m.Item(a.t("appMenu.logs")).Chosen() {
 					a.openLogs()
 				}
 			}).Grow(1)
-			if ui.Button(c, "＋").Label(a.tr("New folder", "新建文件夹")).Tooltip(a.tr("New folder", "新建文件夹")).
+			if ui.Button(c, "＋").Label(a.t("workspace.newFolder")).Tooltip(a.t("workspace.newFolder")).
 				Width(26).OnClick(func() { a.openNewFolder("") }).Clicked() {
 			}
 		})
 
 		ui.Scroll(c).Grow(1).Padding(6, 6, 12).Gap(1).Children(func() {
-			a.sidebarSection(c, a.tr("Library", "素材库"))
-			a.sidebarRow(c, a.tr("All Items", "全部素材"), "", len(a.items), a.view == viewAll && a.folderID == "" && a.tagFilter == "", 0, func() {
+			a.sidebarSection(c, a.t("native.library"))
+			a.sidebarRow(c, a.t("native.all.items"), "", len(a.items), a.view == viewAll && a.folderID == "" && a.tagFilter == "", 0, func() {
 				a.setView(viewAll)
 			}, "", false)
-			a.sidebarRow(c, a.tr("Untagged", "未标签"), "", a.untaggedCount, a.view == viewUntagged, 0, func() {
+			a.sidebarRow(c, a.t("filters.untagged"), "", a.untaggedCount, a.view == viewUntagged, 0, func() {
 				a.setView(viewUntagged)
 			}, "", false)
-			a.sidebarRow(c, a.tr("Uncategorized", "未分类"), "", a.uncategorizedCount, a.view == viewUncategorized, 0, func() {
+			a.sidebarRow(c, a.t("native.uncategorized"), "", a.uncategorizedCount, a.view == viewUncategorized, 0, func() {
 				a.setView(viewUncategorized)
 			}, "", false)
-			a.sidebarRow(c, a.tr("Trash", "废纸篓"), "", a.trashCount, a.view == viewTrash, 0, func() {
+			a.sidebarRow(c, a.t("sidebar.trash"), "", a.trashCount, a.view == viewTrash, 0, func() {
 				a.setView(viewTrash)
 			}, "__trash__", true)
+			a.sidebarRow(c, a.t("sidebar.history"), "", a.historyCount, a.view == viewHistory, 0, func() {
+				a.setView(viewHistory)
+			}, "", false)
 
 			ui.Row(c).Height(26).Padding(6, 8, 0, 8).Children(func() {
-				ui.Text(c, a.tr("Folders", "文件夹")).FontSize(11).Bold().TextColor(c.Theme().TextMuted).Grow(1)
-				if ui.Button(c, "＋").Label(a.tr("New folder", "新建文件夹")).Width(22).Clicked() {
+				ui.Text(c, a.t("native.folders")).FontSize(11).Bold().TextColor(c.Theme().TextMuted).Grow(1)
+				if ui.Button(c, "＋").Label(a.t("workspace.newFolder")).Width(22).Clicked() {
 					a.openNewFolder("")
 				}
 			})
 			if len(a.folders) == 0 {
-				ui.Text(c, a.tr("No folders yet", "还没有文件夹")).FontSize(11).TextColor(c.Theme().TextMuted).Padding(6, 12)
+				ui.Text(c, a.t("native.no.folders.yet")).FontSize(11).TextColor(c.Theme().TextMuted).Padding(6, 12)
 			}
 			a.folderRows(c, a.folders, 0)
+			if a.view == viewAll && a.folderID != "" {
+				ui.Row(c).Height(26).Padding(0, 10, 0, 14).Children(func() {
+					if ui.Checkbox(c, &a.includeSubfolders, a.t("native.include.subfolders")).Changed() {
+						a.subfolderSet = nil
+						a.markDirty()
+					}
+				})
+			}
 
 			ui.Row(c).Height(26).Padding(6, 8, 0, 8).Children(func() {
-				ui.Text(c, a.tr("Tags", "标签")).FontSize(11).Bold().TextColor(c.Theme().TextMuted).Grow(1)
+				ui.Text(c, a.t("native.tags")).FontSize(11).Bold().TextColor(c.Theme().TextMuted).Grow(1)
 				if a.tagFilter != "" {
-					if ui.Button(c, "✕").Label(a.tr("Clear tag", "清除标签")).Width(22).Clicked() {
+					if ui.Button(c, "✕").Label(a.t("native.clear.tag")).Width(22).Clicked() {
 						a.selectTag("")
 					}
 				}
+				if ui.Button(c, "＋").Label(a.t("tags.newTag")).Width(22).Clicked() {
+					a.openNewTag()
+				}
 			})
 			if len(a.tags) == 0 {
-				ui.Text(c, a.tr("No tags yet", "还没有标签")).FontSize(11).TextColor(c.Theme().TextMuted).Padding(6, 12)
+				ui.Text(c, a.t("native.no.tags.yet")).FontSize(11).TextColor(c.Theme().TextMuted).Padding(6, 12)
 			}
 			for _, tag := range a.tags {
 				tag := tag
-				a.sidebarRow(c, tag.Name, "", tag.ItemCount, a.tagFilter == tag.Name, 0, func() {
-					if a.tagFilter == tag.Name {
-						a.selectTag("")
-					} else {
-						a.selectTag(tag.Name)
-					}
-				}, "", false)
+				a.sidebarTagRow(c, tag)
 			}
 		})
 	})
@@ -150,19 +158,54 @@ func (a *App) sidebarRow(c *ui.Context, label, icon string, count int, selected 
 				if f == nil {
 					return
 				}
-				if m.Item(a.tr("New Subfolder…", "新建子文件夹…")).Chosen() {
+				if m.Item(a.t("native.new.subfolder")).Chosen() {
 					a.openNewFolder(f.ID)
 				}
-				if m.Item(a.tr("Rename…", "重命名…")).Chosen() {
+				if m.Item(a.t("native.rename")).Chosen() {
 					a.openRenameFolder(*f)
 				}
 				m.Separator()
-				if m.Item(a.tr("Delete Folder…", "删除文件夹…")).Chosen() {
+				if m.Item(a.t("native.delete.folder.2")).Chosen() {
 					a.requestDeleteFolder(*f)
 				}
 			})
 		}
 	}
+}
+
+// sidebarTagRow is a tag row with its delete action in a context menu.
+func (a *App) sidebarTagRow(c *ui.Context, tag core.Tag) {
+	t := c.Theme()
+	selected := a.tagFilter == tag.Name
+	row := ui.Row(c).Key("tag:"+tag.Name).Height(26).Padding(0, 8, 0, 8).
+		Gap(6).Radius(6).AlignItems(ui.Center).Cursor(ui.CursorPointer)
+	if selected {
+		row.Background(t.Accent.Alpha(0.18))
+	} else if row.Hovered() {
+		row.Background(t.SurfaceHover)
+	}
+	row.Children(func() {
+		ui.Text(c, "🏷").FontSize(10).TextColor(t.TextMuted)
+		text := ui.Text(c, tag.Name).FontSize(12).SingleLine().Grow(1)
+		if selected {
+			text.TextColor(t.Accent)
+		}
+		if tag.ItemCount > 0 {
+			ui.Textf(c, "%d", tag.ItemCount).FontSize(10).TextColor(t.TextMuted)
+		}
+	})
+	if row.Clicked() {
+		if selected {
+			a.selectTag("")
+		} else {
+			a.selectTag(tag.Name)
+		}
+	}
+	row.ContextMenu(func(m *ui.Menu) {
+		if m.Item(a.t("native.delete.tag.2")).Chosen() {
+			a.requestDeleteTag(tag.Name)
+		}
+	})
 }
 
 func (a *App) folderRows(c *ui.Context, folders []core.Folder, depth int) {
@@ -183,7 +226,7 @@ func (a *App) folderRows(c *ui.Context, folders []core.Folder, depth int) {
 				if a.expanded[f.ID] {
 					arrow = "v "
 				}
-				if ui.Button(c, arrow).Width(18).FontSize(10).Label(a.tr("Expand", "展开")).Clicked() {
+				if ui.Button(c, arrow).Width(18).FontSize(10).Label(a.t("native.expand")).Clicked() {
 					a.expanded[f.ID] = !a.expanded[f.ID]
 				}
 			} else {
@@ -207,14 +250,14 @@ func (a *App) folderRows(c *ui.Context, folders []core.Folder, depth int) {
 			row.Border(1, t.Accent)
 		}
 		row.ContextMenu(func(m *ui.Menu) {
-			if m.Item(a.tr("New Subfolder…", "新建子文件夹…")).Chosen() {
+			if m.Item(a.t("native.new.subfolder")).Chosen() {
 				a.openNewFolder(f.ID)
 			}
-			if m.Item(a.tr("Rename…", "重命名…")).Chosen() {
+			if m.Item(a.t("native.rename")).Chosen() {
 				a.openRenameFolder(f)
 			}
 			m.Separator()
-			if m.Item(a.tr("Delete Folder…", "删除文件夹…")).Chosen() {
+			if m.Item(a.t("native.delete.folder.2")).Chosen() {
 				a.requestDeleteFolder(f)
 			}
 		})

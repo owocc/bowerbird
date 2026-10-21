@@ -21,13 +21,18 @@ import (
 // imageCache keeps decoded bitmaps in a byte-bounded LRU. Bitmaps are made on
 // the main thread; decoding and scaling happen on workers.
 type imageCache struct {
-	mu      sync.Mutex
-	entries map[string]*imageEntry
-	max     int
-	budget  int64
-	bytes   int64
-	tick    uint64
+	mu       sync.Mutex
+	entries  map[string]*imageEntry
+	max      int
+	budget   int64
+	bytes    int64
+	tick     uint64
+	inflight int
 }
+
+// maxThumbLoads bounds concurrent decodes so a fast scroll cannot flood the
+// CPU with prefetches.
+const maxThumbLoads = 16
 
 type imageEntry struct {
 	bmp     *ui.Bitmap
@@ -64,12 +69,16 @@ func (c *imageCache) begin(key string) bool {
 			return false
 		}
 	}
+	if c.inflight >= maxThumbLoads {
+		return false
+	}
 	e := c.entries[key]
 	if e == nil {
 		e = &imageEntry{}
 		c.entries[key] = e
 	}
 	e.loading = true
+	c.inflight++
 	c.tick++
 	e.used = c.tick
 	return true
@@ -86,6 +95,9 @@ func (c *imageCache) fail(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e := c.entries[key]; e != nil {
+		if e.loading {
+			c.inflight--
+		}
 		e.loading = false
 		e.failed = true
 	}
@@ -106,6 +118,9 @@ func (c *imageCache) put(key string, img image.Image) {
 	}
 	if e.bmp != nil {
 		c.bytes -= e.bytes
+	}
+	if e.loading {
+		c.inflight--
 	}
 	e.bmp = bmp
 	e.bytes = size
@@ -135,10 +150,27 @@ func (c *imageCache) evictLocked() {
 	}
 }
 
+// setLimits resizes the cache budget, evicting the least recently used
+// entries when the new library's budget is smaller.
+func (c *imageCache) setLimits(max int, budget int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.max, c.budget = max, budget
+	c.evictLocked()
+}
+
+// stats reports the bytes held and the entry count, for the performance log.
+func (c *imageCache) stats() (int64, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bytes, len(c.entries)
+}
+
 func (c *imageCache) reset() {
 	c.mu.Lock()
 	c.entries = map[string]*imageEntry{}
 	c.bytes = 0
+	c.inflight = 0
 	c.mu.Unlock()
 }
 
@@ -171,8 +203,15 @@ func (a *App) thumbnail(it *core.Item, rowHeight float32) *ui.Bitmap {
 	if bmp := a.thumbs.get(key); bmp != nil {
 		return bmp
 	}
+	a.startThumbLoad(it, bucket, key)
+	return nil
+}
+
+// startThumbLoad decodes a thumbnail in the background and installs it on
+// the main thread. The cache's loading flag keeps duplicate requests out.
+func (a *App) startThumbLoad(it *core.Item, bucket int, key string) {
 	if !a.thumbs.begin(key) {
-		return nil
+		return
 	}
 	copied := *it
 	go func() {
@@ -183,10 +222,71 @@ func (a *App) thumbnail(it *core.Item, rowHeight float32) *ui.Bitmap {
 		}
 		a.update(func() {
 			a.thumbs.put(key, img)
+			a.maybeLogCacheMetrics()
 			a.host.invalidateAll()
 		})
 	}()
-	return nil
+}
+
+// warmThumb starts a background decode for an item that is about to be
+// visible, without making a bitmap in this frame.
+func (a *App) warmThumb(it *core.Item, rowHeight float32) {
+	bucket := thumbBucket(rowHeight)
+	key := thumbKey(it, rowHeight)
+	if a.thumbs.get(key) != nil {
+		return
+	}
+	a.prefetchStarted++
+	if a.prefetchStarted > 10 {
+		return
+	}
+	a.startThumbLoad(it, bucket, key)
+}
+
+// prefetchAround warms the thumbnails one screen before and after the items
+// last built, so a fast scroll does not rediscover every cell.
+func (a *App) prefetchAround(vis []core.Item) {
+	if a.visibleMin < 0 || a.visibleMax < a.visibleMin || len(vis) == 0 {
+		return
+	}
+	a.prefetchStarted = 0
+	rowHeight := a.rowHeight
+	if a.layout == layoutList {
+		rowHeight = 48
+	}
+	span := a.visibleMax - a.visibleMin + 1
+	lo := a.visibleMin - span
+	hi := a.visibleMax + span
+	if lo < 0 {
+		lo = 0
+	}
+	if hi >= len(vis) {
+		hi = len(vis) - 1
+	}
+	for i := lo; i <= hi; i++ {
+		if i >= a.visibleMin && i <= a.visibleMax {
+			continue
+		}
+		if isAnimatedGIF(&vis[i]) {
+			continue
+		}
+		a.warmThumb(&vis[i], rowHeight)
+	}
+}
+
+// thumbLimits adapts the thumbnail cache to the library size: small libraries
+// keep a tight cache, large ones get room for a few screens more.
+func thumbLimits(items int) (int, int64) {
+	switch {
+	case items < 2000:
+		return 300, 96 << 20
+	case items < 20000:
+		return 600, 192 << 20
+	case items < 100000:
+		return 1000, 320 << 20
+	default:
+		return 1600, 512 << 20
+	}
 }
 
 func (a *App) previewImage(it *core.Item) *ui.Bitmap {

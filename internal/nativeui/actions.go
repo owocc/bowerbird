@@ -21,6 +21,7 @@ func (a *App) setView(v string) {
 	a.view = v
 	a.folderID = ""
 	a.tagFilter = ""
+	a.subfolderSet = nil
 	a.selection.Clear()
 	a.selectedIndex = -1
 	a.selectedID = ""
@@ -32,6 +33,7 @@ func (a *App) setView(v string) {
 func (a *App) selectFolder(id string) {
 	a.view = viewAll
 	a.folderID = id
+	a.subfolderSet = nil
 	a.tagFilter = ""
 	a.selectedIndex = -1
 	a.selectedID = ""
@@ -44,6 +46,7 @@ func (a *App) selectFolder(id string) {
 func (a *App) selectTag(name string) {
 	a.view = viewAll
 	a.folderID = ""
+	a.subfolderSet = nil
 	a.tagFilter = name
 	a.selectedIndex = -1
 	a.selectedID = ""
@@ -62,6 +65,8 @@ func (a *App) setSortAsc(asc bool) {
 
 func (a *App) setLayout(l string) {
 	a.layout = l
+	a.layoutCache = nil
+	a.layoutGen++
 	a.invalidate()
 }
 
@@ -130,11 +135,11 @@ func (a *App) activeFilterCount() int {
 func (a *App) chooseAndImportFiles() {
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:    a.tr("Import files", "导入文件"),
+			Title:    a.t("inspector.importFiles"),
 			Multiple: true,
 			Filters: []mygo.FileFilter{
-				{Name: a.tr("Media", "媒体文件"), Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "mp4", "mov", "mkv", "webm", "mp3", "wav", "pdf", "zip"}},
-				{Name: a.tr("All files", "所有文件"), Extensions: []string{"*"}},
+				{Name: a.t("native.media"), Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "mp4", "mov", "mkv", "webm", "mp3", "wav", "pdf", "zip"}},
+				{Name: a.t("native.all.files"), Extensions: []string{"*"}},
 			},
 		})
 		if err != nil {
@@ -212,7 +217,7 @@ func (a *App) importPaths(paths []string, folderID string) {
 			a.thumbs.reset()
 			a.refreshAll()
 			if err == nil {
-				a.pendingToast = fmt.Sprintf(a.tr("Imported %d file(s)", "已导入 %d 个文件"), len(items))
+				a.pendingToast = fmt.Sprintf(a.t("native.imported.d.file.s"), len(items))
 			}
 			a.host.invalidateAll()
 		})
@@ -229,14 +234,15 @@ func (a *App) requestDeleteSelected() {
 	}
 	if a.view == viewTrash {
 		a.confirm.open = true
-		a.confirm.title = a.tr("Delete permanently?", "永久删除？")
-		a.confirm.msg = fmt.Sprintf(a.tr("%d item(s) will be deleted and cannot be recovered.", "将永久删除 %d 个素材，无法恢复。"), len(items))
+		a.confirm.title = a.t("native.delete.permanently")
+		a.confirm.msg = fmt.Sprintf(a.t("native.d.item.s.will.be.deleted.and.cannot.be.r"), len(items))
 		a.confirm.action = "delete-permanent"
 		return
 	}
 	a.confirm.open = true
-	a.confirm.title = a.tr("Move to Trash?", "移入废纸篓？")
-	a.confirm.msg = fmt.Sprintf(a.tr("%d item(s) will be moved to the trash.", "将把 %d 个素材移入废纸篓。"), len(items))
+	a.confirm.window = "main"
+	a.confirm.title = a.t("native.move.to.trash")
+	a.confirm.msg = fmt.Sprintf(a.t("native.d.item.s.will.be.moved.to.the.trash"), len(items))
 	a.confirm.action = "trash"
 }
 
@@ -256,7 +262,7 @@ func (a *App) requestRestoreSelected() {
 		}
 		a.update(func() {
 			a.refreshAll()
-			a.pendingToast = a.tr("Restored", "已恢复")
+			a.pendingToast = a.t("native.restored")
 			a.host.invalidateAll()
 		})
 	}()
@@ -264,8 +270,9 @@ func (a *App) requestRestoreSelected() {
 
 func (a *App) requestEmptyTrash() {
 	a.confirm.open = true
-	a.confirm.title = a.tr("Empty Trash?", "清空废纸篓？")
-	a.confirm.msg = a.tr("Every item in the trash will be deleted permanently.", "废纸篓中的所有素材将被永久删除。")
+	a.confirm.window = "main"
+	a.confirm.title = a.t("native.empty.trash")
+	a.confirm.msg = a.t("native.every.item.in.the.trash.will.be.deleted.")
 	a.confirm.action = "empty-trash"
 }
 
@@ -287,7 +294,7 @@ func (a *App) runConfirm(kind string) {
 				a.selectedIndex = -1
 				a.selectedID = ""
 				a.refreshAll()
-				a.pendingToast = a.tr("Moved to Trash", "已移入废纸篓")
+				a.pendingToast = a.t("native.moved.to.trash")
 				a.host.invalidateAll()
 			})
 		}()
@@ -315,12 +322,20 @@ func (a *App) runConfirm(kind string) {
 			}
 			a.update(func() {
 				a.refreshAll()
-				a.pendingToast = a.tr("Trash emptied", "废纸篓已清空")
+				a.pendingToast = a.t("workspace.emptyTrashSuccess")
 				a.host.invalidateAll()
 			})
 		}()
 	case "delete-folder":
 		a.doDeleteFolder()
+	case "delete-tag":
+		name := a.confirmTag
+		a.confirmTag = ""
+		a.deleteTag(name)
+	case "delete-library":
+		path := a.confirmPath
+		a.confirmPath = ""
+		a.deleteLibrary(path)
 	}
 }
 
@@ -349,7 +364,7 @@ func (a *App) saveEditor() {
 		a.update(func() {
 			a.editorDirty = false
 			a.refreshItems()
-			a.pendingToast = a.tr("Saved", "已保存")
+			a.pendingToast = a.t("native.saved")
 			a.host.invalidateAll()
 		})
 	}()
@@ -418,6 +433,7 @@ func (a *App) setTagsForSelection(tags []string) {
 
 func (a *App) addSelectedToFolder(folderID string) {
 	ids := a.selectedIDs()
+	a.markInternalDrop()
 	go func() {
 		for _, id := range ids {
 			if err := a.svc.AddItemToFolder(id, folderID); err != nil {
@@ -427,7 +443,7 @@ func (a *App) addSelectedToFolder(folderID string) {
 		}
 		a.update(func() {
 			a.refreshItems()
-			a.pendingToast = a.tr("Added to folder", "已加入文件夹")
+			a.pendingToast = a.t("native.added.to.folder")
 			a.host.invalidateAll()
 		})
 	}()
@@ -437,6 +453,7 @@ func (a *App) moveToFolder(ids []string, folderID string) {
 	if len(ids) == 0 {
 		return
 	}
+	a.markInternalDrop()
 	go func() {
 		for _, id := range ids {
 			if err := a.svc.SetItemFolders(id, []string{folderID}); err != nil {
@@ -446,7 +463,7 @@ func (a *App) moveToFolder(ids []string, folderID string) {
 		}
 		a.update(func() {
 			a.refreshItems()
-			a.pendingToast = a.tr("Moved", "已移动")
+			a.pendingToast = a.t("native.moved")
 			a.host.invalidateAll()
 		})
 	}()
@@ -456,6 +473,7 @@ func (a *App) trashIDs(ids []string) {
 	if len(ids) == 0 {
 		return
 	}
+	a.markInternalDrop()
 	go func() {
 		if err := a.svc.BatchMoveToTrash(ids); err != nil {
 			a.report(err)
@@ -520,7 +538,7 @@ func (a *App) copySelectedPaths() {
 		return
 	}
 	if err := a.svc.WriteClipboardText(strings.Join(parts, "\n")); err == nil {
-		a.toast(a.tr("Path copied", "路径已复制"))
+		a.toast(a.t("native.path.copied"))
 	}
 }
 
@@ -536,7 +554,7 @@ func (a *App) copySelectedFiles() {
 	if err := a.svc.CopyItemsToClipboard(a.selectedIDs()); err != nil {
 		a.report(err)
 	} else {
-		a.toast(a.tr("Files copied", "文件已复制"))
+		a.toast(a.t("native.files.copied"))
 	}
 }
 
@@ -585,6 +603,106 @@ func (a *App) fileDragData(it *core.Item) transfer.Data {
 	return data
 }
 
+// setRatingForSelection applies one rating to every selected item, keeping
+// each item's own note, URL and prompt.
+func (a *App) setRatingForSelection(rating int) {
+	items := a.selectedItems()
+	go func() {
+		for i := range items {
+			it := items[i]
+			if _, err := a.svc.UpdateItemDetails(it.ID, it.Note, it.URL, rating, it.Prompt); err != nil {
+				a.report(err)
+				return
+			}
+		}
+		a.update(func() {
+			a.bulkRating = rating
+			a.refreshItems()
+			a.pendingToast = a.t("native.rating.applied")
+			a.host.invalidateAll()
+		})
+	}()
+}
+
+// setNoteForSelection replaces the note of every selected item, keeping its
+// rating, URL and prompt.
+func (a *App) setNoteForSelection(note string) {
+	items := a.selectedItems()
+	go func() {
+		for i := range items {
+			it := items[i]
+			if _, err := a.svc.UpdateItemDetails(it.ID, note, it.URL, it.Rating, it.Prompt); err != nil {
+				a.report(err)
+				return
+			}
+		}
+		a.update(func() {
+			a.refreshItems()
+			a.pendingToast = a.t("native.note.applied")
+			a.host.invalidateAll()
+		})
+	}()
+}
+
+// openNewTag shows the small create-tag dialog.
+func (a *App) openNewTag() {
+	a.tagDialog.open = true
+	a.tagDialog.name = ""
+	a.invalidate()
+}
+
+func (a *App) submitTagDialog() {
+	name := strings.TrimSpace(a.tagDialog.name)
+	if name == "" {
+		return
+	}
+	a.tagDialog.open = false
+	go func() {
+		if _, err := a.svc.CreateTag(name); err != nil {
+			a.report(err)
+			return
+		}
+		a.update(func() {
+			a.refreshAll()
+			a.pendingToast = fmt.Sprintf(a.t("native.tag.s.created"), name)
+			a.host.invalidateAll()
+		})
+	}()
+}
+
+func (a *App) requestDeleteTag(name string) {
+	if name == "" || name == core.FavoriteTagName {
+		return
+	}
+	a.confirmTag = name
+	a.confirm.open = true
+	a.confirm.window = "main"
+	a.confirm.title = a.t("native.delete.tag")
+	a.confirm.msg = fmt.Sprintf(a.t("native.delete.s.it.will.be.removed.from.every.i"), name)
+	a.confirm.action = "delete-tag"
+	a.invalidate()
+}
+
+func (a *App) deleteTag(name string) {
+	if name == "" || name == core.FavoriteTagName {
+		return
+	}
+	go func() {
+		if err := a.svc.DeleteTag(name); err != nil {
+			a.report(err)
+			return
+		}
+		a.update(func() {
+			if a.tagFilter == name {
+				a.tagFilter = ""
+			}
+			a.refreshAll()
+			a.pendingToast = a.t("native.tag.deleted")
+			a.host.invalidateAll()
+		})
+	}()
+}
+
 // ---------------------------------------------------------------------------
 // Folders
 
@@ -593,7 +711,7 @@ func (a *App) openNewFolder(parent string) {
 	a.folderDialog.rename = false
 	a.folderDialog.id = ""
 	a.folderDialog.parent = parent
-	a.folderDialog.name = a.tr("New Folder", "新建文件夹")
+	a.folderDialog.name = a.t("sidebar.newFolder")
 	a.invalidate()
 }
 
@@ -642,8 +760,9 @@ func (a *App) submitFolderDialog() {
 func (a *App) requestDeleteFolder(f core.Folder) {
 	a.folderDialog.id = f.ID
 	a.confirm.open = true
-	a.confirm.title = a.tr("Delete folder?", "删除文件夹？")
-	a.confirm.msg = fmt.Sprintf(a.tr("Delete “%s”? Items inside are kept in the library.", "删除“%s”？其中的素材仍保留在库中。"), f.Name)
+	a.confirm.window = "main"
+	a.confirm.title = a.t("native.delete.folder")
+	a.confirm.msg = fmt.Sprintf(a.t("native.delete.s.items.inside.are.kept.in.the.li"), f.Name)
 	a.confirm.action = "delete-folder"
 }
 
@@ -673,6 +792,7 @@ func (a *App) doDeleteFolder() {
 func (a *App) openPreview(id string) {
 	a.preview.open = true
 	a.preview.id = id
+	a.previewResetZoom()
 	a.invalidate()
 }
 
@@ -718,6 +838,7 @@ func (a *App) previewStep(delta int) {
 	}
 	idx = (idx + delta + len(vis)) % len(vis)
 	a.preview.id = vis[idx].ID
+	a.previewResetZoom()
 	a.selectedID = vis[idx].ID
 	a.selectedIndex = idx
 	a.invalidate()
@@ -757,7 +878,7 @@ func (a *App) createLibrary() {
 	name := strings.TrimSpace(a.setupName)
 	dir := strings.TrimSpace(a.setupDir)
 	if name == "" || dir == "" {
-		a.toast(a.tr("Choose a folder and a library name.", "请选择目录并填写库名称。"))
+		a.toast(a.t("native.choose.a.folder.and.a.library.name"))
 		return
 	}
 	go func() {
@@ -767,7 +888,7 @@ func (a *App) createLibrary() {
 		}
 		a.update(func() {
 			a.refreshAll()
-			a.pendingToast = a.tr("Library created", "库已创建")
+			a.pendingToast = a.t("native.library.created")
 			a.host.rebuildAll()
 		})
 	}()
@@ -796,6 +917,64 @@ func (a *App) openLibraryPath(path string) {
 		a.update(func() {
 			a.thumbs.reset()
 			a.refreshAll()
+			a.host.invalidateAll()
+		})
+	}()
+}
+
+// requestDeleteLibrary asks before moving a library folder to the Trash. The
+// folder leaves the recent list too, and is closed first when it is active.
+func (a *App) requestDeleteLibrary(path string) {
+	a.requestDeleteLibraryFor(path, "main")
+}
+
+// requestDeleteLibraryFor arms the confirmation in the window that asked:
+// the setup window and the main workspace each draw their own dialogs.
+func (a *App) requestDeleteLibraryFor(path, window string) {
+	if path == "" {
+		return
+	}
+	a.confirmPath = path
+	a.confirm.open = true
+	a.confirm.window = window
+	a.confirm.title = a.t("native.delete.library")
+	a.confirm.msg = fmt.Sprintf(a.t("native.delete.library.message"), path)
+	a.confirm.action = "delete-library"
+	a.invalidate()
+}
+
+func (a *App) deleteLibrary(path string) {
+	activePath := ""
+	if a.lib != nil {
+		activePath = a.lib.Path
+	}
+	go func() {
+		if activePath == path {
+			if err := a.svc.CloseLibrary(); err != nil {
+				a.report(err)
+				return
+			}
+		}
+		if a.mgr != nil {
+			if store := a.mgr.GetUserDataStore(); store != nil {
+				if err := store.RemoveRecentLibrary(path); err != nil {
+					log.Printf("[NativeLibrary] remove recent %s: %v", path, err)
+				}
+			}
+		}
+		if err := a.trashPath(path); err != nil {
+			a.report(err)
+			return
+		}
+		a.update(func() {
+			if a.lib != nil && a.lib.Path == path {
+				a.lib = nil
+				a.items = nil
+				a.trash = nil
+				a.visibleSet = false
+			}
+			a.refreshAll()
+			a.pendingToast = a.t("native.library.moved.to.trash")
 			a.host.invalidateAll()
 		})
 	}()
@@ -896,7 +1075,7 @@ func (a *App) saveNetworkSettings() {
 			return
 		}
 		a.update(func() {
-			a.pendingToast = a.tr("Network settings saved", "网络设置已保存")
+			a.pendingToast = a.t("native.network.settings.saved")
 			a.host.invalidateAll()
 		})
 	}()
@@ -918,7 +1097,7 @@ func (a *App) testNetwork() {
 				a.testResult = err.Error()
 			} else if res != nil {
 				if res.Success {
-					a.testResult = fmt.Sprintf(a.tr("OK — %d ms, proxy %s", "成功 — %d ms，代理 %s"), res.LatencyMs, res.ActiveProxy)
+					a.testResult = fmt.Sprintf(a.t("native.ok.d.ms.proxy.s"), res.LatencyMs, res.ActiveProxy)
 				} else {
 					a.testResult = res.Error
 				}

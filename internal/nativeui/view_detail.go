@@ -21,8 +21,8 @@ func (a *App) viewInspector(c *ui.Context) {
 		it := a.activeItem()
 		if it == nil {
 			ui.Column(c).Fill().Center().Padding(24).Gap(8).Children(func() {
-				ui.Text(c, a.tr("Nothing selected", "未选择素材")).FontSize(13).TextColor(t.TextMuted)
-				ui.Text(c, a.tr("Select an item to inspect it.", "选择素材以查看详情。")).FontSize(11).TextColor(t.TextMuted).TextAlign(ui.Center)
+				ui.Text(c, a.t("native.nothing.selected")).FontSize(13).TextColor(t.TextMuted)
+				ui.Text(c, a.t("native.select.an.item.to.inspect.it")).FontSize(11).TextColor(t.TextMuted).TextAlign(ui.Center)
 			})
 			return
 		}
@@ -49,22 +49,22 @@ func (a *App) viewInspector(c *ui.Context) {
 			}
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				fav := contains(it.Tags, core.FavoriteTagName)
-				label := "☆ " + a.tr("Favorite", "收藏")
+				label := "☆ " + a.t("inspector.favorite")
 				if fav {
-					label = "★ " + a.tr("Favorited", "已收藏")
+					label = "★ " + a.t("inspector.favorited")
 				}
 				if ui.Button(c, label).Clicked() {
 					a.toggleFavorite(it.ID)
 				}
 				ui.Spacer(c)
 				if a.editorDirty {
-					if ui.PrimaryButton(c, a.tr("Save", "保存")).Clicked() {
+					if ui.PrimaryButton(c, a.t("common.save")).Clicked() {
 						a.saveEditor()
 					}
 				}
 			})
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, a.tr("Rating", "评分")).FontSize(11).TextColor(t.TextMuted)
+				ui.Text(c, a.t("filters.rating")).FontSize(11).TextColor(t.TextMuted)
 				r := a.draftRating
 				if ui.Rating(c, &r, 5).Changed() {
 					a.draftRating = r
@@ -75,16 +75,16 @@ func (a *App) viewInspector(c *ui.Context) {
 			a.inspectorDivider(c)
 
 			// Tags.
-			ui.Text(c, a.tr("Tags", "标签")).FontSize(11).Bold().TextColor(t.TextMuted)
+			ui.Text(c, a.t("native.tags")).FontSize(11).Bold().TextColor(t.TextMuted)
 			if ui.TokenField(c, &a.draftTags, a.tagNames()).Changed() {
 				a.setItemTags(it.ID, a.draftTags)
 			}
 
 			// Folders.
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, a.tr("Folders", "文件夹")).FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
+				ui.Text(c, a.t("native.folders")).FontSize(11).Bold().TextColor(t.TextMuted).Grow(1)
 				if len(a.folders) > 0 {
-					ui.MenuButton(c, a.tr("Add", "添加"), func(m *ui.Menu) {
+					ui.MenuButton(c, a.t("inspector.add"), func(m *ui.Menu) {
 						for _, row := range flattenFolderTree(a.folders) {
 							r := row
 							if m.Item(r.Folder.Name).Chosen() {
@@ -95,7 +95,7 @@ func (a *App) viewInspector(c *ui.Context) {
 				}
 			})
 			if len(it.Folders) == 0 {
-				ui.Text(c, a.tr("Not in a folder", "未加入文件夹")).FontSize(11).TextColor(t.TextMuted)
+				ui.Text(c, a.t("native.not.in.a.folder")).FontSize(11).TextColor(t.TextMuted)
 			}
 			for _, fid := range it.Folders {
 				fid := fid
@@ -105,7 +105,7 @@ func (a *App) viewInspector(c *ui.Context) {
 				}
 				ui.Row(c).Height(24).Gap(4).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, name).FontSize(11).Grow(1).SingleLine()
-					if ui.Button(c, "✕").Width(20).Label(a.tr("Remove from folder", "移出文件夹")).Clicked() {
+					if ui.Button(c, "✕").Width(20).Label(a.t("native.remove.from.folder")).Clicked() {
 						a.removeFromFolder(it.ID, fid)
 					}
 				})
@@ -114,8 +114,8 @@ func (a *App) viewInspector(c *ui.Context) {
 			a.inspectorDivider(c)
 
 			// Editable metadata.
-			ui.Text(c, a.tr("Note", "备注")).FontSize(11).Bold().TextColor(t.TextMuted)
-			if ui.TextArea(c, &a.draftNote).Height(76).Placeholder(a.tr("Add a note…", "添加备注…")).Changed() {
+			ui.Text(c, a.t("inspector.note")).FontSize(11).Bold().TextColor(t.TextMuted)
+			if ui.TextArea(c, &a.draftNote).Height(76).Placeholder(a.t("native.add.a.note")).Changed() {
 				a.editorDirty = true
 			}
 			ui.Text(c, "URL").FontSize(11).Bold().TextColor(t.TextMuted)
@@ -127,7 +127,7 @@ func (a *App) viewInspector(c *ui.Context) {
 				a.editorDirty = true
 			}
 			if a.editorDirty {
-				if ui.PrimaryButton(c, a.tr("Save changes", "保存修改")).Clicked() || c.Shortcut(ui.Cmd, ui.KeyS) {
+				if ui.PrimaryButton(c, a.t("native.save.changes")).Clicked() || c.Shortcut(ui.Cmd, ui.KeyS) {
 					a.saveEditor()
 				}
 			}
@@ -137,24 +137,24 @@ func (a *App) viewInspector(c *ui.Context) {
 
 			a.inspectorDivider(c)
 			ui.Row(c).Gap(6).Wrap().Children(func() {
-				if ui.Button(c, a.tr("Open", "打开")).Clicked() {
+				if ui.Button(c, a.t("native.open")).Clicked() {
 					a.openSelected()
 				}
-				if ui.Button(c, a.tr("Reveal", "在访达中显示")).Clicked() {
+				if ui.Button(c, a.t("native.reveal")).Clicked() {
 					a.revealSelected()
 				}
-				if ui.Button(c, a.tr("Copy Path", "复制路径")).Clicked() {
+				if ui.Button(c, a.t("settings.data.copyPath")).Clicked() {
 					a.copySelectedPaths()
 				}
 				if a.view == viewTrash {
-					if ui.Button(c, a.tr("Restore", "恢复")).Clicked() {
+					if ui.Button(c, a.t("contextMenu.restore")).Clicked() {
 						a.requestRestoreSelected()
 					}
-					if ui.Button(c, a.tr("Delete", "删除")).Clicked() {
+					if ui.Button(c, a.t("common.delete")).Clicked() {
 						a.requestDeleteSelected()
 					}
 				} else {
-					if ui.Button(c, a.tr("Delete", "删除")).Clicked() {
+					if ui.Button(c, a.t("common.delete")).Clicked() {
 						a.requestDeleteSelected()
 					}
 				}
@@ -175,23 +175,23 @@ func (a *App) viewItemMeta(c *ui.Context, it *core.Item) {
 			ui.Text(c, value).FontSize(10).Grow(1).Selectable().SingleLine()
 		})
 	}
-	row(a.tr("Type", "类型"), strings.ToUpper(it.Extension)+" · "+it.MimeType)
-	row(a.tr("Size", "大小"), fmt.Sprintf("%s · %dx%d", formatBytes(it.Size, 1), it.Width, it.Height))
+	row(a.t("filters.type"), strings.ToUpper(it.Extension)+" · "+it.MimeType)
+	row(a.t("filters.size"), fmt.Sprintf("%s · %dx%d", formatBytes(it.Size, 1), it.Width, it.Height))
 	if it.Meta != nil {
 		if it.Meta.Megapixels != "" {
-			row(a.tr("Megapixels", "像素"), it.Meta.Megapixels)
+			row(a.t("native.megapixels"), it.Meta.Megapixels)
 		}
 		if it.Meta.ExifModel != "" {
-			row(a.tr("Camera", "相机"), strings.TrimSpace(it.Meta.ExifMake+" "+it.Meta.ExifModel))
+			row(a.t("inspector.camera"), strings.TrimSpace(it.Meta.ExifMake+" "+it.Meta.ExifModel))
 		}
 		if it.Meta.ExifDate != "" {
-			row(a.tr("Taken", "拍摄"), it.Meta.ExifDate)
+			row(a.t("native.taken"), it.Meta.ExifDate)
 		}
 	}
-	row(a.tr("Imported", "导入"), formatDate(it.ImportedAt))
-	row(a.tr("Created", "创建"), formatDate(it.CreatedAt))
-	row(a.tr("Hash", "哈希"), it.Hex)
-	row(a.tr("File", "文件"), a.itemPath(it))
+	row(a.t("native.imported"), formatDate(it.ImportedAt))
+	row(a.t("native.created"), formatDate(it.CreatedAt))
+	row(a.t("native.hash"), it.Hex)
+	row(a.t("native.file"), a.itemPath(it))
 	if it.URL != "" {
 		ui.Row(c).Gap(6).Children(func() {
 			ui.Text(c, "URL").FontSize(10).TextColor(t.TextMuted).Width(78)
@@ -200,8 +200,27 @@ func (a *App) viewItemMeta(c *ui.Context, it *core.Item) {
 	}
 }
 
+// multiSelectionKey identifies a selection, for resetting per-selection drafts.
+func multiSelectionKey(sel []core.Item) string {
+	if len(sel) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i := range sel {
+		b.WriteString(sel[i].ID)
+		b.WriteByte('|')
+	}
+	return b.String()
+}
+
 func (a *App) viewMultiInspector(c *ui.Context, sel []core.Item) {
 	t := c.Theme()
+	key := multiSelectionKey(sel)
+	if key != a.bulkKey {
+		a.bulkKey = key
+		a.bulkRating = 0
+		a.bulkNote = ""
+	}
 	var total int64
 	cats := map[string]int{}
 	for i := range sel {
@@ -209,7 +228,7 @@ func (a *App) viewMultiInspector(c *ui.Context, sel []core.Item) {
 		cats[fileCategory(sel[i].Extension, sel[i].MimeType)]++
 	}
 	ui.Scroll(c).Grow(1).Padding(12).Gap(10).Children(func() {
-		ui.Textf(c, a.tr("%d items selected", "已选 %d 个素材"), len(sel)).FontSize(15).Bold()
+		ui.Textf(c, a.t("native.d.items.selected"), len(sel)).FontSize(15).Bold()
 		ui.Text(c, formatBytes(total, 1)).FontSize(11).TextColor(t.TextMuted)
 		ui.Row(c).Gap(6).Wrap().Children(func() {
 			for _, cat := range []string{"image", "video", "audio", "document", "archive", "other"} {
@@ -219,14 +238,38 @@ func (a *App) viewMultiInspector(c *ui.Context, sel []core.Item) {
 			}
 		})
 		a.inspectorDivider(c)
-		ui.Text(c, a.tr("Tags for all selected", "为全部选中项设置标签")).FontSize(11).Bold().TextColor(t.TextMuted)
+		ui.Text(c, a.t("native.tags.for.all.selected")).FontSize(11).Bold().TextColor(t.TextMuted)
 		if ui.TokenField(c, &a.bulkTags, a.tagNames()).Changed() {
 			a.setTagsForSelection(a.bulkTags)
 		}
 		a.inspectorDivider(c)
+		ui.Text(c, a.t("native.rating.for.all.selected")).FontSize(11).Bold().TextColor(t.TextMuted)
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			r := a.bulkRating
+			if ui.Rating(c, &r, 5).Changed() {
+				a.bulkRating = r
+				a.setRatingForSelection(r)
+			}
+			ui.Textf(c, "%d / 5", a.bulkRating).FontSize(10).TextColor(t.TextMuted)
+		})
+		ui.Row(c).Gap(6).Children(func() {
+			for _, r := range []int{0, 1, 2, 3, 4, 5} {
+				r := r
+				if ui.Button(c, fmt.Sprintf("%d", r)).Width(28).Label(fmt.Sprintf("%d stars", r)).Clicked() {
+					a.setRatingForSelection(r)
+				}
+			}
+		})
+		a.inspectorDivider(c)
+		ui.Text(c, a.t("native.note.for.all.selected")).FontSize(11).Bold().TextColor(t.TextMuted)
+		ui.TextArea(c, &a.bulkNote).Height(64).Placeholder(a.t("native.replace.the.note.of.every.selected.item"))
+		if ui.PrimaryButton(c, a.t("native.apply.note")).Clicked() {
+			a.setNoteForSelection(a.bulkNote)
+		}
+		a.inspectorDivider(c)
 		ui.Row(c).Gap(6).Wrap().Children(func() {
 			if len(a.folders) > 0 {
-				ui.MenuButton(c, a.tr("Add to Folder", "加入文件夹"), func(m *ui.Menu) {
+				ui.MenuButton(c, a.t("native.add.to.folder"), func(m *ui.Menu) {
 					for _, row := range flattenFolderTree(a.folders) {
 						r := row
 						if m.Item(r.Folder.Name).Chosen() {
@@ -235,22 +278,22 @@ func (a *App) viewMultiInspector(c *ui.Context, sel []core.Item) {
 					}
 				})
 			}
-			if ui.Button(c, a.tr("Copy Paths", "复制路径")).Clicked() {
+			if ui.Button(c, a.t("native.copy.paths")).Clicked() {
 				a.copySelectedPaths()
 			}
 			if a.view == viewTrash {
-				if ui.Button(c, a.tr("Restore", "恢复")).Clicked() {
+				if ui.Button(c, a.t("contextMenu.restore")).Clicked() {
 					a.requestRestoreSelected()
 				}
-				if ui.Button(c, a.tr("Delete", "删除")).Clicked() {
+				if ui.Button(c, a.t("common.delete")).Clicked() {
 					a.requestDeleteSelected()
 				}
 			} else {
-				if ui.Button(c, a.tr("Delete", "删除")).Clicked() {
+				if ui.Button(c, a.t("common.delete")).Clicked() {
 					a.requestDeleteSelected()
 				}
 			}
-			if ui.Button(c, a.tr("Clear Selection", "清除选择")).Clicked() {
+			if ui.Button(c, a.t("native.clear.selection")).Clicked() {
 				a.selection.Clear()
 				a.selectedIndex = -1
 				a.selectedID = ""
@@ -259,7 +302,7 @@ func (a *App) viewMultiInspector(c *ui.Context, sel []core.Item) {
 		a.inspectorDivider(c)
 		for i := range sel {
 			if i >= 50 {
-				ui.Textf(c, a.tr("… and %d more", "… 还有 %d 个"), len(sel)-50).FontSize(10).TextColor(t.TextMuted)
+				ui.Textf(c, a.t("native.and.d.more"), len(sel)-50).FontSize(10).TextColor(t.TextMuted)
 				break
 			}
 			it := sel[i]
