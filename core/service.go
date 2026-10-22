@@ -107,6 +107,42 @@ func (s *Service) GetItems(query string, sortOrder string) ([]Item, error) {
 	return s.mgr.GetItems(query, sortOrder)
 }
 
+// QueryWorkspace runs one paginated desktop query through the shared engine.
+// folderScope/onlyUnrated are desktop-only additive filters; the query grammar
+// itself is unchanged.
+func (s *Service) QueryWorkspace(query string, sortOrder string, offset int, limit int, folderScope []string, onlyUnrated bool) (*QueryPage, error) {
+	if s.mgr == nil {
+		return &QueryPage{Items: []Item{}}, nil
+	}
+	spec, err := ParseQuery(query)
+	if err != nil {
+		return nil, err
+	}
+	page, err := s.mgr.QueryPage(spec, sortOrder, offset, limit, folderScope, onlyUnrated)
+	if err != nil {
+		return nil, err
+	}
+	return &page, nil
+}
+
+func (s *Service) GetWorkspaceStats(sortOrder string) (*WorkspaceStats, error) {
+	if s.mgr == nil {
+		return &WorkspaceStats{TopColors: []string{}}, nil
+	}
+	stats, err := s.mgr.WorkspaceStats(sortOrder)
+	if err != nil {
+		return nil, err
+	}
+	return &stats, nil
+}
+
+func (s *Service) GetFolderPreviews(folderGroups [][]string, sortOrder string) ([]FolderPreview, error) {
+	if s.mgr == nil {
+		return []FolderPreview{}, nil
+	}
+	return s.mgr.FolderPreviews(folderGroups, sortOrder)
+}
+
 func (s *Service) GetItem(id string) (*Item, error) {
 	if s.mgr == nil {
 		return nil, ErrCoreNotInitialized

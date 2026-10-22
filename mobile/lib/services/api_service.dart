@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../models/item.dart';
+import 'item_query.dart';
 
 class ApiService {
   static final ApiService instance = ApiService._internal();
@@ -20,6 +21,15 @@ class ApiService {
   String? baseUrl;
   String? token;
   String? libraryName;
+
+  /// null = not probed yet, false = desktop lacks /api/v1/query.
+  bool? _querySupported;
+  bool get queryApiSupported => _querySupported != false;
+
+  /// Re-probes the capability after pairing or reconnecting.
+  void resetQueryCapability() {
+    _querySupported = null;
+  }
 
   bool get isConfigured => baseUrl != null && baseUrl!.isNotEmpty;
   bool get isAuthenticated => token != null && token!.isNotEmpty;
@@ -132,6 +142,7 @@ class ApiService {
 
       baseUrl = cleanHost;
       token = receivedToken;
+      resetQueryCapability();
 
       await _storage.write(key: _keyBaseUrl, value: baseUrl);
       await _storage.write(key: _keyToken, value: token);
@@ -172,6 +183,65 @@ class ApiService {
     }
   }
 
+  /// Executes a query through `POST /api/v1/query`, falling back to the legacy
+  /// `/api/v1/items` endpoint when the desktop build does not expose it.
+  Future<({int total, List<MobileItem> items})> queryItems({
+    required ItemQuery query,
+    String sort = 'desc',
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    if (baseUrl == null) {
+      throw Exception('Base URL is not configured');
+    }
+
+    if (_querySupported != false) {
+      final uri = Uri.parse('$baseUrl/api/v1/query');
+      final response = await http
+          .post(
+            uri,
+            headers: authHeaders,
+            body: jsonEncode({
+              'query': query.toQueryString(),
+              'sort': sort,
+              'offset': offset,
+              'limit': limit,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        _querySupported = true;
+        return _decodeItemsPage(response);
+      }
+      if (response.statusCode == 404 || response.statusCode == 405) {
+        _querySupported = false;
+      } else if (response.statusCode == 401) {
+        throw Exception('Unauthorized: please reconnect or re-pair with desktop');
+      } else {
+        throw Exception('Query failed: HTTP ${response.statusCode}');
+      }
+    }
+
+    return getItems(
+      limit: limit,
+      offset: offset,
+      q: query.text,
+      tag: query.tag,
+      folder: query.folder,
+      color: query.color,
+      type: query.type,
+      orientation: query.orientation,
+    );
+  }
+
+  ({int total, List<MobileItem> items}) _decodeItemsPage(http.Response response) {
+    final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final total = (json['total'] as num?)?.toInt() ?? 0;
+    final rawItems = json['items'] as List<dynamic>? ?? [];
+    final items = rawItems.map((e) => MobileItem.fromJson(e as Map<String, dynamic>)).toList();
+    return (total: total, items: items);
+  }
   Future<({int total, List<MobileItem> items})> getItems({
     int limit = 60,
     int offset = 0,
@@ -213,11 +283,7 @@ class ApiService {
     final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 15));
 
     if (response.statusCode == 200) {
-      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      final total = (json['total'] as num?)?.toInt() ?? 0;
-      final rawItems = json['items'] as List<dynamic>? ?? [];
-      final items = rawItems.map((e) => MobileItem.fromJson(e as Map<String, dynamic>)).toList();
-      return (total: total, items: items);
+      return _decodeItemsPage(response);
     } else if (response.statusCode == 401) {
       throw Exception('Unauthorized: please reconnect or re-pair with desktop');
     } else {
@@ -426,6 +492,7 @@ class ApiService {
   Future<void> disconnect() async {
     baseUrl = null;
     token = null;
+    resetQueryCapability();
     libraryName = null;
     await _storage.delete(key: _keyBaseUrl);
     await _storage.delete(key: _keyToken);
@@ -476,6 +543,7 @@ class ApiService {
           if (itemsRes.statusCode == 200) {
             baseUrl = candidateHost;
             token = conn.token;
+            resetQueryCapability();
             libraryName = conn.name;
             await _storage.write(key: _keyBaseUrl, value: baseUrl);
             await _storage.write(key: _keyToken, value: token);
@@ -535,7 +603,14 @@ class ApiService {
 
   // --- Upload ---
 
-  Future<int> uploadFiles(List<String> filePaths) async {
+  /// Returns the server-side count plus the created (or deduplicated) item IDs.
+  ///
+  /// The desktop response already carries the imported items
+  /// (`core/mobile_api.go`), which is the authoritative mapping between the
+  /// uploaded file and its content-addressed item ID. IDs are empty when an
+  /// older desktop build omits the `items` array; callers may then fall back
+  /// to hashing the uploaded file locally.
+  Future<UploadResult> uploadFiles(List<String> filePaths) async {
     if (baseUrl == null) throw Exception('Base URL is not configured');
     final uri = Uri.parse('$baseUrl/api/v1/upload');
     final request = http.MultipartRequest('POST', uri);
@@ -559,8 +634,23 @@ class ApiService {
     final response = await http.Response.fromStream(streamedResponse);
 
     if (response.statusCode == 200) {
-      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      return (json['count'] as num?)?.toInt() ?? request.files.length;
+      try {
+        final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        final count = (json['count'] as num?)?.toInt() ?? request.files.length;
+        final itemIds = <String>[];
+        final rawItems = json['items'];
+        if (rawItems is List) {
+          for (final rawItem in rawItems) {
+            if (rawItem is! Map) continue;
+            final id = rawItem['id']?.toString() ?? '';
+            if (id.isNotEmpty) itemIds.add(id);
+          }
+        }
+        return UploadResult(count: count, itemIds: itemIds);
+      } catch (_) {
+        // Upload succeeded even if the body cannot be parsed.
+        return UploadResult(count: request.files.length);
+      }
     } else {
       throw Exception('Upload failed: HTTP ${response.statusCode} - ${response.body}');
     }
@@ -589,4 +679,11 @@ class ApiService {
       throw Exception('Failed to save to gallery: $e');
     }
   }
+}
+
+class UploadResult {
+  const UploadResult({required this.count, this.itemIds = const []});
+
+  final int count;
+  final List<String> itemIds;
 }

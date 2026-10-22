@@ -110,11 +110,14 @@ GET /api/v1/originals/{id}?token=<64-character-hex-token>
 ```json
 {
   "name": "My Material Library",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "itemCount": 1420,
-  "pairingRequired": true
+  "pairingRequired": true,
+  "capabilities": ["query"]
 }
 ```
+`capabilities` lets clients detect `POST /api/v1/query` without a failed probe. Older desktops omit the field and return version `1.1.0` or lower.
+
 
 ---
 
@@ -145,7 +148,56 @@ GET /api/v1/originals/{id}?token=<64-character-hex-token>
 
 ---
 
-### 4.3 Timeline Item List
+### 4.3 Generic Query
+- **Method**: `POST`
+- **Path**: `/api/v1/query`
+- **Auth**: Required (`Bearer <token>`)
+- **Request Body**:
+```json
+{
+  "query": "type:image tag:red color:#EF4444 orientation:landscape",
+  "sort": "desc",
+  "offset": 0,
+  "limit": 100
+}
+```
+  | Field | Type | Default | Description |
+  |---|---|---|---|
+  | `query` | string | `""` | Query string; empty means browse all. |
+  | `sort` | string | `"desc"` | `desc` or `asc` by `importedAt`. |
+  | `offset` | integer | `0` | Pagination start; values past `total` return an empty `items` array. |
+  | `limit` | integer | `100` | Page size, clamped to 1–500. The full result set is always pageable; the search space is never truncated at 100. |
+- **Response**: `200 OK` — same `{ total, limit, offset, items }` envelope and the same item summary fields as the legacy list below.
+- **Errors**: `400 INVALID_QUERY` for a malformed known filter or unsupported sort; `400 INVALID_BODY` for invalid JSON.
+
+#### Query string grammar
+
+Tokens are separated by whitespace; values containing spaces are double-quoted (`tag:"client work"`). Filters are ANDed; repeated keys are also ANDed. Trashed items are always excluded.
+
+| Token | Meaning |
+|---|---|
+| `foo bar` or `"foo bar"` | Free text matched as a single case-insensitive substring against name, tags, extension, hex, note and prompt (same as the desktop search box). |
+| `type:image\|video\|audio\|document\|archive\|other` | File category (desktop `getFileCategory`). |
+| `type:pdf`, `type:mp4`, ... | Specific extension. |
+| `tag:<name>` | Item has the tag (case-insensitive exact). |
+| `folder:<folderId>` / `folder:none` | Item belongs to the folder / is uncategorized. |
+| `color:#RRGGBB` | Dominant color or palette within redmean distance 115. |
+| `orientation:landscape\|portrait\|square` | Stored orientation, otherwise dimensions with 5% square tolerance. |
+| `size:small\|medium\|large` | `<1MB`, `1–10MB`, `>10MB`. |
+| `rating:1..5` | Exact rating. |
+| `has:url\|note\|prompt\|tag\|folder` | Field is present. |
+| `no:url\|note\|prompt\|tag\|folder` | Field is empty. |
+| `is:untagged` / `is:uncategorized` | No tags / no folders. |
+
+Unknown `key:value` tokens are treated as free text. Invalid values for known filters return `400 INVALID_QUERY`.
+
+#### Capability detection & fallback
+
+Clients should prefer `/api/v1/query`. If it returns `404` or `405` (desktop older than 1.2.0), fall back to `GET /api/v1/items` and remember the decision for the connection. Re-probe after pairing or reconnecting. The legacy endpoint is retained for compatibility and now uses the same query engine internally.
+
+---
+
+### 4.3.1 Legacy Timeline Item List (deprecated)
 - **Method**: `GET`
 - **Path**: `/api/v1/items`
 - **Auth**: Required (`Bearer <token>`)
@@ -356,6 +408,44 @@ Returns top aggregated dominant hex colors from active library items for color f
 
 ---
 
+### 4.10 Upload Media
+- **Method**: `POST`
+- **Path**: `/api/v1/upload`
+- **Auth**: Required (`Bearer <token>`)
+- **Body**: `multipart/form-data`; one or more parts named `file`.
+- **Limits**: Request body up to 500 MB. No chunked upload; the whole multipart request is sent as one stream.
+- **Response**: `200 OK`
+```json
+{
+  "status": "success",
+  "count": 2,
+  "items": [ ... ]
+}
+```
+  `count` is the number of newly imported items. Content already present in the library is de-duplicated by the desktop importer, so a successful request may return `count: 0`; the mobile client treats that as success and removes the local inbox copy.
+- **Errors**:
+  - `503 NO_ACTIVE_LIBRARY`: No library is open on the desktop.
+  - `400 NO_FILES`: No non-empty file part was provided.
+  - `500 IMPORT_FAILED`: The desktop importer rejected the batch.
+
+
+---
+
+### 4.11 WebSocket Change Notifications
+- **URL**: `ws://<host>:<port>/api/v1/ws?token=<token>` (or `/ws`)
+- **Auth**: Same bearer token, query parameter accepted for WebSocket handshakes.
+
+Desktop-originated and mobile-originated mutations both notify connected clients. Clients should debounce (≈350 ms) and re-run the current query rather than reloading page 1.
+
+| Event | Payload | When |
+|---|---|---|
+| `items_updated` | `{"libraryId": "...", "count": n}` (count optional) | Import, delete/trash/restore, tags, folders, rename, rating, thumbnail and other item mutations. Emitted once per mutation. |
+| `library_changed` | `{"id", "name", "path", "itemCount"}` | Library opened, switched or closed. |
+| `pairing_revoked` | `{}` | The device token was revoked; the client must re-pair. |
+
+Mobile uploads also emit the desktop event `library-items-upserted`; mobile deletes emit `library-items-trashed` so the desktop UI updates immediately. These desktop events are not part of the mobile wire contract.
+---
+
 ## 5. Error Representation & Status Codes
 
 All errors return a standard JSON envelope:
@@ -376,5 +466,43 @@ All errors return a standard JSON envelope:
 | `ITEM_NOT_FOUND` / `NOT_FOUND` | 404 | The requested item ID does not exist in the active library. |
 | `NO_ACTIVE_LIBRARY` | 503 | No library is currently opened in the desktop application. |
 | `INVALID_ID` | 400 | Item ID parameter is empty or malformed. |
+| `INVALID_QUERY` | 400 | Query string has an invalid value for a known filter, or `sort` is not `desc`/`asc`. |
+| `INVALID_BODY` | 400 | `/api/v1/query` request body is not valid JSON. |
 | `METHOD_NOT_ALLOWED` | 405 | The requested HTTP verb is not supported for this route. |
 | `INTERNAL_ERROR` | 500 | Server encountered an unhandled error. |
+
+---
+
+## 6. Android 系统分享入口（收件箱）
+
+移动端把自身注册为 Android 系统分享目标，接收后先落入本地收件箱，再按连接状态决定是否立即上传。
+
+### 6.1 注册方式
+- Manifest 中的 `activity-alias` `.ShareTargetActivity` 指向 `MainActivity`，独立 label 为「保存到 Bowerbird」（不影响桌面图标名称）。
+- 接收 `ACTION_SEND` 与 `ACTION_SEND_MULTIPLE`，覆盖 `image/*`、`video/*`、`*/*`（含 `text/plain`）。
+- 文件 URI 在原生层立即复制到 app 私有暂存目录，不持有源应用 URI 的长期权限。
+
+### 6.2 原生桥接协议
+- Channel：`com.bowerbird.mobile/share`。
+- `consumePendingShares`（Dart → 原生）：返回 JSON 数组，原生随后删除已交付事件。每个事件：
+```json
+{
+  "eventId": "uuid",
+  "receivedAt": 1729000000000,
+  "items": [
+    {"kind": "file", "path": "/data/.../share_inbox/<eventId>/0_photo.jpg", "name": "photo.jpg", "mimeType": "image/jpeg", "size": 4219500},
+    {"kind": "text", "text": "https://example.com", "name": "分享文本"}
+  ],
+  "errors": [{"name": "broken.bin", "reason": "..."}]
+}
+```
+- `onShareAvailable`（原生 → Dart）：事件写入持久队列后通知 Dart 拉取；冷启动时 Dart 在首帧主动调用 `consumePendingShares`，因此两条路径不会漏事件。
+- 同一 `eventId` 只会被处理一次；原生对 15 秒内指纹相同的 intent 去重，避免 Activity 重建时重复入队。
+
+### 6.3 收件箱与上传约定
+- 持久目录：`<app documents>/share_inbox/`，`index.json` 记录条目与已处理事件；文件条目位于 `files/<entryId>/<原始文件名>`。
+- 已连接桌面端：新事件逐条调用 4.10 上传。成功的条目从收件箱删除；失败的条目保留并在结果对话框中给出原因。
+- 未连接或 token 失效：条目全部保留，首页收件箱图标显示角标；打开收件箱后提示先完成配对，不会静默丢弃分享。
+- 文本/URL：保存为文本条目并展示原文；上传时以 UTF-8 临时 `.txt` 文件调用 4.10，随后删除临时文件。本轮不抓取网页内容。
+- 上传成功后的本地时间线刷新复用桌面端 `items_updated` WebSocket 广播与首页既有刷新逻辑。
+- 收件箱支持逐条上传、全部上传、逐条删除；同名文件各自独立保存，最终由服务端内容哈希去重。

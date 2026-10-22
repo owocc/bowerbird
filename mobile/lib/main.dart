@@ -3,15 +3,24 @@ import 'dart:convert';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'app_keys.dart';
 import 'screens/connect_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/api_service.dart';
-
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+import 'services/inbox_service.dart';
+import 'services/share_tag_service.dart';
+import 'services/share_intent_handler.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ApiService.instance.init();
+  try {
+    await InboxService.instance.init();
+  } catch (_) {
+    // Share intake stays disabled if the app data directory is unavailable;
+    // the rest of the app (pairing, browsing) must still start.
+  }
+  await ShareTagService.instance.init();
   runApp(const BowerbirdMobileApp());
 }
 
@@ -22,20 +31,34 @@ class BowerbirdMobileApp extends StatefulWidget {
   State<BowerbirdMobileApp> createState() => _BowerbirdMobileAppState();
 }
 
-class _BowerbirdMobileAppState extends State<BowerbirdMobileApp> {
+class _BowerbirdMobileAppState extends State<BowerbirdMobileApp>
+    with WidgetsBindingObserver {
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSub;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ShareIntentHandler.instance.attach();
     _initDeepLinks();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ShareIntentHandler.instance.processPending();
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _linkSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      ShareIntentHandler.instance.processPending();
+    }
   }
 
   Future<void> _initDeepLinks() async {
@@ -101,6 +124,7 @@ class _BowerbirdMobileAppState extends State<BowerbirdMobileApp> {
 
     return MaterialApp(
       navigatorKey: navigatorKey,
+      scaffoldMessengerKey: scaffoldMessengerKey,
       title: 'Bowerbird',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,

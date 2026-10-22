@@ -47,6 +47,30 @@
                 <data android:scheme="bowerbird"/>
             </intent-filter>
         </activity>
+        <!--
+          Share target. Kept as an activity-alias so the share sheet label can
+          read "保存到 Bowerbird" without renaming the launcher entry.
+        -->
+        <activity-alias
+            android:name=".ShareTargetActivity"
+            android:targetActivity=".MainActivity"
+            android:label="保存到 Bowerbird"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+                <data android:mimeType="video/*"/>
+                <data android:mimeType="*/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="image/*"/>
+                <data android:mimeType="video/*"/>
+                <data android:mimeType="*/*"/>
+            </intent-filter>
+        </activity-alias>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -1,6 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
+import '../services/item_query.dart';
+import '../services/refresh_gate.dart';
+import '../services/share_tag_service.dart';
+import '../services/websocket_service.dart';
+import '../widgets/share_tag_badge.dart';
 import 'detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -12,14 +18,28 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
   final List<MobileItem> _results = [];
+  final RefreshGate _refreshGate = RefreshGate();
+  static const int _pageSize = 100;
+
   bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _totalCount = 0;
+  int _requestId = 0;
   String _selectedType = '';
   String _selectedOrientation = '';
+  String _selectedSize = '';
+  int? _selectedRating;
+  String _urlPresence = '';
+  String _notePresence = '';
   String? _selectedTag;
   String? _selectedFolderId;
   String? _selectedColor;
   String? _errorMessage;
+  DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
+  StreamSubscription? _wsItemsSub;
 
   List<MobileTag> _availableTags = [];
   List<MobileFolder> _availableFolders = [];
@@ -40,17 +60,136 @@ class _SearchScreenState extends State<SearchScreen> {
     (label: 'Square', value: 'square'),
   ];
 
+  final List<({String label, String value})> _sizeFilters = const [
+    (label: 'Any Size', value: ''),
+    (label: 'Small <1MB', value: 'small'),
+    (label: 'Medium 1-10MB', value: 'medium'),
+    (label: 'Large >10MB', value: 'large'),
+  ];
+
   @override
   void initState() {
     super.initState();
     _loadMetadata();
     _performSearch();
+    _scrollController.addListener(_onScroll);
+    _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((_) {
+      if (!mounted) return;
+      if (DateTime.now().difference(_lastLocalMutation) < const Duration(milliseconds: 900)) {
+        return;
+      }
+      _refreshGate.schedule(_reloadWindow);
+    });
   }
 
   @override
   void dispose() {
+    _refreshGate.cancel();
+    _wsItemsSub?.cancel();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
+      _performSearch(reset: false);
+    }
+  }
+
+  ItemQuery _currentQuery() {
+    return ItemQuery(
+      text: _searchController.text,
+      type: _selectedType,
+      orientation: _selectedOrientation,
+      tag: _selectedTag,
+      folder: _selectedFolderId,
+      color: _selectedColor,
+      size: _selectedSize,
+      rating: _selectedRating,
+      hasUrl: _urlPresence,
+      hasNote: _notePresence,
+    );
+  }
+
+  Future<void> _performSearch({bool reset = true}) async {
+    if (!reset && (!_hasMore || _isLoading || _isLoadingMore)) return;
+    final requestId = ++_requestId;
+    setState(() {
+      if (reset) {
+        _isLoading = true;
+      } else {
+        _isLoadingMore = true;
+      }
+      _errorMessage = null;
+    });
+
+    try {
+      final res = await ApiService.instance.queryItems(
+        query: _currentQuery(),
+        offset: reset ? 0 : _results.length,
+        limit: _pageSize,
+      );
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        if (reset) _results.clear();
+        _results.addAll(res.items);
+        _totalCount = res.total;
+        _hasMore = _results.length < res.total && res.items.isNotEmpty;
+        _isLoading = false;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
+      });
+    }
+  }
+
+  /// Reruns the query with a page sized to the loaded window after a remote
+  /// change, preserving the user's place in the result list where possible.
+  Future<void> _reloadWindow() async {
+    if (_isLoading || _isLoadingMore) return;
+    if (_results.isEmpty) {
+      await _performSearch();
+      return;
+    }
+    final target = _results.length > 500 ? _pageSize : _results.length;
+    final requestId = ++_requestId;
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final res = await ApiService.instance.queryItems(
+        query: _currentQuery(),
+        offset: 0,
+        limit: target,
+      );
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _results
+          ..clear()
+          ..addAll(res.items);
+        _totalCount = res.total;
+        _hasMore = _results.length < res.total && res.items.isNotEmpty;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted || requestId != _requestId) return;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = e.toString().replaceAll('Exception: ', '');
+      });
+    }
+  }
+
+  void _markLocalMutation() {
+    _lastLocalMutation = DateTime.now();
+    _refreshGate.cancel();
   }
 
   Future<void> _loadMetadata() async {
@@ -70,46 +209,16 @@ class _SearchScreenState extends State<SearchScreen> {
     } catch (_) {}
   }
 
-  Future<void> _performSearch() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final res = await ApiService.instance.getItems(
-        limit: 100,
-        offset: 0,
-        q: _searchController.text.trim(),
-        tag: _selectedTag,
-        folder: _selectedFolderId,
-        color: _selectedColor,
-        type: _selectedType.isNotEmpty ? _selectedType : null,
-        orientation: _selectedOrientation.isNotEmpty ? _selectedOrientation : null,
-      );
-
-      if (mounted) {
-        setState(() {
-          _results.clear();
-          _results.addAll(res.items);
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceAll('Exception: ', '');
-        });
-      }
-    }
-  }
 
   void _clearAllFilters() {
     setState(() {
       _searchController.clear();
       _selectedType = '';
       _selectedOrientation = '';
+      _selectedSize = '';
+      _selectedRating = null;
+      _urlPresence = '';
+      _notePresence = '';
       _selectedTag = null;
       _selectedFolderId = null;
       _selectedColor = null;
@@ -121,10 +230,13 @@ class _SearchScreenState extends State<SearchScreen> {
       _searchController.text.isNotEmpty ||
       _selectedType.isNotEmpty ||
       _selectedOrientation.isNotEmpty ||
+      _selectedSize.isNotEmpty ||
+      _selectedRating != null ||
+      _urlPresence.isNotEmpty ||
+      _notePresence.isNotEmpty ||
       _selectedTag != null ||
       _selectedFolderId != null ||
       _selectedColor != null;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -226,6 +338,91 @@ class _SearchScreenState extends State<SearchScreen> {
                           },
                         );
                       },
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // File size filters
+                  SizedBox(
+                    height: 32,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _sizeFilters.length,
+                      separatorBuilder: (context, index) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final item = _sizeFilters[i];
+                        final isSelected = _selectedSize == item.value;
+                        return ChoiceChip(
+                          label: Text(item.label),
+                          labelStyle: const TextStyle(fontSize: 11),
+                          selected: isSelected,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) {
+                            setState(() => _selectedSize = item.value);
+                            _performSearch();
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // Rating filters
+                  SizedBox(
+                    height: 32,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: 6,
+                      separatorBuilder: (context, index) => const SizedBox(width: 8),
+                      itemBuilder: (context, i) {
+                        final rating = i == 0 ? null : i;
+                        final isSelected = _selectedRating == rating;
+                        return ChoiceChip(
+                          label: Text(i == 0 ? 'Any Rating' : '$i★'),
+                          labelStyle: const TextStyle(fontSize: 11),
+                          selected: isSelected,
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) {
+                            setState(() => _selectedRating = rating);
+                            _performSearch();
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  // URL / note presence filters
+                  SizedBox(
+                    height: 32,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final option in const [
+                          (label: 'Has URL', value: 'has', note: false),
+                          (label: 'No URL', value: 'empty', note: false),
+                          (label: 'Has Note', value: 'has', note: true),
+                          (label: 'No Note', value: 'empty', note: true),
+                        ])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(option.label),
+                              labelStyle: const TextStyle(fontSize: 11),
+                              selected: option.note
+                                  ? _notePresence == option.value
+                                  : _urlPresence == option.value,
+                              visualDensity: VisualDensity.compact,
+                              onSelected: (_) {
+                                setState(() {
+                                  if (option.note) {
+                                    _notePresence = _notePresence == option.value ? '' : option.value;
+                                  } else {
+                                    _urlPresence = _urlPresence == option.value ? '' : option.value;
+                                  }
+                                });
+                                _performSearch();
+                              },
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   if (_availableColors.isNotEmpty) ...[
@@ -386,7 +583,7 @@ class _SearchScreenState extends State<SearchScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               alignment: Alignment.centerLeft,
               child: Text(
-                'Found ${_results.length} items',
+                '共 $_totalCount 个结果 · 已加载 ${_results.length}${_isLoadingMore ? " · 加载中…" : ""}',
                 style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
               ),
             ),
@@ -467,6 +664,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
 
     return GridView.builder(
+      controller: _scrollController,
       padding: const EdgeInsets.all(8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
@@ -491,6 +689,7 @@ class _SearchScreenState extends State<SearchScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('已移入废纸篓')),
               );
+              _markLocalMutation();
               _performSearch();
             }
           },
@@ -541,6 +740,12 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                         child: const Icon(Icons.play_arrow, size: 14, color: Colors.white),
                       ),
+                    ),
+                  if (ShareTagService.instance.isMarked(item.id))
+                    const Positioned(
+                      left: 4,
+                      bottom: 4,
+                      child: ShareTagBadge(),
                     ),
                 ],
               ),

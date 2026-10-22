@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -9,8 +8,15 @@ import 'package:share_plus/share_plus.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
+import '../services/item_query.dart';
+import '../services/refresh_gate.dart';
 import 'connect_screen.dart';
+import '../services/inbox_service.dart';
+import '../services/share_tag_service.dart';
+import '../widgets/share_tag_badge.dart';
 import 'detail_screen.dart';
+import 'inbox_screen.dart';
+import '../widgets/item_preview_overlay.dart';
 import 'search_screen.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -36,6 +42,20 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   StreamSubscription? _wsItemsSub;
   StreamSubscription? _wsRevokedSub;
   bool _pendingRefresh = false;
+  int _totalCount = 0;
+  final RefreshGate _refreshGate = RefreshGate();
+  DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
+  int _inboxCount = InboxService.instance.count;
+
+  void _onInboxChanged() {
+    if (!mounted) return;
+    setState(() => _inboxCount = InboxService.instance.count);
+  }
+
+  void _onShareTagsChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
@@ -43,6 +63,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _scrollController.addListener(_onScroll);
     _initWebSocket();
     WidgetsBinding.instance.addObserver(this);
+    InboxService.instance.addListener(_onInboxChanged);
+    ShareTagService.instance.addListener(_onShareTagsChanged);
   }
 
   @override
@@ -64,13 +86,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (newName != null && newName.isNotEmpty) {
           setState(() => ApiService.instance.libraryName = newName);
         }
-        _loadItems(refresh: true);
+        _refreshGate.schedule(() => _loadItems(refresh: true));
       }
     });
     _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((event) {
-      if (mounted) {
-        _loadItems(refresh: true);
+      if (!mounted) return;
+      if (DateTime.now().difference(_lastLocalMutation) < const Duration(milliseconds: 900)) {
+        return;
       }
+      _refreshGate.schedule(_reloadWindow);
     });
     _wsRevokedSub = WebSocketService.instance.onPairingRevoked.listen((_) {
       if (mounted) {
@@ -100,8 +124,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _wsLibSub?.cancel();
     _wsItemsSub?.cancel();
     _wsRevokedSub?.cancel();
+    InboxService.instance.removeListener(_onInboxChanged);
+    ShareTagService.instance.removeListener(_onShareTagsChanged);
     _scrollController.dispose();
     WidgetsBinding.instance.removeObserver(this);
+    _refreshGate.cancel();
     super.dispose();
   }
   void _onScroll() {
@@ -133,10 +160,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       });
     }
 
+    final requestOffset = refresh ? 0 : _offset;
     try {
-      final result = await ApiService.instance.getItems(
+      final result = await ApiService.instance.queryItems(
+        query: const ItemQuery(),
         limit: _pageSize,
-        offset: _offset,
+        offset: requestOffset,
       );
 
       if (mounted) {
@@ -145,7 +174,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             _items.clear();
           }
           _items.addAll(result.items);
-          _offset += result.items.length;
+          _offset = requestOffset + result.items.length;
+          _totalCount = result.total;
           _hasMore = _items.length < result.total && result.items.isNotEmpty;
           _isLoading = false;
         });
@@ -163,6 +193,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         _loadItems(refresh: true);
       }
     }
+  }
+
+  /// Re-runs the first page sized to the currently loaded window so a ws
+  /// refresh does not visibly collapse the timeline back to one page.
+  Future<void> _reloadWindow() async {
+    if (_isLoading) {
+      _pendingRefresh = true;
+      return;
+    }
+    final target = _items.isEmpty ? _pageSize : (_items.length > 500 ? _pageSize : _items.length);
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      final result = await ApiService.instance.queryItems(
+        query: const ItemQuery(),
+        limit: target,
+        offset: 0,
+      );
+      if (mounted) {
+        setState(() {
+          _items
+            ..clear()
+            ..addAll(result.items);
+          _offset = result.items.length;
+          _totalCount = result.total;
+          _hasMore = _items.length < result.total && result.items.isNotEmpty;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString().replaceAll('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted && _pendingRefresh) {
+        _pendingRefresh = false;
+        _reloadWindow();
+      }
+    }
+  }
+
+  void _markLocalMutation() {
+    _lastLocalMutation = DateTime.now();
+    _refreshGate.cancel();
   }
 
   Map<String, List<MobileItem>> _groupItemsByMonth(List<MobileItem> items) {
@@ -189,7 +268,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已移入废纸篓')),
       );
-      _loadItems(refresh: true);
+      _markLocalMutation();
+      unawaited(_reloadWindow());
+    }
+  }
+
+  Future<void> _openItemPreview(MobileItem item, int globalIndex) async {
+    final action = await showItemPreviewOverlay(context, item);
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case ItemPreviewAction.viewDetail:
+        await _openDetail(globalIndex);
+      case ItemPreviewAction.copyContent:
+        await _copyItemContent(item);
+      case ItemPreviewAction.download:
+        await _downloadItem(item);
+      case ItemPreviewAction.share:
+        await _shareItem(item);
+      case ItemPreviewAction.delete:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已移入废纸篓')),
+        );
+        _markLocalMutation();
+        await _reloadWindow();
     }
   }
 
@@ -350,13 +452,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     try {
-      final count = await ApiService.instance.uploadFiles(paths);
+      final result = await ApiService.instance.uploadFiles(paths);
+      final count = result.count;
       if (mounted) {
         Navigator.pop(context); // Close dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('成功上传 $count 个素材到当前资源库')),
         );
-        _loadItems(refresh: true);
+        _markLocalMutation();
+        await _reloadWindow();
       }
     } catch (e) {
       if (mounted) {
@@ -371,56 +475,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
-  }
-
-  void _showItemContextMenu(MobileItem item) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.download_rounded),
-                title: const Text('下载原图至手机'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _downloadItem(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.copy_rounded),
-                title: const Text('复制素材信息'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _copyItemInfo(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.content_copy),
-                title: const Text('复制素材内容'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _copyItemContent(item);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.share_rounded),
-                title: const Text('分享'),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _shareItem(item);
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   Future<void> _downloadItem(MobileItem item) async {
@@ -455,21 +509,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  void _copyItemInfo(MobileItem item) {
-    final info = [
-      '名称: ${item.name.isNotEmpty ? item.name : item.filename}',
-      '文件名: ${item.filename}',
-      '尺寸: ${item.width} x ${item.height}',
-      '大小: ${_formatSize(item.size)}',
-      '格式: ${item.extension.toUpperCase()}',
-      if (item.tags.isNotEmpty) '标签: ${item.tags.join(", ")}',
-    ].join('\n');
-
-    Clipboard.setData(ClipboardData(text: info));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('素材关键信息已复制到剪贴板')),
-    );
-  }
 
   Future<void> _copyItemContent(MobileItem item) async {
     if (item.size > ApiService.maxClipboardFileBytes) {
@@ -502,12 +541,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  String _formatSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
   Future<void> _shareItem(MobileItem item) async {
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
@@ -516,7 +549,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         headers: ApiService.instance.authHeaders,
       ).timeout(const Duration(seconds: 30));
 
-      if (response.statusCode != 200) throw Exception('HTTP ${response.statusCode}');
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
 
       final tempDir = await getTemporaryDirectory();
       final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
@@ -569,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ],
                       ),
                       Text(
-                        '${_items.length} 个素材 • 点击切库',
+                        '共 $_totalCount 个素材 • 点击切库',
                         style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
                       ),
                     ],
@@ -580,6 +615,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         actions: [
+          Badge.count(
+            count: _inboxCount,
+            isLabelVisible: _inboxCount > 0,
+            child: IconButton(
+              icon: const Icon(Icons.inbox_outlined),
+              tooltip: '收件箱',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const InboxScreen()),
+                );
+              },
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             tooltip: 'Search & Filter',
@@ -677,46 +725,49 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                                   return GestureDetector(
                                     onTap: () => _openDetail(globalIndex),
-                                    onLongPress: () => _showItemContextMenu(item),
+                                    onLongPress: () => _openItemPreview(item, globalIndex),
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
-                                        Image.network(
-                                          useAnimatedGif
-                                              ? ApiService.instance.getOriginalUrl(item.id)
-                                              : ApiService.instance.getThumbnailUrl(item.id),
-                                          fit: BoxFit.cover,
-                                          headers: ApiService.instance.authHeaders,
-                                          cacheWidth: useAnimatedGif ? 400 : null,
-                                          loadingBuilder: (context, child, progress) {
-                                            if (progress == null) return child;
-                                            return Container(
-                                              color: theme.colorScheme.surfaceContainerHighest,
-                                              child: Center(
-                                                child: SizedBox(
-                                                  width: 20,
-                                                  height: 20,
-                                                  child: CircularProgressIndicator(
-                                                    strokeWidth: 2,
-                                                    value: progress.expectedTotalBytes != null
-                                                        ? progress.cumulativeBytesLoaded /
-                                                            progress.expectedTotalBytes!
-                                                        : null,
+                                        Hero(
+                                          tag: itemPreviewHeroTag(item.id),
+                                          child: Image.network(
+                                            useAnimatedGif
+                                                ? ApiService.instance.getOriginalUrl(item.id)
+                                                : ApiService.instance.getThumbnailUrl(item.id),
+                                            fit: BoxFit.cover,
+                                            headers: ApiService.instance.authHeaders,
+                                            cacheWidth: useAnimatedGif ? 400 : null,
+                                            loadingBuilder: (context, child, progress) {
+                                              if (progress == null) return child;
+                                              return Container(
+                                                color: theme.colorScheme.surfaceContainerHighest,
+                                                child: Center(
+                                                  child: SizedBox(
+                                                    width: 20,
+                                                    height: 20,
+                                                    child: CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      value: progress.expectedTotalBytes != null
+                                                          ? progress.cumulativeBytesLoaded /
+                                                              progress.expectedTotalBytes!
+                                                          : null,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            );
-                                          },
-                                          errorBuilder: (context, error, stackTrace) {
-                                            return Container(
-                                              color: theme.colorScheme.surfaceContainerHighest,
-                                              child: Icon(
-                                                Icons.broken_image_outlined,
-                                                color: theme.colorScheme.outline,
-                                                size: 28,
-                                              ),
-                                            );
-                                          },
+                                              );
+                                            },
+                                            errorBuilder: (context, error, stackTrace) {
+                                              return Container(
+                                                color: theme.colorScheme.surfaceContainerHighest,
+                                                child: Icon(
+                                                  Icons.broken_image_outlined,
+                                                  color: theme.colorScheme.outline,
+                                                  size: 28,
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
                                         if (item.isVideo)
                                           Positioned(
@@ -774,6 +825,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                                 size: 14,
                                               ),
                                             ),
+                                          ),
+                                        if (ShareTagService.instance.isMarked(item.id))
+                                          const Positioned(
+                                            left: 4,
+                                            bottom: 4,
+                                            child: ShareTagBadge(),
                                           ),
                                       ],
                                     ),

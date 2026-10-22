@@ -65,9 +65,12 @@ import {
 import { notifySuccess, notifyError } from "@/lib/notify";
 import { SuccessCodes, ErrorCodes } from "@/lib/error-codes";
 import {
-  GetItems,
+  GetItem,
   GetTrashItems,
   GetTrashCount,
+  GetFolderPreviews,
+  GetWorkspaceStats,
+  QueryWorkspace,
   BatchMoveToTrash,
   BatchRestoreFromTrash,
   PermanentDeleteItem,
@@ -115,6 +118,8 @@ import {
   HISTORY_FOLDER_ID,
   type PreviewMode,
 } from "@/lib/workspace-search";
+import { buildWorkspaceQuery, type WorkspaceQuery } from "@/lib/workspace-query";
+import type { WorkspaceStats } from "../mygo";
 import {
   getDragHistory,
   setActiveHistoryLibraryId,
@@ -127,6 +132,17 @@ import { useTrackpadZoom } from "@/hooks/useTrackpadZoom";
 import { UniversalThumbnail } from "@/components/UniversalThumbnail";
 import { logDiagnostic } from "@/lib/logger";
 import { cn } from "@/lib/utils";
+
+const WORKSPACE_PAGE_SIZE = 200;
+
+function isRealFolderIdValue(id: string | null): id is string {
+  return Boolean(id) &&
+    id !== TRASH_FOLDER_ID &&
+    id !== UNTAGGED_FOLDER_ID &&
+    id !== UNCATEGORIZED_FOLDER_ID &&
+    id !== HISTORY_FOLDER_ID;
+}
+
 export interface LibraryWorkspaceProps {
   library: LibraryInfo;
   onLibraryClosed: () => void;
@@ -192,6 +208,71 @@ export function LibraryWorkspace({
   } | null>(null);
   const itemsVersionRef = useRef<number>(0);
   const galleryViewportRef = useRef<HTMLDivElement>(null);
+  const [queryTotal, setQueryTotal] = useState(0);
+  const [queryTotalSize, setQueryTotalSize] = useState(0);
+  const [workspaceStats, setWorkspaceStats] = useState<WorkspaceStats | null>(null);
+  const [folderPreviewMap, setFolderPreviewMap] = useState<
+    Map<string, { totalCount: number; previewItems: Item[] }>
+  >(() => new Map());
+  const [historyItems, setHistoryItems] = useState<Item[]>([]);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const loadedPagesRef = useRef(1);
+  const queryVersionRef = useRef(0);
+  const querySignatureRef = useRef("");
+  const loadingMoreRef = useRef(false);
+  const refreshTimerRef = useRef<number | null>(null);
+
+  // Folder lookup/descendants are needed by the query builder, so compute them
+  // before the first data-loading effect.
+  const folderTreeIndex = useMemo(() => {
+    const byId = new Map<string, Folder>();
+    const descendantsById = new Map<string, Set<string>>();
+
+    const walk = (f: Folder): Set<string> => {
+      byId.set(f.id, f);
+      const desc = new Set<string>([f.id]);
+      if (f.children && f.children.length > 0) {
+        for (const ch of f.children) {
+          const childSet = walk(ch);
+          for (const cid of childSet) {
+            desc.add(cid);
+          }
+        }
+      }
+      descendantsById.set(f.id, desc);
+      return desc;
+    };
+
+    for (const root of folders) {
+      walk(root);
+    }
+    return { byId, descendantsById };
+  }, [folders]);
+
+  const currentFolder = useMemo(
+    () =>
+      isRealFolderIdValue(activeFolderId)
+        ? folderTreeIndex.byId.get(activeFolderId) ?? null
+        : null,
+    [activeFolderId, folderTreeIndex]
+  );
+
+  const currentSubfolders = useMemo(
+    () => currentFolder?.children ?? [],
+    [currentFolder]
+  );
+
+  const activeFolderMatchSet = useMemo(() => {
+    if (!currentFolder) return null;
+    if (includeSubfolders) {
+      return (
+        folderTreeIndex.descendantsById.get(currentFolder.id) ??
+        new Set<string>([currentFolder.id])
+      );
+    }
+    return new Set<string>([currentFolder.id]);
+  }, [currentFolder, includeSubfolders, folderTreeIndex]);
 
   // Enable trackpad 2-finger pinch zoom on the main gallery viewport
   useTrackpadZoom({
@@ -279,22 +360,184 @@ export function LibraryWorkspace({
 
   const isTrashView = activeFolderId === TRASH_FOLDER_ID;
 
-  const refreshActiveItems = useCallback(async () => {
-    const t0 = performance.now();
-    try {
-      const data = await GetItems("", sortOrder);
-      setItems(data || []);
-      const dur = performance.now() - t0;
-      if (dur >= 25) {
-        logDiagnostic("perf", "perf", "Loaded library items", `count=${data?.length ?? 0} sort=${sortOrder}`, dur);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(searchQuery), 150);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
+
+  const workspaceQuery = useMemo<WorkspaceQuery>(
+    () =>
+      buildWorkspaceQuery({
+        search: debouncedSearch,
+        activeFolderId,
+        includeSubfolders,
+        activeFolderMatchSet,
+        tagsSidebarOpen,
+        activeTag,
+        category: categoryFilter,
+        folderFilter,
+        orientation: orientationFilter,
+        color: colorFilter,
+        size: sizeFilter,
+        hasUrl: hasUrlFilter,
+        hasNote: hasNoteFilter,
+        rating: ratingFilter,
+      }),
+    [
+      debouncedSearch,
+      activeFolderId,
+      includeSubfolders,
+      activeFolderMatchSet,
+      tagsSidebarOpen,
+      activeTag,
+      categoryFilter,
+      folderFilter,
+      orientationFilter,
+      colorFilter,
+      sizeFilter,
+      hasUrlFilter,
+      hasNoteFilter,
+      ratingFilter,
+    ]
+  );
+
+  querySignatureRef.current = workspaceQuery.signature;
+
+  const fetchWorkspacePages = useCallback(
+    async (params: WorkspaceQuery, pageCount: number) => {
+      const version = ++queryVersionRef.current;
+      const t0 = performance.now();
+      const pages = await Promise.all(
+        Array.from({ length: Math.max(1, pageCount) }, (_, pageIndex) =>
+          QueryWorkspace(
+            params.query,
+            sortOrder,
+            pageIndex * WORKSPACE_PAGE_SIZE,
+            WORKSPACE_PAGE_SIZE,
+            params.folderScope,
+            params.onlyUnrated
+          )
+        )
+      );
+      if (version !== queryVersionRef.current) return;
+      const merged: Item[] = [];
+      const seen = new Set<string>();
+      for (const page of pages) {
+        for (const item of page?.items ?? []) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            merged.push(item);
+          }
+        }
       }
+      setItems(merged);
+      setQueryTotal(pages[0]?.total ?? 0);
+      setQueryTotalSize(pages[0]?.totalSize ?? 0);
+      loadedPagesRef.current = Math.max(1, Math.ceil(merged.length / WORKSPACE_PAGE_SIZE));
+      const dur = performance.now() - t0;
+      if (dur >= 25 || merged.length === 0) {
+        logDiagnostic(
+          "perf",
+          "perf",
+          "Loaded library items",
+          `count=${merged.length} total=${pages[0]?.total ?? 0} pages=${pages.length} sort=${sortOrder}`,
+          dur
+        );
+      }
+    },
+    [sortOrder]
+  );
+
+  const refreshActiveItems = useCallback(async () => {
+    try {
+      await fetchWorkspacePages(workspaceQuery, 1);
     } catch (err) {
       console.error("Failed to load items:", err);
       logDiagnostic("error", "ui", "Failed to load items", String(err), 0);
     } finally {
       setLoading(false);
     }
+  }, [fetchWorkspacePages, workspaceQuery]);
+
+  const refreshActiveWindow = useCallback(async () => {
+    try {
+      await fetchWorkspacePages(
+        workspaceQuery,
+        Math.max(1, loadedPagesRef.current)
+      );
+    } catch (err) {
+      console.error("Failed to refresh items:", err);
+      logDiagnostic("error", "ui", "Failed to refresh items", String(err), 0);
+    }
+  }, [fetchWorkspacePages, workspaceQuery]);
+
+  const refreshWorkspaceStats = useCallback(async () => {
+    try {
+      const stats = await GetWorkspaceStats(sortOrder);
+      if (stats) setWorkspaceStats(stats);
+    } catch (err) {
+      console.error("Failed to load workspace stats:", err);
+    }
   }, [sortOrder]);
+
+  // Coalesce bursts of upsert/trash events into one window refresh instead of
+  // re-running the query for every item.
+  const scheduleActiveRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      setRefreshToken((v) => v + 1);
+    }, 150);
+  }, []);
+
+  const loadMoreActive = useCallback(async () => {
+    if (
+      loadingMoreRef.current ||
+      items.length >= queryTotal ||
+      workspaceQuery.signature !== querySignatureRef.current
+    ) {
+      return;
+    }
+    loadingMoreRef.current = true;
+    const version = queryVersionRef.current;
+    const offset = items.length;
+    try {
+      const page = await QueryWorkspace(
+        workspaceQuery.query,
+        sortOrder,
+        offset,
+        WORKSPACE_PAGE_SIZE,
+        workspaceQuery.folderScope,
+        workspaceQuery.onlyUnrated
+      );
+      if (version !== queryVersionRef.current) return;
+      if (!page) return;
+      setItems((prev) => {
+        const seen = new Set(prev.map((it) => it.id));
+        const next = [...prev];
+        for (const item of page.items ?? []) {
+          if (!seen.has(item.id)) {
+            seen.add(item.id);
+            next.push(item);
+          }
+        }
+        loadedPagesRef.current = Math.max(
+          1,
+          Math.ceil(next.length / WORKSPACE_PAGE_SIZE)
+        );
+        return next;
+      });
+      setQueryTotal(page.total ?? 0);
+      setQueryTotalSize(page.totalSize ?? 0);
+    } catch (err) {
+      console.error("Failed to load more items:", err);
+      logDiagnostic("error", "ui", "Failed to load more items", String(err), 0);
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [items.length, queryTotal, workspaceQuery, sortOrder]);
 
   const refreshTrashItems = useCallback(async () => {
     const t0 = performance.now();
@@ -314,11 +557,18 @@ export function LibraryWorkspace({
   }, [sortOrder]);
 
   const refreshItems = useCallback(async () => {
-    await refreshActiveItems();
+    if (!isTrashView && activeFolderId !== HISTORY_FOLDER_ID) {
+      await refreshActiveItems();
+    }
     if (isTrashView) {
       await refreshTrashItems();
     }
-  }, [refreshActiveItems, refreshTrashItems, isTrashView]);
+  }, [
+    refreshActiveItems,
+    refreshTrashItems,
+    isTrashView,
+    activeFolderId,
+  ]);
 
   const handleItemUpdatedInPlace = useCallback(
     (updated?: Item) => {
@@ -329,11 +579,14 @@ export function LibraryWorkspace({
         setTrashItems((prev) =>
           prev.map((it) => (it.id === updated.id ? updated : it))
         );
+        // The update may change filter membership (tags/folders/rating), so
+        // re-run the loaded window shortly after the optimistic paint.
+        scheduleActiveRefresh();
         return;
       }
       void refreshItems();
     },
-    [refreshItems]
+    [refreshItems, scheduleActiveRefresh]
   );
   // Merge newly imported or updated items directly into React state in O(N) without re-fetching 37k+ items over IPC
   const handleItemsUpsertedInPlace = useCallback(
@@ -411,8 +664,9 @@ export function LibraryWorkspace({
         );
         return nextList;
       });
+      scheduleActiveRefresh();
     },
-    [sortOrder]
+    [sortOrder, scheduleActiveRefresh]
   );
 
   // Optimistically move items from active list to trash in 0ms without re-fetching 37k+ items
@@ -447,7 +701,11 @@ export function LibraryWorkspace({
       );
       return remaining;
     });
-  }, []);
+    if (!isTrashView) {
+      setQueryTotal((prev) => Math.max(0, prev - removeSet.size));
+    }
+    scheduleActiveRefresh();
+  }, [scheduleActiveRefresh, isTrashView]);
   const refreshFolders = useCallback(async () => {
     try {
       const data = await GetFolders();
@@ -485,8 +743,38 @@ export function LibraryWorkspace({
   }, [refreshItems, refreshFolders, refreshTags, refreshTrashCount]);
 
   useEffect(() => {
+    if (isTrashView || activeFolderId === HISTORY_FOLDER_ID) {
+      setLoading(false);
+      return;
+    }
     void refreshActiveItems();
-  }, [refreshActiveItems]);
+  }, [refreshActiveItems, isTrashView, activeFolderId]);
+
+  // Event-driven refresh: re-run the loaded window after the 150ms coalescing
+  // timer, keeping the user's scroll depth instead of snapping back to page 1.
+  useEffect(() => {
+    if (refreshToken === 0) return;
+    if (isTrashView) {
+      void refreshTrashItems();
+      void refreshFolders();
+      void refreshTrashCount();
+      return;
+    }
+    if (activeFolderId === HISTORY_FOLDER_ID) {
+      void refreshWorkspaceStats();
+      return;
+    }
+    void refreshActiveWindow();
+    void refreshWorkspaceStats();
+    void refreshFolders();
+    void refreshTrashCount();
+    // Only a new refresh token should trigger this pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
+
+  useEffect(() => {
+    void refreshWorkspaceStats();
+  }, [refreshWorkspaceStats]);
 
   useEffect(() => {
     if (isTrashView) {
@@ -536,6 +824,121 @@ export function LibraryWorkspace({
     });
   }, [library.id, library.path]);
 
+  // History is a short list that may point past the loaded page window, so
+  // resolve it by ID instead of depending on the whole library being in memory.
+  useEffect(() => {
+    let cancelled = false;
+    const ids = Array.from(new Set(historyEntries.map((entry) => entry.itemId)));
+    if (ids.length === 0) {
+      setHistoryItems([]);
+      return;
+    }
+    void Promise.all(
+      ids.map((id) =>
+        GetItem(id).catch(() => null)
+      )
+    ).then((resolved) => {
+      if (cancelled) return;
+      const byId = new Map<string, Item>();
+      for (const item of resolved) {
+        if (item && !item.inTrash) byId.set(item.id, item);
+      }
+      const ordered: Item[] = [];
+      for (const entry of historyEntries) {
+        const item = byId.get(entry.itemId);
+        if (item) ordered.push(item);
+      }
+      setHistoryItems(ordered);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [historyEntries, refreshToken, library.path]);
+
+  // Subfolder covers are first 4 items + full count per folder scope, computed
+  // in core so the renderer never needs the whole library.
+  useEffect(() => {
+    let cancelled = false;
+    if (currentSubfolders.length === 0) {
+      setFolderPreviewMap(new Map());
+      return;
+    }
+    const groups = currentSubfolders.map((sub) =>
+      Array.from(
+        folderTreeIndex.descendantsById.get(sub.id) ?? new Set<string>([sub.id])
+      )
+    );
+    void GetFolderPreviews(groups, sortOrder)
+      .then((previews) => {
+        if (cancelled) return;
+        const map = new Map<
+          string,
+          { totalCount: number; previewItems: Item[] }
+        >();
+        currentSubfolders.forEach((sub, index) => {
+          const preview = previews?.[index];
+          if (preview) {
+            map.set(sub.id, {
+              totalCount: preview.total,
+              previewItems: preview.items ?? [],
+            });
+          }
+        });
+        setFolderPreviewMap(map);
+      })
+      .catch((err) => {
+        console.error("Failed to load folder previews:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currentSubfolders,
+    folderTreeIndex,
+    sortOrder,
+    refreshToken,
+    library.path,
+  ]);
+
+  useEffect(() => {
+    if (isTrashView || activeFolderId === HISTORY_FOLDER_ID) return;
+    const el = galleryViewportRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 900) {
+        void loadMoreActive();
+      }
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [isTrashView, activeFolderId, loadMoreActive]);
+
+  // If the first page does not fill the viewport, keep fetching until it does.
+  useEffect(() => {
+    if (
+      loading ||
+      isTrashView ||
+      activeFolderId === HISTORY_FOLDER_ID ||
+      items.length >= queryTotal
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const el = galleryViewportRef.current;
+      if (el && el.scrollHeight <= el.clientHeight + 200) {
+        void loadMoreActive();
+      }
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [
+    loading,
+    isTrashView,
+    activeFolderId,
+    items.length,
+    queryTotal,
+    loadMoreActive,
+  ]);
+
   const previousLibraryPathRef = useRef(library.path);
   useEffect(() => {
     if (previousLibraryPathRef.current === library.path) return;
@@ -543,6 +946,13 @@ export function LibraryWorkspace({
     setSelectedOrder([]);
     setActiveItemId(null);
     setTrashItems([]);
+    setItems([]);
+    setQueryTotal(0);
+    setQueryTotalSize(0);
+    setWorkspaceStats(null);
+    setFolderPreviewMap(new Map());
+    loadedPagesRef.current = 1;
+    setLoading(true);
     previewPushedRef.current = false;
     ws.reset();
     void refreshActiveItems();
@@ -636,13 +1046,7 @@ export function LibraryWorkspace({
   // Incremental O(1) index cache for 37,000+ / 100,000+ items:
   // When a single screenshot/file is prepended, deleted, or updated, update the existing Map/counts
   // in O(1) instead of rebuilding a 37,000-entry Map and 37,000-entry folder index from scratch!
-  const {
-    activeItemsById,
-    itemsByFolderId,
-    untaggedCount,
-    uncategorizedCount,
-    totalActiveBytes,
-  } = useMemo(() => {
+  const { activeItemsById } = useMemo(() => {
     const tIdx0 = performance.now();
     const prev = indexCacheRef.current;
     const len = items.length;
@@ -822,7 +1226,8 @@ export function LibraryWorkspace({
   // Extract top 8 dominant colors once per library/view switch (sampled on first 1,000 items)
   // so FilterBar never receives the 37,000-element items array prop!
   const libraryTopColors = useMemo(() => {
-    const source = isTrashView ? trashItems : items;
+    if (!isTrashView) return workspaceStats?.topColors ?? [];
+    const source = trashItems;
     if (source.length === 0) return [];
     const counts: Record<string, number> = {};
     const limit = Math.min(source.length, 1000);
@@ -837,19 +1242,19 @@ export function LibraryWorkspace({
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([hex]) => hex);
-    // Only recompute when switching trash view or when library first loads / switches
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTrashView, library.path, items.length === 0]);
+  }, [isTrashView, trashItems, workspaceStats]);
 
   // Fast lookup map for O(1) resolution of selectedOrder -> Item[] in current view
   const itemsById = useMemo(() => {
-    if (!isTrashView) return activeItemsById;
-    const map = new Map<string, Item>();
+    const map = new Map<string, Item>(activeItemsById);
     for (const it of trashItems) {
       map.set(it.id, it);
     }
+    for (const it of historyItems) {
+      map.set(it.id, it);
+    }
     return map;
-  }, [isTrashView, activeItemsById, trashItems]);
+  }, [activeItemsById, trashItems, historyItems]);
   // Selected items strictly ordered by selection sequence (FIFO)
   const selectedItems = useMemo(() => {
     const result: Item[] = [];
@@ -887,19 +1292,7 @@ export function LibraryWorkspace({
     [searchQuery]
   );
 
-  // untaggedCount and uncategorizedCount are computed in the single-pass useMemo above
-
-  const historyItems = useMemo(() => {
-    const out: Item[] = [];
-    for (const entry of historyEntries) {
-      const found = activeItemsById.get(entry.itemId);
-      if (found && !found.inTrash) {
-        out.push(found);
-      }
-    }
-    return out;
-  }, [historyEntries, activeItemsById]);
-
+  // Counts come from GetWorkspaceStats; only trash/history still filter locally.
   const flatFolderList = useMemo(() => {
     if (!folderPaletteOpen) return [];
     const out: { id: string; name: string; count: number }[] = [];
@@ -916,121 +1309,36 @@ export function LibraryWorkspace({
     return out;
   }, [folders, folderPaletteOpen]);
   // Precompute O(1) folder lookup map and descendant folder ID sets once per folders tree change
-  const folderTreeIndex = useMemo(() => {
-    const byId = new Map<string, Folder>();
-    const descendantsById = new Map<string, Set<string>>();
-
-    const walk = (f: Folder): Set<string> => {
-      byId.set(f.id, f);
-      const desc = new Set<string>([f.id]);
-      if (f.children && f.children.length > 0) {
-        for (const ch of f.children) {
-          const childSet = walk(ch);
-          for (const cid of childSet) {
-            desc.add(cid);
-          }
-        }
-      }
-      descendantsById.set(f.id, desc);
-      return desc;
-    };
-
-    for (const root of folders) {
-      walk(root);
-    }
-    return { byId, descendantsById };
-  }, [folders]);
-
-  // itemsByFolderId is computed in the single-pass useMemo above
-
-  const currentFolder = useMemo(
-    () =>
-      isRealFolderId(activeFolderId)
-        ? folderTreeIndex.byId.get(activeFolderId) ?? null
-        : null,
-    [activeFolderId, folderTreeIndex]
-  );
-
-  const currentSubfolders = useMemo(
-    () => currentFolder?.children ?? [],
-    [currentFolder]
-  );
-
-  const activeFolderMatchSet = useMemo(() => {
-    if (!currentFolder) return null;
-    if (includeSubfolders) {
-      return (
-        folderTreeIndex.descendantsById.get(currentFolder.id) ??
-        new Set<string>([currentFolder.id])
-      );
-    }
-    return new Set<string>([currentFolder.id]);
-  }, [currentFolder, includeSubfolders, folderTreeIndex]);
+  // (computed near the top so the query builder can use it).
 
   const subfolderPreviewData = useMemo(() => {
     const map = new Map<string, { totalCount: number; previewItems: Item[] }>();
     if (currentSubfolders.length === 0) return map;
     for (const sub of currentSubfolders) {
-      const descIds = folderTreeIndex.descendantsById.get(sub.id);
-      if (!descIds || descIds.size <= 1) {
-        const direct = itemsByFolderId.get(sub.id) ?? [];
-        map.set(sub.id, {
-          totalCount: direct.length,
-          previewItems: direct.slice(0, 4),
-        });
-        continue;
-      }
-      const seenIds = new Set<string>();
-      const previewItems: Item[] = [];
-      for (const fid of descIds) {
-        const bucket = itemsByFolderId.get(fid);
-        if (!bucket) continue;
-        for (let i = 0; i < bucket.length; i++) {
-          const it = bucket[i];
-          if (!seenIds.has(it.id)) {
-            seenIds.add(it.id);
-            if (previewItems.length < 4) {
-              previewItems.push(it);
-            }
-          }
-        }
-      }
-      map.set(sub.id, {
-        totalCount: seenIds.size,
-        previewItems,
-      });
+      const preview = folderPreviewMap.get(sub.id);
+      if (preview) map.set(sub.id, preview);
     }
     return map;
-  }, [currentSubfolders, folderTreeIndex, itemsByFolderId]);
+  }, [currentSubfolders, folderPreviewMap]);
 
   const filteredItems = useMemo(() => {
-    let sourceItems: Item[];
-    if (activeFolderId === TRASH_FOLDER_ID) {
-      sourceItems = trashItems;
-    } else if (activeFolderId === HISTORY_FOLDER_ID) {
-      sourceItems =
-        sortOrder === "asc" ? [...historyItems].reverse() : historyItems;
-    } else if (
-      activeFolderId !== null &&
-      !tagsSidebarOpen &&
-      activeFolderId !== UNTAGGED_FOLDER_ID &&
-      activeFolderId !== UNCATEGORIZED_FOLDER_ID &&
-      !includeSubfolders
+    // Active-library browsing/search/filter/sort is fully server-side now.
+    if (
+      activeFolderId !== TRASH_FOLDER_ID &&
+      activeFolderId !== HISTORY_FOLDER_ID
     ) {
-      // Fast O(1) direct folder slice instead of scanning the entire library
-      sourceItems = itemsByFolderId.get(activeFolderId) ?? [];
-    } else {
-      sourceItems = items;
+      return items;
     }
+
+    const sourceItems: Item[] =
+      activeFolderId === TRASH_FOLDER_ID
+        ? trashItems
+        : sortOrder === "asc"
+        ? [...historyItems].reverse()
+        : historyItems;
     const hasExtraFilters =
       Boolean(normalizedQuery) ||
       tagsSidebarOpen ||
-      activeFolderId === UNTAGGED_FOLDER_ID ||
-      activeFolderId === UNCATEGORIZED_FOLDER_ID ||
-      (activeFolderId !== null &&
-        activeFolderId !== TRASH_FOLDER_ID &&
-        activeFolderId !== HISTORY_FOLDER_ID &&
-        includeSubfolders) ||
       categoryFilter !== "all" ||
       Boolean(folderFilter) ||
       orientationFilter !== "all" ||
@@ -1065,36 +1373,15 @@ export function LibraryWorkspace({
         }
       }
 
-      if (activeFolderId !== TRASH_FOLDER_ID) {
-        if (tagsSidebarOpen) {
-          // Standalone All Tags mode: only filter by the selected tag in TagsSidebar
-          const itemTags = item.tags || [];
-          if (activeTag !== null) {
-            if (!itemTags.includes(activeTag)) {
-              return false;
-            }
-          } else {
-            if (itemTags.length === 0) {
-              return false;
-            }
-          }
-        } else if (activeFolderId === UNTAGGED_FOLDER_ID) {
-          const itemTags = item.tags || [];
-          if (itemTags.length > 0) return false;
-        } else if (activeFolderId === UNCATEGORIZED_FOLDER_ID) {
-          const itemFolders = item.folders || [];
-          if (itemFolders.length > 0) return false;
-        } else if (activeFolderId === HISTORY_FOLDER_ID) {
-          // Already sourced from historyItems
-        } else if (activeFolderId !== null && includeSubfolders) {
-          const itemFolders = item.folders || [];
-          if (activeFolderMatchSet) {
-            if (!itemFolders.some((fid) => activeFolderMatchSet.has(fid))) {
-              return false;
-            }
-          } else if (!itemFolders.includes(activeFolderId)) {
+      if (activeFolderId !== TRASH_FOLDER_ID && tagsSidebarOpen) {
+        // Standalone All Tags mode: only filter by the selected tag in TagsSidebar
+        const itemTags = item.tags || [];
+        if (activeTag !== null) {
+          if (!itemTags.includes(activeTag)) {
             return false;
           }
+        } else if (itemTags.length === 0) {
+          return false;
         }
       }
 
@@ -1173,13 +1460,10 @@ export function LibraryWorkspace({
   }, [
     items,
     trashItems,
-    itemsByFolderId,
     historyItems,
     sortOrder,
     normalizedQuery,
     activeFolderId,
-    includeSubfolders,
-    activeFolderMatchSet,
     tagsSidebarOpen,
     activeTag,
     categoryFilter,
@@ -1871,15 +2155,30 @@ export function LibraryWorkspace({
     activeTag === FAVORITE_TAG ? t("common.favorites") : activeTag;
   // Only compute totalSizeBytes when no item is selected (empty inspector state displays total library/folder size)
   // Compute totalSizeBytes in O(1) when viewing all active items, or only when no item is selected
+  const filteredTotalCount =
+    activeFolderId !== TRASH_FOLDER_ID && activeFolderId !== HISTORY_FOLDER_ID
+      ? queryTotal
+      : filteredItems.length;
   const totalSizeBytes = useMemo(() => {
     if (selectedOrder.length > 0 || activeItemId !== null) return 0;
-    if (filteredItems === items) return totalActiveBytes;
+    if (
+      activeFolderId !== TRASH_FOLDER_ID &&
+      activeFolderId !== HISTORY_FOLDER_ID
+    ) {
+      return queryTotalSize;
+    }
     let sum = 0;
     for (let i = 0; i < filteredItems.length; i++) {
       sum += filteredItems[i].size || 0;
     }
     return sum;
-  }, [filteredItems, items, totalActiveBytes, selectedOrder.length, activeItemId]);
+  }, [
+    filteredItems,
+    queryTotalSize,
+    activeFolderId,
+    selectedOrder.length,
+    activeItemId,
+  ]);
   // Global Keyboard shortcuts & native copy event handler
   const lastCopyTsRef = useRef<number>(0);
   const triggerCopyShortcut = useCallback(() => {
@@ -2017,9 +2316,9 @@ export function LibraryWorkspace({
                   library={library}
                   folders={folders}
                   activeFolderId={activeFolderId}
-                  totalItemCount={items.length}
-                  untaggedCount={untaggedCount}
-                  uncategorizedCount={uncategorizedCount}
+                  totalItemCount={workspaceStats?.total ?? 0}
+                  untaggedCount={workspaceStats?.untaggedCount ?? 0}
+                  uncategorizedCount={workspaceStats?.uncategorizedCount ?? 0}
                   historyCount={historyItems.length}
                   trashCount={trashCount}
                   tagsCount={tags.length}
@@ -2753,7 +3052,7 @@ export function LibraryWorkspace({
                     currentFolder={currentFolder}
                     allFolders={folders}
                     allTags={tags}
-                    totalItemCount={filteredItems.length}
+                    totalItemCount={filteredTotalCount}
                     totalSizeBytes={totalSizeBytes}
                     isTrashView={activeFolderId === "__trash__"}
                     activeColorFilter={colorFilter}

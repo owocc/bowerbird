@@ -1002,6 +1002,16 @@ func (m *LibraryManager) ImportFiles(sourcePaths []string) ([]Item, error) {
 // ImportFilesWithProgress imports files concurrently using a bounded Go worker pool
 // and batched SQLite transactions with real-time progress callbacks.
 func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgress ProgressCallback) ([]Item, error) {
+	return m.importFilesWithProgress(sourcePaths, onProgress, true)
+}
+
+// ImportFilesFromMobile imports uploads without per-batch desktop upsert
+// events; the mobile handler emits one coalesced event after the import.
+func (m *LibraryManager) ImportFilesFromMobile(sourcePaths []string) ([]Item, error) {
+	return m.importFilesWithProgress(sourcePaths, nil, false)
+}
+
+func (m *LibraryManager) importFilesWithProgress(sourcePaths []string, onProgress ProgressCallback, emitDesktopBatch bool) ([]Item, error) {
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -1052,7 +1062,7 @@ func (m *LibraryManager) ImportFilesWithProgress(sourcePaths []string, onProgres
 	for i, p := range allFiles {
 		jobs[i] = importJob{index: i, srcPath: p}
 	}
-	return m.runConcurrentImportJobs(jobs, onProgress)
+	return m.runConcurrentImportJobs(jobs, onProgress, emitDesktopBatch)
 }
 
 type importJob struct {
@@ -1092,7 +1102,7 @@ func importWorkerCount(total int) int {
 	return workers
 }
 
-func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress ProgressCallback) ([]Item, error) {
+func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress ProgressCallback, emitDesktopBatch bool) ([]Item, error) {
 	total := len(jobs)
 	if total == 0 {
 		return []Item{}, nil
@@ -1131,7 +1141,7 @@ func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress Pr
 		if len(pendingBatch) == 0 {
 			return
 		}
-		m.commitImportBatch(pendingBatch)
+		m.commitImportBatch(pendingBatch, emitDesktopBatch)
 		pendingBatch = pendingBatch[:0]
 	}
 
@@ -1174,7 +1184,7 @@ func (m *LibraryManager) runConcurrentImportJobs(jobs []importJob, onProgress Pr
 	return imported, nil
 }
 
-func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
+func (m *LibraryManager) commitImportBatch(batch []preparedImportResult, emitDesktopBatch bool) {
 	m.mu.RLock()
 	db := m.db
 	m.mu.RUnlock()
@@ -1257,12 +1267,11 @@ func (m *LibraryManager) commitImportBatch(batch []preparedImportResult) {
 
 	// Only emit mid-stream incremental batch updates when importing multiple batches (>1 item);
 	// single-file imports and final completion already emit import-completed with the full items slice.
-	if len(batchItems) > 1 {
+	if emitDesktopBatch && len(batchItems) > 1 {
 		m.emit("library-items-upserted", batchItems)
 	}
-	if len(batchItems) > 0 {
-		m.notifyItemsUpdated()
-	}
+	// items_updated is emitted once by the import caller (runConcurrentImportJobs
+	// for batches, ImportSingleFileWithTags for single files), not per batch.
 	RecordLog(
 		"perf",
 		"core",
@@ -1593,7 +1602,8 @@ func (m *LibraryManager) ImportSingleFileWithTags(srcPath string, tags []string)
 		return nil, res.err
 	}
 	if res.item != nil {
-		m.commitImportBatch([]preparedImportResult{res})
+		m.commitImportBatch([]preparedImportResult{res}, true)
+		m.notifyItemsUpdated()
 	}
 	return res.item, nil
 }
@@ -1837,6 +1847,7 @@ func (m *LibraryManager) ImportFromBase64WithOptions(filename string, base64Data
 
 	m.upsertItemsInCache([]Item{item}, "")
 	m.emit("library-items-upserted", []Item{item})
+	m.notifyItemsUpdated()
 	m.emit("library-item-imported", item)
 	return &item, nil
 }
@@ -3412,7 +3423,7 @@ func (m *LibraryManager) ImportFolderRecursivelyWithProgress(dirPath string, par
 
 	walkDir(dirPath, rootFolder.ID)
 	if len(jobs) > 0 {
-		_, _ = m.runConcurrentImportJobs(jobs, onProgress)
+		_, _ = m.runConcurrentImportJobs(jobs, onProgress, true)
 	}
 	return rootFolder, nil
 }
@@ -3478,7 +3489,7 @@ func (m *LibraryManager) ImportFoldersRecursivelyWithProgress(dirPaths []string,
 	}
 
 	if len(jobs) > 0 {
-		_, _ = m.runConcurrentImportJobs(jobs, onProgress)
+		_, _ = m.runConcurrentImportJobs(jobs, onProgress, true)
 	}
 
 	return created, nil
