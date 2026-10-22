@@ -44,6 +44,13 @@ export interface Folder {
   itemCount: number;
 }
 
+/** FolderPreview is the first few items and the total for one folder scope. */
+export interface FolderPreview {
+  total: number;
+  totalSize: number;
+  items: Item[];
+}
+
 /** ImageMeta holds extended metadata extracted from an image or media file. */
 export interface ImageMeta {
   colorModel?: string;
@@ -223,11 +230,36 @@ export interface PluginUpdateInfo {
   changelog?: string[];
 }
 
+/**
+ * QueryPage is one page of a desktop query, including the full filtered total
+ * and byte size so the UI can render counts without loading the whole library.
+ */
+export interface QueryPage {
+  items: Item[];
+  total: number;
+  totalSize: number;
+  offset: number;
+  limit: number;
+}
+
 /** Tag represents a tag taxonomy entry with its item count. */
 export interface Tag {
   name: string;
   createdAt: number;
   itemCount: number;
+}
+
+/**
+ * WorkspaceStats carries the library-wide numbers the desktop sidebar and
+ * filter bar display. TopColors samples the first 1,000 items in sort order,
+ * matching the previous frontend calculation.
+ */
+export interface WorkspaceStats {
+  total: number;
+  untaggedCount: number;
+  uncategorizedCount: number;
+  totalSize: number;
+  topColors: string[];
 }
 
 // ---- Services ----
@@ -339,6 +371,9 @@ export const Service = {
   getAssetServerPort(): Promise<number> {
     return call("Service.GetAssetServerPort");
   },
+  getFolderPreviews(folderGroups: string[][], sortOrder: string): Promise<FolderPreview[]> {
+    return call("Service.GetFolderPreviews", folderGroups, sortOrder);
+  },
   getFolders(): Promise<Folder[]> {
     return call("Service.GetFolders");
   },
@@ -409,6 +444,9 @@ export const Service = {
   /** GetUserDataDir returns the absolute path of the Bowerbird user data directory. */
   getUserDataDir(): Promise<string> {
     return call("Service.GetUserDataDir");
+  },
+  getWorkspaceStats(sortOrder: string): Promise<WorkspaceStats | null> {
+    return call("Service.GetWorkspaceStats", sortOrder);
   },
   /**
    * HandleNativeDrop routes files dropped on a window by the desktop shell.
@@ -526,6 +564,14 @@ export const Service = {
   },
   permanentDeleteItem(id: string): Promise<void> {
     return call("Service.PermanentDeleteItem", id);
+  },
+  /**
+   * QueryWorkspace runs one paginated desktop query through the shared engine.
+   * folderScope/onlyUnrated are desktop-only additive filters; the query grammar
+   * itself is unchanged.
+   */
+  queryWorkspace(query: string, sortOrder: string, offset: number, limit: number, folderScope: string[], onlyUnrated: boolean): Promise<QueryPage | null> {
+    return call("Service.QueryWorkspace", query, sortOrder, offset, limit, folderScope, onlyUnrated);
   },
   /** RegenerateMobilePairingCode generates and returns a new 6-digit pairing code. */
   regenerateMobilePairingCode(): Promise<string> {
