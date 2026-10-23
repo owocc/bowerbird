@@ -13,11 +13,14 @@ type UserData struct {
 	ActiveLibraryPath string   `json:"activeLibraryPath"`
 	RecentLibraries   []string `json:"recentLibraries"`
 	// Theme is the persisted colour mode: "dark", "light" or "system".
-	Theme     string          `json:"theme,omitempty"`
-	Language  string          `json:"language,omitempty"`
-	Network   NetworkSettings `json:"network,omitempty"`
-	Mobile    *MobileSettings `json:"mobile,omitempty"`
-	UpdatedAt int64           `json:"updatedAt"`
+	Theme    string `json:"theme,omitempty"`
+	Language string `json:"language,omitempty"`
+	// LightweightModeEnabled, when true, destroys webview windows after the
+	// main window has been hidden for a minute (or immediately from the tray).
+	LightweightModeEnabled bool            `json:"lightweightModeEnabled,omitempty"`
+	Network                NetworkSettings `json:"network,omitempty"`
+	Mobile                 *MobileSettings `json:"mobile,omitempty"`
+	UpdatedAt              int64           `json:"updatedAt"`
 }
 
 // UserDataStore provides thread-safe, atomic persistence for user configuration.
@@ -164,6 +167,23 @@ func (s *UserDataStore) SetLanguage(language string) error {
 	defer s.mu.Unlock()
 
 	s.data.Language = language
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// GetLightweightModeEnabled returns whether idle webviews should be torn down.
+func (s *UserDataStore) GetLightweightModeEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.LightweightModeEnabled
+}
+
+// SetLightweightModeEnabled persists the lightweight-mode preference.
+func (s *UserDataStore) SetLightweightModeEnabled(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data.LightweightModeEnabled = enabled
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }

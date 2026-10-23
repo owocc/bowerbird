@@ -15,6 +15,7 @@
     "logs": "Logs…",
     "openMainWindow": "Show Main Window",
     "quit": "Quit Bowerbird",
+    "enterLightweight": "Enter Lightweight Mode",
     "reload": "Reload",
     "settings": "Settings…"
   },
@@ -303,6 +304,11 @@
       "light": "Light",
       "lightDescription": "Always use the light theme",
       "title": "Colour mode"
+    },
+    "lightweight": {
+      "title": "Lightweight mode",
+      "description": "When enabled, closing the window starts a one-minute timer. After that, webview processes are stopped and only the core Go process (tray, capture, API) stays running. You can also enter this mode immediately from the menu bar / tray.",
+      "enable": "Enable lightweight mode"
     },
     "language": {
       "title": "Language",

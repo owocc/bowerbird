@@ -354,6 +354,8 @@ func (h *recordingHost) NativeWindowHandle() uintptr          { return 0 }
 func (h *recordingHost) WriteFilesToClipboard([]string) error { return nil }
 func (h *recordingHost) WriteTextToClipboard(string) error    { return nil }
 func (h *recordingHost) ApplyTheme(string)                    {}
+func (h *recordingHost) EnterLightweightMode()                { h.record("enter-lightweight") }
+func (h *recordingHost) CancelLightweightIdle()               { h.record("cancel-lightweight-idle") }
 
 type mobileTestServer struct {
 	mgr     *LibraryManager

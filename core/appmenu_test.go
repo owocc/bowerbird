@@ -127,6 +127,7 @@ func TestTrayMenuModel(t *testing.T) {
 		core.AppMenuCaptureFullscreen,
 		core.AppMenuOpenMainWindow,
 		core.AppMenuSettings,
+		core.AppMenuEnterLightweight,
 		core.AppMenuQuit,
 	} {
 		if !seen[action] {
