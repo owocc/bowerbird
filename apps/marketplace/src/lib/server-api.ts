@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
-import { INITIAL_OFFICIAL_PLUGINS } from "../data/plugins";
+import { INITIAL_OFFICIAL_PLUGINS, mergeBuiltinPlugins } from "../data/plugins";
 
 export const DEFAULT_REPO_INDEX_URL =
   "https://raw.githubusercontent.com/owocc/bowerbird-plugins/main/index.min.json";
@@ -24,6 +24,7 @@ export interface PluginIndexItem {
   iconName?: string;
   license?: string;
   featured?: boolean;
+  builtin?: boolean;
   downloadsCount?: number;
   rating?: number;
   longDescription?: string;
@@ -41,6 +42,13 @@ export interface PluginRegistryIndex {
 }
 
 let cachedIndex: { data: PluginRegistryIndex; timestamp: number } | null = null;
+
+function withBuiltinPlugins(data: PluginRegistryIndex): PluginRegistryIndex {
+  return {
+    ...data,
+    plugins: mergeBuiltinPlugins(data.plugins),
+  };
+}
 
 function compareSemVer(v1: string, v2: string): number {
   const p1 = (v1 || "0").replace(/^v/, "").split(".").map(Number);
@@ -91,7 +99,7 @@ export async function fetchPluginRegistry(env?: Record<string, string | undefine
       }
       const res = await fetch(indexUrl, { headers });
       if (res.ok) {
-        const data = (await res.json()) as PluginRegistryIndex;
+        const data = withBuiltinPlugins((await res.json()) as PluginRegistryIndex);
         cachedIndex = { data, timestamp: now };
         return data;
       }
@@ -111,7 +119,7 @@ export async function fetchPluginRegistry(env?: Record<string, string | undefine
     for (const cand of localCandidates) {
       if (fs.existsSync(cand)) {
         const raw = fs.readFileSync(cand, "utf8");
-        const data = JSON.parse(raw) as PluginRegistryIndex;
+        const data = withBuiltinPlugins(JSON.parse(raw) as PluginRegistryIndex);
         cachedIndex = { data, timestamp: now };
         return data;
       }
@@ -123,7 +131,7 @@ export async function fetchPluginRegistry(env?: Record<string, string | undefine
   return {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    plugins: INITIAL_OFFICIAL_PLUGINS as PluginIndexItem[],
+    plugins: mergeBuiltinPlugins(INITIAL_OFFICIAL_PLUGINS as unknown as PluginIndexItem[]),
   };
 }
 
@@ -161,10 +169,12 @@ export async function handlePluginApiRequest(
     }
     const registry = await fetchPluginRegistry(env);
     const plugins = registry.plugins.map((p) => {
+      const builtin = Boolean(p.builtin) || p.id.startsWith("builtin.");
       return {
         ...p,
+        builtin,
         manifestUrl: `${origin}/api/plugins/${p.id}/manifest.json`,
-        downloadUrl: getDirectDownloadUrl(p, releaseBaseUrl, origin),
+        downloadUrl: builtin ? "" : getDirectDownloadUrl(p, releaseBaseUrl, origin),
       };
     });
 
@@ -237,6 +247,7 @@ export async function handlePluginApiRequest(
       });
     }
 
+    const builtin = Boolean(plugin.builtin) || plugin.id.startsWith("builtin.");
     const manifestData = {
       id: plugin.id,
       name: plugin.name,
@@ -252,7 +263,8 @@ export async function handlePluginApiRequest(
       style: plugin.style,
       icon: plugin.icon,
       license: plugin.license,
-      downloadUrl: getDirectDownloadUrl(plugin, releaseBaseUrl, origin),
+      builtin,
+      downloadUrl: builtin ? "" : getDirectDownloadUrl(plugin, releaseBaseUrl, origin),
     };
 
     return new Response(JSON.stringify(manifestData, null, 2), {
@@ -275,6 +287,13 @@ export async function handlePluginApiRequest(
     if (!plugin) {
       return new Response(JSON.stringify({ error: `Plugin ${pluginId} not found` }), {
         status: 404,
+        headers: { "Content-Type": "application/json", ...corsHeaders },
+      });
+    }
+
+    if (plugin.builtin || plugin.id.startsWith("builtin.")) {
+      return new Response(JSON.stringify({ error: `Plugin ${pluginId} is bundled with the app` }), {
+        status: 400,
         headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }

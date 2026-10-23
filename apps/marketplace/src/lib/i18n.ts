@@ -28,6 +28,7 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     install: "一键安装",
     installed: "已安装",
     installing: "安装中...",
+    builtin: "内置核心",
 
     // Sidebar
     "sidebar.title": "Bowerbird",
@@ -198,6 +199,7 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     install: "Install",
     installed: "Installed",
     installing: "Installing...",
+    builtin: "Built-in",
 
     // Sidebar
     "sidebar.title": "Bowerbird",

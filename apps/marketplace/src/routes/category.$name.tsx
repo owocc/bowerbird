@@ -1,8 +1,10 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { ChevronRight, BookOpen, Download, Check, Star } from "lucide-react";
+import { ChevronRight, BookOpen, Star } from "lucide-react";
 import { getAllPlugins, PLUGIN_CATEGORIES_CONFIG, type MarketplacePlugin } from "../data/plugins";
 import { getPluginIcon } from "../components/plugin-icon";
+import { BuiltinBadge } from "../components/builtin-badge";
+import { PluginActionButton } from "../components/plugin-action-button";
 import { DesktopContext } from "../lib/desktop-context";
 import { useI18n } from "../lib/i18n";
 
@@ -13,8 +15,7 @@ export const Route = createFileRoute("/category/$name")({
 export function CategoryPage() {
   const { name } = Route.useParams();
   const { t, locale } = useI18n();
-  const navigate = useNavigate();
-  const { installedPlugins, installingId, installViaAPI, installViaProtocol } =
+  const { installedPlugins, installViaAPI, installViaProtocol } =
     React.useContext(DesktopContext);
 
   const decoded = decodeURIComponent(name || "all").trim();
@@ -104,7 +105,6 @@ export function CategoryPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-x-6 sm:gap-y-3.5">
               {featuredSlice.map((plugin: MarketplacePlugin) => {
                 const Icon = getPluginIcon(plugin.iconName);
-                const isInst = installedPlugins.has(plugin.id);
                 return (
                   <div
                     key={plugin.id}
@@ -123,6 +123,7 @@ export function CategoryPage() {
                           <h3 className="text-xs sm:text-sm font-semibold text-foreground truncate leading-tight group-hover:text-primary transition-colors">
                             {plugin.name}
                           </h3>
+                          <BuiltinBadge plugin={plugin} />
                         </div>
                         <p className="text-[11px] sm:text-xs text-muted-foreground truncate mt-0.5">
                           {plugin.tagline || plugin.description}
@@ -131,21 +132,7 @@ export function CategoryPage() {
                     </Link>
 
                     <div className="shrink-0">
-                      {isInst ? (
-                        <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                          <Check className="w-3 h-3" />
-                          <span>已安装</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => handleInstall(plugin, e)}
-                          className="px-3 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 border border-border"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>安装</span>
-                        </button>
-                      )}
+                      <PluginActionButton plugin={plugin} onInstall={handleInstall} />
                     </div>
                   </div>
                 );
@@ -165,7 +152,6 @@ export function CategoryPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-5">
               {topRankSlice.map((plugin: MarketplacePlugin, index: number) => {
                 const Icon = getPluginIcon(plugin.iconName);
-                const isInst = installedPlugins.has(plugin.id);
                 return (
                   <div
                     key={`rank-${plugin.id}-${index}`}
@@ -187,6 +173,9 @@ export function CategoryPage() {
                       <h4 className="text-xs sm:text-sm font-bold text-foreground line-clamp-1 w-full px-1 group-hover:text-primary transition-colors">
                         {plugin.name}
                       </h4>
+                      <div className="mt-1">
+                        <BuiltinBadge plugin={plugin} />
+                      </div>
                       <p className="text-[11px] sm:text-xs text-muted-foreground line-clamp-1 mt-1 w-full px-1">
                         {plugin.tagline || plugin.description}
                       </p>
@@ -200,21 +189,7 @@ export function CategoryPage() {
 
                     {/* Bottom Action */}
                     <div className="mt-2 w-full flex justify-center">
-                      {isInst ? (
-                        <span className="px-4 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                          <Check className="w-3 h-3" />
-                          <span>已安装</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => handleInstall(plugin, e)}
-                          className="px-4 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-border"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>安装</span>
-                        </button>
-                      )}
+                      <PluginActionButton plugin={plugin} onInstall={handleInstall} />
                     </div>
                   </div>
                 );
@@ -234,7 +209,6 @@ export function CategoryPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-5">
               {editorsChoiceSlice.map((plugin: MarketplacePlugin, index: number) => {
                 const Icon = getPluginIcon(plugin.iconName);
-                const isInst = installedPlugins.has(plugin.id);
                 return (
                   <div
                     key={`editor-${plugin.id}-${index}`}
@@ -255,6 +229,9 @@ export function CategoryPage() {
                       <h4 className="text-xs sm:text-sm font-bold text-foreground line-clamp-1 w-full px-1 group-hover:text-primary transition-colors">
                         {plugin.name}
                       </h4>
+                      <div className="mt-1">
+                        <BuiltinBadge plugin={plugin} />
+                      </div>
                       <p className="text-[11px] sm:text-xs text-muted-foreground line-clamp-1 mt-1 w-full px-1">
                         {plugin.tagline || plugin.description}
                       </p>
@@ -267,21 +244,7 @@ export function CategoryPage() {
                     </Link>
 
                     <div className="mt-2 w-full flex justify-center">
-                      {isInst ? (
-                        <span className="px-4 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                          <Check className="w-3 h-3" />
-                          <span>已安装</span>
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(e) => handleInstall(plugin, e)}
-                          className="px-4 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1 border border-border"
-                        >
-                          <Download className="w-3 h-3" />
-                          <span>安装</span>
-                        </button>
-                      )}
+                      <PluginActionButton plugin={plugin} onInstall={handleInstall} />
                     </div>
                   </div>
                 );

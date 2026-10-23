@@ -104,7 +104,7 @@ export function PluginCard({
   const isBuiltin = Boolean(plugin.builtin);
   const isInstalled = Boolean(plugin.installed);
   const isEnabled = plugin.enabled ?? true;
-  const canDisable = plugin.canDisable ?? !isBuiltin;
+  const canDisable = plugin.canDisable ?? true;
   const isMetadata = plugin.kind === "metadata";
 
   const renderIcon = () => {
@@ -204,8 +204,6 @@ export function PluginCard({
                   />
                   <span className="text-xs">{isEnabled ? "Enabled" : "Disabled"}</span>
                 </div>
-              ) : isInstalled && isBuiltin ? (
-                <span className="text-xs text-muted-foreground/70">Always active</span>
               ) : null}
             </div>
 

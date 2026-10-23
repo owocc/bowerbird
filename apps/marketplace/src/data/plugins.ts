@@ -10,7 +10,7 @@ export interface PluginVersionHistory {
 export interface MarketplacePlugin extends PluginManifest {
   manifestUrl: string;
   downloadUrl: string;
-  iconName: "file-text" | "music" | "table" | "camera" | "box" | "sparkles" | "code" | "database" | "palette" | string;
+  iconName: "file-text" | "music" | "table" | "camera" | "box" | "sparkles" | "code" | "database" | "palette" | "image" | "video" | string;
   longDescription: string;
   category: "preview" | "metadata" | string;
   subCategory?: "document" | "media" | "data" | "code" | "ai" | string;
@@ -23,6 +23,144 @@ export interface MarketplacePlugin extends PluginManifest {
   cover_url?: string;
   screenshots?: string[];
   tagline?: string;
+  /** Bundled with the desktop app; shown in the store with a special marker. */
+  builtin?: boolean;
+}
+
+export const BUILTIN_MARKETPLACE_PLUGINS: MarketplacePlugin[] = [
+  {
+    id: "builtin.image",
+    name: "Image Viewer",
+    tagline: "高精度图像检视，支持触控板缩放、平移与小地图",
+    version: "1.0.0",
+    description:
+      "High-precision image viewer with damped trackpad pinch-to-zoom, 2D pan, interactive MiniMap, and borderless inspector preview.",
+    author: "Bowerbird Team",
+    kind: "preview",
+    category: "preview",
+    subCategory: "media",
+    priority: 100,
+    extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico", "tiff", "tif", "avif"],
+    mimePrefixes: ["image/"],
+    supportsZoom: true,
+    main: "index.js",
+    license: "MIT",
+    iconName: "image",
+    featured: false,
+    builtin: true,
+    downloadsCount: 0,
+    rating: 5,
+    manifestUrl: "/api/plugins/builtin.image/manifest.json",
+    downloadUrl: "/api/plugins/builtin.image/download",
+    cover_url: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=1200&h=800&fit=crop",
+    screenshots: [
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?w=900&h=600&fit=crop",
+      "https://images.unsplash.com/photo-1472214103451-9374bd1c798e?w=900&h=600&fit=crop",
+    ],
+    longDescription: `### 核心功能 (Key Features)
+- **触控板阻尼缩放**: 双指捏合缩放 25%–800%，缩放后支持二维平移。
+- **交互式小地图**: 放大超过 125% 时显示 MiniMap，快速定位画面。
+- **无边框检视预览**: 在右侧属性栏以自适应方式呈现图像。
+- **内置核心**: 随 Bowerbird 桌面端一同提供，可在偏好设置中启用或禁用。`,
+    changelog: [
+      {
+        version: "1.0.0",
+        date: "2026-10-18",
+        notes: ["随应用内置的核心图像检视器", "支持触控板缩放、平移与小地图"],
+      },
+    ],
+  },
+  {
+    id: "builtin.video",
+    name: "Video Player",
+    tagline: "多引擎视频播放，支持 HLS / MPEG-TS / DASH 与逐帧控制",
+    version: "1.0.0",
+    description:
+      "Multi-engine video player (HLS, MPEG-TS/FLV, DASH & HTML5 Native) with frame-accurate controls and automatic cover color extraction.",
+    author: "Bowerbird Team",
+    kind: "preview",
+    category: "preview",
+    subCategory: "media",
+    priority: 90,
+    extensions: [
+      "mp4",
+      "mov",
+      "qt",
+      "webm",
+      "mkv",
+      "avi",
+      "m4v",
+      "flv",
+      "f4v",
+      "mts",
+      "m2ts",
+      "m3u8",
+      "m3u",
+      "mpd",
+      "ogv",
+      "ogm",
+      "3gp",
+      "3g2",
+      "wmv",
+      "asf",
+      "mpg",
+      "mpeg",
+      "m2v",
+      "vob",
+      "rmvb",
+      "rm",
+    ],
+    mimePrefixes: [
+      "video/",
+      "application/vnd.apple.mpegurl",
+      "application/x-mpegurl",
+      "application/dash+xml",
+    ],
+    supportsZoom: false,
+    main: "index.js",
+    license: "MIT",
+    iconName: "video",
+    featured: false,
+    builtin: true,
+    downloadsCount: 0,
+    rating: 5,
+    manifestUrl: "/api/plugins/builtin.video/manifest.json",
+    downloadUrl: "/api/plugins/builtin.video/download",
+    cover_url: "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=1200&h=800&fit=crop",
+    screenshots: [
+      "https://images.unsplash.com/photo-1485846234645-a62644f84728?w=900&h=600&fit=crop",
+      "https://images.unsplash.com/photo-1478720568477-152d9b164e26?w=900&h=600&fit=crop",
+    ],
+    longDescription: `### 核心功能 (Key Features)
+- **多引擎播放**: 自动选择 HLS、MPEG-TS/FLV、DASH 或 HTML5 原生解码。
+- **精确控制**: 0.25x–8x 变速、±5s 跳转、循环与全屏。
+- **封面取色**: 自动提取首帧封面色彩用于资源库展示。
+- **内置核心**: 随 Bowerbird 桌面端一同提供，可在偏好设置中启用或禁用。`,
+    changelog: [
+      {
+        version: "1.0.0",
+        date: "2026-10-18",
+        notes: ["随应用内置的核心视频播放器", "支持 HLS / MPEG-TS / DASH 与原生播放"],
+      },
+    ],
+  },
+];
+
+export function isBuiltinMarketplacePlugin(plugin: { id: string; builtin?: boolean }): boolean {
+  return Boolean(plugin.builtin) || plugin.id.startsWith("builtin.");
+}
+
+export function mergeBuiltinPlugins<T extends { id: string; builtin?: boolean }>(
+  plugins: T[]
+): T[] {
+  const ids = new Set(plugins.map((p) => p.id));
+  const missing = BUILTIN_MARKETPLACE_PLUGINS.filter((p) => !ids.has(p.id)) as unknown as T[];
+  return [
+    ...missing,
+    ...plugins.map((p) =>
+      isBuiltinMarketplacePlugin(p) ? { ...p, builtin: true } : p
+    ),
+  ];
 }
 
 export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
@@ -488,11 +626,12 @@ export const PLUGIN_CATEGORIES_CONFIG = [
 ] as const;
 
 export function getAllPlugins(options?: { category?: string }): MarketplacePlugin[] {
+  const catalog = mergeBuiltinPlugins(INITIAL_OFFICIAL_PLUGINS);
   if (!options || !options.category || options.category === "all" || options.category === "全部") {
-    return INITIAL_OFFICIAL_PLUGINS;
+    return catalog;
   }
   const cat = options.category.toLowerCase();
-  return INITIAL_OFFICIAL_PLUGINS.filter((plugin) => {
+  return catalog.filter((plugin) => {
     if (plugin.category.toLowerCase() === cat) return true;
     if (plugin.kind.toLowerCase() === cat) return true;
     if (plugin.subCategory && plugin.subCategory.toLowerCase() === cat) return true;
@@ -501,7 +640,7 @@ export function getAllPlugins(options?: { category?: string }): MarketplacePlugi
 }
 
 export function getPluginById(id: string): MarketplacePlugin | undefined {
-  return INITIAL_OFFICIAL_PLUGINS.find((p) => p.id === id);
+  return mergeBuiltinPlugins(INITIAL_OFFICIAL_PLUGINS).find((p) => p.id === id);
 }
 
 export function searchPlugins(query: string, category?: string): MarketplacePlugin[] {
@@ -526,7 +665,9 @@ export function usePluginsCatalog(): {
   loading: boolean;
   refresh: () => Promise<void>;
 } {
-  const [plugins, setPlugins] = React.useState<MarketplacePlugin[]>(INITIAL_OFFICIAL_PLUGINS);
+  const [plugins, setPlugins] = React.useState<MarketplacePlugin[]>(
+    mergeBuiltinPlugins(INITIAL_OFFICIAL_PLUGINS)
+  );
   const [loading, setLoading] = React.useState<boolean>(false);
 
   const fetchPlugins = React.useCallback(async () => {
@@ -536,7 +677,7 @@ export function usePluginsCatalog(): {
       if (res.ok) {
         const data = (await res.json()) as { plugins: MarketplacePlugin[] };
         if (Array.isArray(data.plugins) && data.plugins.length > 0) {
-          setPlugins(data.plugins);
+          setPlugins(mergeBuiltinPlugins(data.plugins));
         }
       }
     } catch {

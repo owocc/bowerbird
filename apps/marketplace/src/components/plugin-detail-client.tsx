@@ -16,7 +16,9 @@ import {
   Share2,
 } from "lucide-react";
 import type { MarketplacePlugin } from "../data/plugins";
+import { isBuiltinMarketplacePlugin } from "../data/plugins";
 import { getPluginIcon } from "./plugin-icon";
+import { BuiltinBadge } from "./builtin-badge";
 import { DesktopContext } from "../lib/desktop-context";
 import { useI18n } from "../lib/i18n";
 
@@ -33,7 +35,8 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
   const [copiedLink, setCopiedLink] = React.useState(false);
   const [copiedProtocol, setCopiedProtocol] = React.useState(false);
 
-  const isInstalled = installedPlugins.has(plugin.id);
+  const isBuiltin = isBuiltinMarketplacePlugin(plugin);
+  const isInstalled = installedPlugins.has(plugin.id) || isBuiltin;
   const isInstalling = installingId === plugin.id;
   const Icon = getPluginIcon(plugin.iconName);
 
@@ -103,6 +106,7 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
                     精选推荐
                   </span>
                 )}
+                <BuiltinBadge plugin={plugin} className="text-xs px-2.5 py-0.5" />
               </div>
 
               <p className="text-sm sm:text-base text-muted-foreground font-medium">
@@ -142,7 +146,16 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto shrink-0">
-            {isInstalled ? (
+            {isBuiltin ? (
+              <button
+                type="button"
+                disabled
+                className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-primary/10 text-primary font-semibold text-sm border border-primary/20 cursor-default"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span>应用内置 · 可在设置中禁用</span>
+              </button>
+            ) : isInstalled ? (
               <button
                 type="button"
                 disabled
@@ -258,6 +271,7 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
         </section>
 
         {/* Manual Download Links */}
+        {!isBuiltin && (
         <section className="bg-surface/50 rounded-2xl p-6 border border-border space-y-4">
           <h2 className="text-base font-bold text-foreground">手动下载与集成</h2>
           <p className="text-xs text-muted-foreground">
@@ -297,6 +311,7 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
             </button>
           </div>
         </section>
+        )}
 
         {/* Changelog */}
         {plugin.changelog && plugin.changelog.length > 0 && (

@@ -229,7 +229,7 @@ export interface PreviewPlugin<TItem = PluginItem> {
   builtin?: boolean;
   /**
    * Whether this plugin can be disabled by the user.
-   * Defaults to false for built-in core preview plugins (Image & Video).
+   * Defaults to true. Internal fallback plugins remain non-disableable.
    */
   canDisable?: boolean;
   /** Whether this plugin should be hidden from the user-facing plugin list */
