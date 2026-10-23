@@ -62,8 +62,14 @@ func (h *appHost) event(name string) *mygo.Event[any] {
 }
 
 func (h *appHost) Emit(name string, payload any) {
-	if name == core.LanguageChangedEvent {
+	if name == core.LanguageChangedEvent || name == core.ShortcutsChangedEvent {
 		h.rebuildTrayMenu()
+		if runtime.GOOS == "darwin" {
+			mygo.App.SetMenu(h.buildAppMenu())
+		}
+	}
+	if name == core.ShortcutsChangedEvent {
+		h.registerGlobalShortcuts()
 	}
 	_ = h.event(name).Broadcast(payload)
 }
@@ -363,12 +369,12 @@ func (h *appHost) rebuildTrayMenu() {
 		return
 	}
 	isZh := h.svc.GetLanguage() == "zh"
-	tray.SetMenu(h.buildTrayMenu(isZh))
+	tray.SetMenu(h.buildTrayMenu(isZh, h.svc.GetShortcutSettings()))
 }
 
-func (h *appHost) buildTrayMenu(isZh bool) *mygo.Menu {
+func (h *appHost) buildTrayMenu(isZh bool, settings core.ShortcutSettings) *mygo.Menu {
 	var items []*mygo.MenuItem
-	for _, row := range core.TrayMenuModel("Bowerbird", isZh) {
+	for _, row := range core.TrayMenuModelWithSettings("Bowerbird", isZh, settings) {
 		if row.Separator {
 			items = append(items, mygo.Separator())
 			continue
@@ -413,7 +419,7 @@ func (h *appHost) buildAppMenu() *mygo.Menu {
 		row := find(action)
 		return &mygo.MenuItem{
 			Label:       row.Title,
-			Accelerator: appAccelerator(action),
+			Accelerator: core.AcceleratorForMyGo(h.svc.ShortcutAccelerator(action)),
 			Click:       appAction(action),
 		}
 	}
@@ -423,8 +429,8 @@ func (h *appHost) buildAppMenu() *mygo.Menu {
 		Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
 			mygo.Separator(),
-			{Label: find(core.AppMenuSettings).Title, Accelerator: appAccelerator(core.AppMenuSettings), Click: appAction(core.AppMenuSettings)},
-			{Label: find(core.AppMenuLogs).Title, Accelerator: appAccelerator(core.AppMenuLogs), Click: appAction(core.AppMenuLogs)},
+			{Label: find(core.AppMenuSettings).Title, Accelerator: core.AcceleratorForMyGo(h.svc.ShortcutAccelerator(core.AppMenuSettings)), Click: appAction(core.AppMenuSettings)},
+			{Label: find(core.AppMenuLogs).Title, Accelerator: core.AcceleratorForMyGo(h.svc.ShortcutAccelerator(core.AppMenuLogs)), Click: appAction(core.AppMenuLogs)},
 			mygo.Separator(),
 			{Role: mygo.RoleHide},
 			{Role: mygo.RoleHideOthers},
@@ -449,21 +455,34 @@ func (h *appHost) buildAppMenu() *mygo.Menu {
 	})
 }
 
-// appAccelerator maps core's accelerator strings onto mygo's syntax.
-func appAccelerator(action string) string {
-	switch action {
-	case core.AppMenuCaptureArea:
-		return "Alt+A"
-	case core.AppMenuCaptureFullscreen:
-		return "Alt+S"
-	case core.AppMenuCaptureWindow:
-		return "Alt+W"
-	case core.AppMenuSettings:
-		return "CmdOrCtrl+,"
-	case core.AppMenuLogs:
-		return "CmdOrCtrl+L"
+func (h *appHost) registerGlobalShortcuts() {
+	mygo.GlobalShortcut.UnregisterAll()
+	if h.svc == nil {
+		return
 	}
-	return ""
+	settings := h.svc.GetShortcutSettings()
+	type binding struct {
+		id string
+		fn func() (*core.Item, error)
+	}
+	for _, sc := range []binding{
+		{core.ShortcutCaptureArea, h.svc.CaptureArea},
+		{core.ShortcutCaptureFullscreen, h.svc.CaptureFullscreen},
+		{core.ShortcutCaptureWindow, h.svc.CaptureWindow},
+	} {
+		accel := core.AcceleratorForMyGo(settings.Accelerator(sc.id))
+		if accel == "" {
+			continue
+		}
+		fn := sc.fn
+		if err := mygo.GlobalShortcut.Register(accel, func() {
+			if _, err := fn(); err != nil {
+				log.Printf("[Capture] %s: %v", accel, err)
+			}
+		}); err != nil {
+			log.Printf("[GlobalShortcut] %s registration error: %v", accel, err)
+		}
+	}
 }
 
 // keepWindowTitle keeps the native title the app set, instead of following
@@ -634,7 +653,7 @@ func main() {
 		tray, err := mygo.NewTray(mygo.TrayOptions{
 			Icon:    trayIconPNG(),
 			ToolTip: "Bowerbird",
-			Menu:    host.buildTrayMenu(coreService.GetLanguage() == "zh"),
+			Menu:    host.buildTrayMenu(coreService.GetLanguage() == "zh", coreService.GetShortcutSettings()),
 		})
 		if err != nil {
 			log.Printf("[Tray] %v", err)
@@ -644,24 +663,7 @@ func main() {
 			host.mu.Unlock()
 		}
 
-		shortcuts := []struct {
-			accel string
-			fn    func() (*core.Item, error)
-		}{
-			{"Alt+A", coreService.CaptureArea},
-			{"Alt+S", coreService.CaptureFullscreen},
-			{"Alt+W", coreService.CaptureWindow},
-		}
-		for _, sc := range shortcuts {
-			fn := sc.fn
-			if err := mygo.GlobalShortcut.Register(sc.accel, func() {
-				if _, err := fn(); err != nil {
-					log.Printf("[Capture] %s: %v", sc.accel, err)
-				}
-			}); err != nil {
-				log.Printf("[GlobalShortcut] %s registration error: %v", sc.accel, err)
-			}
-		}
+		host.registerGlobalShortcuts()
 
 		pendingMu.Lock()
 		urls := append([]string(nil), pendingURL...)

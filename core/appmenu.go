@@ -100,111 +100,78 @@ func isDarwin() bool {
 }
 
 // appMenuShortcutLabel returns the label shown to the user for an action.
-func appMenuShortcutLabel(action string) string {
+func shortcutIDForAppMenu(action string) string {
 	switch action {
 	case AppMenuCaptureArea:
-		if isDarwin() {
-			return "⌥A"
-		}
-		return "Alt+A"
+		return ShortcutCaptureArea
 	case AppMenuCaptureFullscreen:
-		if isDarwin() {
-			return "⌥S"
-		}
-		return "Alt+S"
+		return ShortcutCaptureFullscreen
 	case AppMenuCaptureWindow:
-		if isDarwin() {
-			return "⌥W"
-		}
-		return "Alt+W"
+		return ShortcutCaptureWindow
 	case AppMenuSettings:
-		// instead: Wails resolves accelerators through its own tables there, and
-		// punctuation produces synthetic names ("," becomes "oem_comma" on
-		// Windows; the Linux GDK table has no comma entry at all), so a
-		// punctuation accelerator silently fails to match. A letter resolves
-		// cleanly everywhere.
-		if isDarwin() {
-			return "⌘,"
-		}
-		return "Ctrl+I"
-
+		return ShortcutOpenSettings
 	case AppMenuLogs:
-		if isDarwin() {
-			return "⌘L"
-		}
-		return "Ctrl+L"
-
-	case AppMenuAbout:
-		return ""
+		return ShortcutLogs
 	case AppMenuReload:
-		if isDarwin() {
-			return "⌘R"
-		}
-		return "Ctrl+R"
-
+		return ShortcutReload
 	case AppMenuFullscreen:
-		return "F11"
-
+		return ShortcutFullscreen
 	case AppMenuDevTools:
-		if isDarwin() {
-			return "⌥⌘I"
-		}
-		return "Ctrl+Shift+I"
-
+		return ShortcutDevTools
 	case AppMenuQuit:
-		if isDarwin() {
-			return "⌘Q"
-		}
-		return "Ctrl+Q"
+		return ShortcutQuit
 	}
 	return ""
 }
 
-// appMenuAccelerator returns the Wails accelerator string for an action. Only
-// the native macOS menu consumes it; the webview drives its own key handling
-// through the ids above.
-func appMenuAccelerator(action string) string {
-	switch action {
-	case AppMenuCaptureArea:
-		return "OptionOrAlt+A"
-	case AppMenuCaptureFullscreen:
-		return "OptionOrAlt+S"
-	case AppMenuCaptureWindow:
-		return "OptionOrAlt+W"
-	case AppMenuSettings:
-		if isDarwin() {
-			return "CmdOrCtrl+,"
-		}
-		return "CmdOrCtrl+i"
-	case AppMenuLogs:
-		return "CmdOrCtrl+L"
-
-	case AppMenuReload:
-		return "CmdOrCtrl+R"
-	case AppMenuFullscreen:
-		return "F11"
-
-	case AppMenuDevTools:
-		if isDarwin() {
-			return "CmdOrCtrl+Alt+I"
-		}
-		return "CmdOrCtrl+Shift+I"
-
-	case AppMenuQuit:
-		return "CmdOrCtrl+Q"
+func (s *Service) ShortcutAccelerator(action string) string {
+	id := shortcutIDForAppMenu(action)
+	if id == "" {
+		return ""
 	}
-	return ""
+	if s != nil && s.mgr != nil {
+		return s.mgr.GetShortcutSettings().Accelerator(id)
+	}
+	return DefaultShortcutSettings().Accelerator(id)
+}
+
+func appMenuShortcutLabelFromSettings(action string, settings ShortcutSettings) string {
+	id := shortcutIDForAppMenu(action)
+	if id == "" {
+		return ""
+	}
+	return AcceleratorDisplay(settings.Accelerator(id))
+}
+
+func appMenuAccelerator(action string) string {
+	id := shortcutIDForAppMenu(action)
+	if id == "" {
+		return ""
+	}
+	return DefaultShortcutSettings().Accelerator(id)
+}
+
+func appMenuAcceleratorFromSettings(action string, settings ShortcutSettings) string {
+	id := shortcutIDForAppMenu(action)
+	if id == "" {
+		return ""
+	}
+	return settings.Accelerator(id)
 }
 
 // AppMenuModel returns the application menu in display order.
 func AppMenuModel() []AppMenuItem {
+	return AppMenuModelWithSettings(DefaultShortcutSettings())
+}
+
+func AppMenuModelWithSettings(settings ShortcutSettings) []AppMenuItem {
 	item := func(action, title, labelKey, icon string, destructive bool) AppMenuItem {
 		return AppMenuItem{
 			Action:      action,
 			Title:       title,
 			LabelKey:    labelKey,
 			Icon:        icon,
-			Shortcut:    appMenuShortcutLabel(action),
+			Shortcut:    appMenuShortcutLabelFromSettings(action, settings),
 			Destructive: destructive,
 		}
 	}
@@ -235,6 +202,9 @@ func AppMenuModel() []AppMenuItem {
 // GetAppMenu returns the menu model rendered by the app's own ≡ button. macOS
 // ignores it: its menu is registered natively (see AppMenuModel).
 func (s *Service) GetAppMenu() []AppMenuItem {
+	if s != nil && s.mgr != nil {
+		return AppMenuModelWithSettings(s.mgr.GetShortcutSettings())
+	}
 	return AppMenuModel()
 }
 
@@ -289,6 +259,10 @@ type TrayMenuItem struct {
 
 // TrayMenuModel returns the tray menu in display order.
 func TrayMenuModel(appName string, isZh bool) []TrayMenuItem {
+	return TrayMenuModelWithSettings(appName, isZh, DefaultShortcutSettings())
+}
+
+func TrayMenuModelWithSettings(appName string, isZh bool, settings ShortcutSettings) []TrayMenuItem {
 	areaTitle := "Area Capture"
 	fullscreenTitle := "Fullscreen Capture"
 	windowTitle := "Window Capture"
@@ -306,13 +280,13 @@ func TrayMenuModel(appName string, isZh bool) []TrayMenuItem {
 	}
 
 	return []TrayMenuItem{
-		{Label: areaTitle, Action: AppMenuCaptureArea, Accelerator: appMenuAccelerator(AppMenuCaptureArea)},
-		{Label: windowTitle, Action: AppMenuCaptureWindow, Accelerator: appMenuAccelerator(AppMenuCaptureWindow)},
-		{Label: fullscreenTitle, Action: AppMenuCaptureFullscreen, Accelerator: appMenuAccelerator(AppMenuCaptureFullscreen)},
+		{Label: areaTitle, Action: AppMenuCaptureArea, Accelerator: appMenuAcceleratorFromSettings(AppMenuCaptureArea, settings)},
+		{Label: windowTitle, Action: AppMenuCaptureWindow, Accelerator: appMenuAcceleratorFromSettings(AppMenuCaptureWindow, settings)},
+		{Label: fullscreenTitle, Action: AppMenuCaptureFullscreen, Accelerator: appMenuAcceleratorFromSettings(AppMenuCaptureFullscreen, settings)},
 		{Separator: true},
 		{Label: showTitle, Action: AppMenuOpenMainWindow},
-		{Label: settingsTitle, Action: AppMenuSettings, Accelerator: appMenuAccelerator(AppMenuSettings)},
+		{Label: settingsTitle, Action: AppMenuSettings, Accelerator: appMenuAcceleratorFromSettings(AppMenuSettings, settings)},
 		{Separator: true},
-		{Label: quitTitle, Action: AppMenuQuit, Accelerator: appMenuAccelerator(AppMenuQuit)},
+		{Label: quitTitle, Action: AppMenuQuit, Accelerator: appMenuAcceleratorFromSettings(AppMenuQuit, settings)},
 	}
 }

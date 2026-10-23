@@ -180,12 +180,11 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 		m = ScreenshotArea
 	}
 
-	timestamp := time.Now().Format("2006-01-02 15.04.05")
-	prefix := "Screenshot"
-	if s.GetLanguage() == "zh" {
-		prefix = "截图"
+	settings := DefaultScreenshotSettings()
+	if s.mgr != nil {
+		settings = s.mgr.GetScreenshotSettings()
 	}
-	displayName := fmt.Sprintf("%s %s.png", prefix, timestamp)
+	displayName := screenshotDisplayName(settings, m, time.Now(), s.GetLanguage())
 
 	tmpDir := os.TempDir()
 	rawTmpPath := filepath.Join(tmpDir, fmt.Sprintf("bb_raw_%d_%s", time.Now().UnixNano(), displayName))
@@ -236,20 +235,25 @@ func (s *Service) CaptureScreen(mode string) (*Item, error) {
 	}
 
 	namedPath := filepath.Join(importDir, displayName)
-	if copyErr := copyScreenshotFile(rawTmpPath, namedPath); copyErr != nil {
-		namedPath = rawTmpPath
+	if transErr := transcodeScreenshot(rawTmpPath, namedPath, settings.Format, settings.Quality); transErr != nil {
+		if copyErr := copyScreenshotFile(rawTmpPath, namedPath); copyErr != nil {
+			namedPath = rawTmpPath
+		}
 	}
 	stageMs := time.Since(tStageStart).Milliseconds()
-	modeTag := "area-screenshot"
-	if m == ScreenshotWindow {
-		modeTag = "window-screenshot"
-	} else if m == ScreenshotFullscreen {
-		modeTag = "fullscreen-screenshot"
+	var tags []string
+	if settings.AutoTag {
+		modeTag := "area-screenshot"
+		if m == ScreenshotWindow {
+			modeTag = "window-screenshot"
+		} else if m == ScreenshotFullscreen {
+			modeTag = "fullscreen-screenshot"
+		}
+		tags = []string{"screenshot", modeTag}
 	}
-	tags := []string{"screenshot", modeTag}
 
 	tImportStart := time.Now()
-	item, err := s.mgr.ImportSingleFileWithTags(namedPath, tags)
+	item, err := s.mgr.ImportSingleFileWithTagsAndFolder(namedPath, tags, settings.FolderID)
 	importMs := time.Since(tImportStart).Milliseconds()
 	if err != nil {
 		log.Printf("[Capture] import screenshot failed: %v", err)

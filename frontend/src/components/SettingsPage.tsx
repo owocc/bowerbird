@@ -68,6 +68,11 @@ import {
   GetPendingPluginInstall,
   GetNetworkSettings,
   SetNetworkSettings,
+  GetShortcutSettings,
+  SetShortcutSettings,
+  GetScreenshotSettings,
+  SetScreenshotSettings,
+  GetFolders,
   TestNetworkConnection,
   ScanLocalPlugins,
   OpenLogsWindow,
@@ -77,7 +82,16 @@ import {
   GetMobilePairingURL,
   SetMobileAllowedNetworks,
 } from "../../bindings/bowerbird/core/service";
-import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult, MobileServerStatus } from "../../bindings/bowerbird/core/models";
+import type {
+  PluginUpdateInfo,
+  NetworkSettings,
+  NetworkTestResult,
+  MobileServerStatus,
+  ShortcutSettings,
+  ScreenshotSettings,
+  Folder,
+} from "../../bindings/bowerbird/core/models";
+import { displayAccelerator, eventToAccelerator } from "@/lib/accelerator";
 import { QRCodeSVG } from "qrcode.react";
 import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
@@ -97,7 +111,42 @@ import {
 } from "@/plugins/preview/registry";
 import { cn } from "@/lib/utils";
 
-type SettingsSectionId = "general" | "shortcuts" | "plugins" | "network" | "data" | "extension" | "mobile";
+type SettingsSectionId =
+  | "general"
+  | "shortcuts"
+  | "screenshot"
+  | "plugins"
+  | "network"
+  | "data"
+  | "extension"
+  | "mobile";
+
+const SHORTCUT_ROWS: { id: string; titleKey: string; descKey: string }[] = [
+  { id: "capture-area", titleKey: "settings.shortcuts.areaTitle", descKey: "settings.shortcuts.areaDesc" },
+  { id: "capture-fullscreen", titleKey: "settings.shortcuts.fullscreenTitle", descKey: "settings.shortcuts.fullscreenDesc" },
+  { id: "capture-window", titleKey: "settings.shortcuts.windowTitle", descKey: "settings.shortcuts.windowDesc" },
+  { id: "settings", titleKey: "settings.shortcuts.settingsTitle", descKey: "settings.shortcuts.settingsDesc" },
+  { id: "logs", titleKey: "settings.shortcuts.logsTitle", descKey: "settings.shortcuts.logsDesc" },
+  { id: "reload", titleKey: "settings.shortcuts.reloadTitle", descKey: "settings.shortcuts.reloadDesc" },
+  { id: "force-reload", titleKey: "settings.shortcuts.forceReloadTitle", descKey: "settings.shortcuts.forceReloadDesc" },
+  { id: "fullscreen", titleKey: "settings.shortcuts.fullscreenWinTitle", descKey: "settings.shortcuts.fullscreenWinDesc" },
+  { id: "devtools", titleKey: "settings.shortcuts.devtoolsTitle", descKey: "settings.shortcuts.devtoolsDesc" },
+  { id: "quit", titleKey: "settings.shortcuts.quitTitle", descKey: "settings.shortcuts.quitDesc" },
+  { id: "close-window", titleKey: "settings.shortcuts.closeTitle", descKey: "settings.shortcuts.closeDesc" },
+  { id: "zoom-in", titleKey: "settings.shortcuts.zoomInTitle", descKey: "settings.shortcuts.zoomInDesc" },
+  { id: "zoom-out", titleKey: "settings.shortcuts.zoomOutTitle", descKey: "settings.shortcuts.zoomOutDesc" },
+  { id: "zoom-reset", titleKey: "settings.shortcuts.zoomResetTitle", descKey: "settings.shortcuts.zoomResetDesc" },
+];
+
+function flattenFolders(folders: Folder[], prefix = ""): { id: string; label: string }[] {
+  const out: { id: string; label: string }[] = [];
+  for (const f of folders) {
+    const label = prefix ? `${prefix} / ${f.name}` : f.name;
+    out.push({ id: f.id, label });
+    if (f.children?.length) out.push(...flattenFolders(f.children, label));
+  }
+  return out;
+}
 
 interface ThemeOption {
   value: Theme;
@@ -379,6 +428,18 @@ export function SettingsPage() {
   const [regeneratingCode, setRegeneratingCode] = useState(false);
   const [togglingMobile, setTogglingMobile] = useState(false);
   const [copiedMobileUrl, setCopiedMobileUrl] = useState(false);
+  const [shortcutBindings, setShortcutBindings] = useState<Record<string, string>>({});
+  const [recordingShortcut, setRecordingShortcut] = useState<string | null>(null);
+  const [screenshotSettings, setScreenshotSettingsState] = useState<ScreenshotSettings>({
+    format: "png",
+    quality: 92,
+    naming: "date",
+    includeDate: true,
+    includeApp: false,
+    autoTag: true,
+    folderId: "",
+  });
+  const [folderOptions, setFolderOptions] = useState<{ id: string; label: string }[]>([]);
 
   const loadMobileData = () => {
     GetMobileServerStatus()
@@ -395,6 +456,17 @@ export function SettingsPage() {
 
   useEffect(() => {
     loadMobileData();
+    GetShortcutSettings()
+      .then((s) => setShortcutBindings(s?.bindings ?? {}))
+      .catch(() => {});
+    GetScreenshotSettings()
+      .then((s) => {
+        if (s) setScreenshotSettingsState(s);
+      })
+      .catch(() => {});
+    GetFolders()
+      .then((folders) => setFolderOptions(flattenFolders(folders ?? [])))
+      .catch(() => {});
   }, []);
 
   const handleToggleMobileServer = async (enabled: boolean) => {
@@ -717,6 +789,11 @@ export function SettingsPage() {
       icon: Keyboard,
     },
     {
+      id: "screenshot",
+      label: t("settings.nav.screenshot"),
+      icon: Camera,
+    },
+    {
       id: "plugins",
       label: t("settings.nav.plugins"),
       icon: Blocks,
@@ -806,6 +883,8 @@ export function SettingsPage() {
               ? t("settings.nav.general")
               : activeSection === "shortcuts"
               ? t("settings.nav.shortcuts")
+              : activeSection === "screenshot"
+              ? t("settings.nav.screenshot")
               : activeSection === "plugins"
               ? t("settings.nav.plugins")
               : activeSection === "network"
@@ -933,51 +1012,59 @@ export function SettingsPage() {
                   </p>
                 </div>
 
-                <div className="grid gap-2.5">
-                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 p-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <Crop className="size-4" />
+                <div className="grid gap-2">
+                  {SHORTCUT_ROWS.map((row) => {
+                    const accel = shortcutBindings[row.id] ?? "";
+                    const recording = recordingShortcut === row.id;
+                    return (
+                      <div
+                        key={row.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card/70 p-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium">{t(row.titleKey)}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {t(row.descKey)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className={cn(
+                            "shrink-0 rounded-md border px-2 py-1 text-[11px] font-mono font-medium shadow-2xs cursor-pointer",
+                            recording
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border bg-muted/60 text-foreground hover:bg-muted"
+                          )}
+                          onClick={() => setRecordingShortcut(row.id)}
+                          onBlur={() => setRecordingShortcut(null)}
+                          onKeyDown={async (e) => {
+                            if (!recording) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (e.key === "Escape") {
+                              setRecordingShortcut(null);
+                              return;
+                            }
+                            const next = eventToAccelerator(e.nativeEvent);
+                            if (!next) return;
+                            const nextBindings = { ...shortcutBindings, [row.id]: next };
+                            try {
+                              await SetShortcutSettings({ bindings: nextBindings } as ShortcutSettings);
+                              setShortcutBindings(nextBindings);
+                              setRecordingShortcut(null);
+                              notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                            } catch (err) {
+                              notifyError(err);
+                            }
+                          }}
+                        >
+                          {recording
+                            ? t("settings.shortcuts.recording")
+                            : displayAccelerator(accel, isMacOS()) || t("settings.shortcuts.unset")}
+                        </button>
                       </div>
-                      <div>
-                        <div className="text-xs font-medium">{t("settings.shortcuts.areaTitle")}</div>
-                        <div className="text-[10px] text-muted-foreground">{t("settings.shortcuts.areaDesc")}</div>
-                      </div>
-                    </div>
-                    <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-2xs">
-                      {isMacOS() ? "⌥A" : "Alt+A"}
-                    </kbd>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 p-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <AppWindow className="size-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium">{t("settings.shortcuts.windowTitle")}</div>
-                        <div className="text-[10px] text-muted-foreground">{t("settings.shortcuts.windowDesc")}</div>
-                      </div>
-                    </div>
-                    <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-2xs">
-                      {isMacOS() ? "⌥W" : "Alt+W"}
-                    </kbd>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-xl border border-border/70 bg-card/70 p-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                        <Monitor className="size-4" />
-                      </div>
-                      <div>
-                        <div className="text-xs font-medium">{t("settings.shortcuts.fullscreenTitle")}</div>
-                        <div className="text-[10px] text-muted-foreground">{t("settings.shortcuts.fullscreenDesc")}</div>
-                      </div>
-                    </div>
-                    <kbd className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/60 px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-2xs">
-                      {isMacOS() ? "⌥S" : "Alt+S"}
-                    </kbd>
-                  </div>
+                    );
+                  })}
                 </div>
               </section>
 
@@ -989,6 +1076,197 @@ export function SettingsPage() {
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
                     {t("settings.shortcuts.menuBarDesc")}
                   </p>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeSection === "screenshot" && (
+            <div className="max-w-xl space-y-6">
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">{t("settings.screenshot.title")}</h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.screenshot.description")}
+                  </p>
+                </div>
+
+                <div className="space-y-3 rounded-xl border border-border/70 bg-card/70 p-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium">{t("settings.screenshot.format")}</div>
+                      <div className="text-[10px] text-muted-foreground">{t("settings.screenshot.formatDesc")}</div>
+                    </div>
+                    <select
+                      className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                      value={screenshotSettings.format}
+                      onChange={async (e) => {
+                        const next = { ...screenshotSettings, format: e.target.value };
+                        setScreenshotSettingsState(next);
+                        try {
+                          await SetScreenshotSettings(next);
+                          notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                        } catch (err) {
+                          notifyError(err);
+                        }
+                      }}
+                    >
+                      <option value="png">PNG</option>
+                      <option value="jpeg">JPEG</option>
+                    </select>
+                  </div>
+
+                  {screenshotSettings.format === "jpeg" && (
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-medium">{t("settings.screenshot.quality")}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {t("settings.screenshot.qualityDesc")}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="range"
+                          min={10}
+                          max={100}
+                          value={screenshotSettings.quality}
+                          onChange={async (e) => {
+                            const next = {
+                              ...screenshotSettings,
+                              quality: Number(e.target.value),
+                            };
+                            setScreenshotSettingsState(next);
+                            try {
+                              await SetScreenshotSettings(next);
+                            } catch (err) {
+                              notifyError(err);
+                            }
+                          }}
+                        />
+                        <span className="w-8 text-right text-[11px] font-mono">
+                          {screenshotSettings.quality}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium">{t("settings.screenshot.naming")}</div>
+                      <div className="text-[10px] text-muted-foreground">{t("settings.screenshot.namingDesc")}</div>
+                    </div>
+                    <select
+                      className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                      value={screenshotSettings.naming}
+                      onChange={async (e) => {
+                        const next = { ...screenshotSettings, naming: e.target.value };
+                        setScreenshotSettingsState(next);
+                        try {
+                          await SetScreenshotSettings(next);
+                          notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                        } catch (err) {
+                          notifyError(err);
+                        }
+                      }}
+                    >
+                      <option value="date">{t("settings.screenshot.namingDate")}</option>
+                      <option value="app">{t("settings.screenshot.namingApp")}</option>
+                      <option value="date-app">{t("settings.screenshot.namingDateApp")}</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium">{t("settings.screenshot.includeDate")}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {t("settings.screenshot.includeDateDesc")}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={screenshotSettings.includeDate}
+                      onCheckedChange={async (checked) => {
+                        const next = { ...screenshotSettings, includeDate: checked };
+                        setScreenshotSettingsState(next);
+                        try {
+                          await SetScreenshotSettings(next);
+                        } catch (err) {
+                          notifyError(err);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium">{t("settings.screenshot.includeApp")}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {t("settings.screenshot.includeAppDesc")}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={screenshotSettings.includeApp}
+                      onCheckedChange={async (checked) => {
+                        const next = { ...screenshotSettings, includeApp: checked };
+                        setScreenshotSettingsState(next);
+                        try {
+                          await SetScreenshotSettings(next);
+                        } catch (err) {
+                          notifyError(err);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium">{t("settings.screenshot.autoTag")}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {t("settings.screenshot.autoTagDesc")}
+                      </div>
+                    </div>
+                    <Switch
+                      checked={screenshotSettings.autoTag}
+                      onCheckedChange={async (checked) => {
+                        const next = { ...screenshotSettings, autoTag: checked };
+                        setScreenshotSettingsState(next);
+                        try {
+                          await SetScreenshotSettings(next);
+                        } catch (err) {
+                          notifyError(err);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium">{t("settings.screenshot.folder")}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {t("settings.screenshot.folderDesc")}
+                      </div>
+                    </div>
+                    <select
+                      className="h-8 max-w-[180px] rounded-md border border-border bg-background px-2 text-xs"
+                      value={screenshotSettings.folderId || ""}
+                      onChange={async (e) => {
+                        const next = { ...screenshotSettings, folderId: e.target.value };
+                        setScreenshotSettingsState(next);
+                        try {
+                          await SetScreenshotSettings(next);
+                          notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                        } catch (err) {
+                          notifyError(err);
+                        }
+                      }}
+                    >
+                      <option value="">{t("settings.screenshot.folderAll")}</option>
+                      {folderOptions.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </section>
             </div>

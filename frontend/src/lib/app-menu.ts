@@ -67,6 +67,10 @@ export async function runAppMenuAction(action: string): Promise<void> {
 
 let menuPromise: Promise<AppMenuItem[]> | null = null;
 
+export function invalidateAppMenuCache() {
+  menuPromise = null;
+}
+
 /**
  * Loads the application menu model from the Go bridge, caching it for the
  * lifetime of the window.
