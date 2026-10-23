@@ -66,6 +66,10 @@ func (s *Service) SetTheme(theme string) error {
 		}
 	}
 
+	if h := s.getHost(); h != nil {
+		h.ApplyTheme(theme)
+	}
+
 	s.emit(ThemeChangedEvent, theme)
 	return nil
 }

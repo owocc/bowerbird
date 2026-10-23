@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { getFileCategory } from "@/lib/formatters";
+import type { ThumbnailQuality } from "@/lib/gallery-display";
 
 export interface UniversalThumbnailProps {
   item: Item;
@@ -23,6 +24,7 @@ export interface UniversalThumbnailProps {
   onDragStart?: (e: React.DragEvent) => void;
   showFormatBadge?: boolean;
   borderless?: boolean;
+  thumbnailQuality?: ThumbnailQuality;
 }
 
 /**
@@ -43,6 +45,7 @@ export function UniversalThumbnail({
   onDragStart,
   showFormatBadge = false,
   borderless = false,
+  thumbnailQuality = "speed",
 }: UniversalThumbnailProps) {
   const [imageError, setImageError] = useState(false);
   const [iconLoadError, setIconLoadError] = useState(false);
@@ -59,8 +62,11 @@ export function UniversalThumbnail({
     serverOrigin && item.extension
       ? `${serverOrigin}/asset/icon/${encodeURIComponent(item.extension)}?path=${encodeURIComponent(item.filePath || "")}`
       : "";
-  const thumbnailSrc =
-    item.hasThumbnail && item.thumbnailUrl
+  const preferOriginal = thumbnailQuality === "original" && isImage;
+  const thumbnailSrc = preferOriginal
+    ? item.originalUrl ||
+      (item.hasThumbnail && item.thumbnailUrl ? item.thumbnailUrl : "")
+    : item.hasThumbnail && item.thumbnailUrl
       ? item.thumbnailUrl
       : item.originalUrl;
 

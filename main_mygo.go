@@ -97,7 +97,7 @@ func (h *appHost) newWindow(spec core.WindowSpec) *mygo.Window {
 		Height:          spec.Height,
 		MinWidth:        spec.MinWidth,
 		MinHeight:       spec.MinHeight,
-		BackgroundColor: "#06070f",
+		BackgroundColor: windowBackgroundColor,
 	}
 	if spec.TitleBarHidden {
 		opts.TitleBarStyle = mygo.TitleBarHiddenInset
@@ -230,7 +230,7 @@ func (h *appHost) createMainWindow() *mygo.Window {
 		MinWidth:        900,
 		MinHeight:       600,
 		TitleBarStyle:   mygo.TitleBarHiddenInset,
-		BackgroundColor: "#06070f",
+		BackgroundColor: windowBackgroundColor,
 	})
 	keepWindowTitle(w)
 	h.attachDrop(w)
@@ -290,6 +290,47 @@ func (h *appHost) WriteFilesToClipboard(paths []string) error {
 func (h *appHost) WriteTextToClipboard(text string) error {
 	mygo.Clipboard.WriteText(text)
 	return nil
+}
+
+// windowBackgroundColor follows the light/dark appearance so chrome and the
+// first paint stay in sync with the page theme.
+const windowBackgroundColor = "light-dark(#ffffff, #06070f)"
+
+func nativeThemeSource(theme string) mygo.ThemeSource {
+	switch theme {
+	case core.ThemeDark:
+		return mygo.ThemeDark
+	case core.ThemeLight:
+		return mygo.ThemeLight
+	default:
+		return mygo.ThemeSystem
+	}
+}
+
+// ApplyTheme pushes the app colour mode onto the native window / system
+// appearance and keeps existing windows' fill colour in step.
+func (h *appHost) ApplyTheme(theme string) {
+	mygo.Theme.SetSource(nativeThemeSource(theme))
+	h.mu.RLock()
+	windows := make([]*mygo.Window, 0, len(h.windows)+1)
+	for _, w := range h.windows {
+		windows = append(windows, w)
+	}
+	if h.main != nil {
+		windows = append(windows, h.main)
+	}
+	h.mu.RUnlock()
+	seen := make(map[*mygo.Window]struct{}, len(windows))
+	for _, w := range windows {
+		if w == nil {
+			continue
+		}
+		if _, ok := seen[w]; ok {
+			continue
+		}
+		seen[w] = struct{}{}
+		_ = w.SetBackgroundColor(windowBackgroundColor)
+	}
 }
 
 // dropTarget is the DOM target resolved under a native drop.
@@ -561,6 +602,7 @@ func main() {
 		coreMgr = core.NewLibraryManager()
 		coreMgr.SetHost(host)
 		core.AttachManager(coreService, coreMgr)
+		host.ApplyTheme(coreService.GetTheme())
 		// The manager restores the last library before it has a host, so tell
 		// the pages once more now that events can reach them.
 		if lib := coreMgr.GetActiveLibrary(); lib != nil {

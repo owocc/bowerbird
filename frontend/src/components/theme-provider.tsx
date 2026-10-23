@@ -63,7 +63,8 @@ export function ThemeProvider({
     return defaultTheme;
   });
 
-  // Apply the class whenever the mode changes.
+  // Apply the class whenever the mode changes. Native window chrome is kept
+  // in lock-step by Service.SetTheme → Host.ApplyTheme (mygo.Theme.SetSource).
   useEffect(() => {
     applyThemeClass(theme);
   }, [theme]);

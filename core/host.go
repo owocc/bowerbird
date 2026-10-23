@@ -56,6 +56,10 @@ type Host interface {
 	WriteFilesToClipboard(paths []string) error
 	// WriteTextToClipboard puts text on the system clipboard.
 	WriteTextToClipboard(text string) error
+
+	// ApplyTheme syncs the native window / system appearance with the app
+	// colour mode ("dark", "light", or "system").
+	ApplyTheme(theme string)
 }
 
 // AttachHost wires a host into a service before it is bound. It is a package

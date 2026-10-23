@@ -2,8 +2,9 @@ import React from "react";
 import { Star } from "lucide-react";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { UniversalThumbnail } from "./UniversalThumbnail";
-import { formatBytes, formatDate } from "@/lib/formatters";
+import { formatBytes, formatDate, getFileCategory } from "@/lib/formatters";
 import type { GalleryLayoutMode } from "@/lib/workspace-search";
+import type { ThumbnailQuality } from "@/lib/gallery-display";
 
 export interface ImageThumbnailCardProps {
   item: Item;
@@ -18,6 +19,10 @@ export interface ImageThumbnailCardProps {
   onDoubleClick?: (e: React.MouseEvent, item: Item) => void;
   onDragStart?: (e: React.DragEvent, item: Item) => void;
   onContextMenu?: (e: React.MouseEvent, item: Item) => void;
+  thumbnailQuality?: ThumbnailQuality;
+  showName?: boolean;
+  showItemInfo?: boolean;
+  showExtension?: boolean;
 }
 
 export const ImageThumbnailCard = React.memo(
@@ -34,13 +39,39 @@ export const ImageThumbnailCard = React.memo(
     onDoubleClick,
     onDragStart,
     onContextMenu,
+    thumbnailQuality = "speed",
+    showName = true,
+    showItemInfo = true,
+    showExtension = true,
   }: ImageThumbnailCardProps) {
+    const baseName = item.name || item.filename || "";
+    const ext = (item.extension || "").replace(/^\./, "");
+    const nameWithoutExt =
+      ext && baseName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)
+        ? baseName.slice(0, -(ext.length + 1))
+        : baseName;
+    const displayName = showExtension
+      ? item.filename ||
+        (ext && !baseName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)
+          ? `${baseName}.${ext}`
+          : baseName)
+      : nameWithoutExt;
     const fullName =
       item.filename ||
-      (item.extension &&
-      !item.name.toLowerCase().endsWith(`.${item.extension.toLowerCase()}`)
-        ? `${item.name}.${item.extension}`
-        : item.name);
+      (ext && !baseName.toLowerCase().endsWith(`.${ext.toLowerCase()}`)
+        ? `${baseName}.${ext}`
+        : baseName);
+    const category = getFileCategory(item.extension, item.mimeType);
+    const dimensionsLabel =
+      item.width && item.height && item.width > 0 && item.height > 0
+        ? `${item.width} × ${item.height}`
+        : "";
+    const infoLabel =
+      category === "video" && dimensionsLabel
+        ? dimensionsLabel
+        : category === "image"
+          ? dimensionsLabel
+          : formatBytes(item.size || 0);
 
     const posStyle: React.CSSProperties =
       left !== undefined && top !== undefined
@@ -97,19 +128,22 @@ export const ImageThumbnailCard = React.memo(
               objectFit="cover"
               draggable={false}
               showFormatBadge={false}
+              thumbnailQuality={thumbnailQuality}
               className="w-full h-full"
             />
           </div>
 
           <div className="min-w-0 flex-1 flex items-center gap-2 pointer-events-none">
-            <span
-              className={`text-xs truncate ${
-                isSelected ? "font-medium text-primary" : "font-normal text-foreground"
-              }`}
-              title={fullName}
-            >
-              {fullName}
-            </span>
+            {showName && (
+              <span
+                className={`text-xs truncate ${
+                  isSelected ? "font-medium text-primary" : "font-normal text-foreground"
+                }`}
+                title={fullName}
+              >
+                {displayName}
+              </span>
+            )}
           </div>
 
           {rating > 0 && (
@@ -120,13 +154,17 @@ export const ImageThumbnailCard = React.memo(
             </div>
           )}
 
-          <span className="hidden md:inline-block w-24 text-right text-[11px] font-mono text-muted-foreground shrink-0 pointer-events-none">
-            {dimensionsLabel}
-          </span>
+          {showItemInfo && (
+            <span className="hidden md:inline-block w-24 text-right text-[11px] font-mono text-muted-foreground shrink-0 pointer-events-none">
+              {dimensionsLabel || "-"}
+            </span>
+          )}
 
-          <span className="w-14 text-center text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-muted/70 text-muted-foreground shrink-0 pointer-events-none">
-            {extLabel}
-          </span>
+          {showExtension && (
+            <span className="w-14 text-center text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-muted/70 text-muted-foreground shrink-0 pointer-events-none">
+              {extLabel}
+            </span>
+          )}
 
           <span className="w-20 text-right text-[11px] font-mono text-muted-foreground shrink-0 pointer-events-none">
             {sizeLabel}
@@ -158,7 +196,8 @@ export const ImageThumbnailCard = React.memo(
             aspectRatio={cardHeight ? undefined : "1 / 1"}
             objectFit="cover"
             draggable={false}
-            showFormatBadge={true}
+            showFormatBadge={showExtension}
+            thumbnailQuality={thumbnailQuality}
             className={`w-full transition-colors ${
               isSelected
                 ? "border-primary/80 bg-primary/10"
@@ -167,19 +206,27 @@ export const ImageThumbnailCard = React.memo(
           />
         </div>
 
-        {/* Full File Name (Centered with selection text background highlight) */}
-        <div className="w-full h-6 mt-1 flex items-center justify-center pointer-events-none select-none px-0.5">
-          <span
-            className={`text-[11px] truncate max-w-full px-1.5 py-0.5 rounded-sm leading-tight text-center ${
-              isSelected
-                ? "bg-primary text-primary-foreground font-medium shadow-2xs"
-                : "text-foreground font-normal"
-            }`}
-            title={fullName}
-          >
-            {fullName}
-          </span>
-        </div>
+        {(showName || showItemInfo) && (
+          <div className="w-full mt-1 flex flex-col items-center justify-center pointer-events-none select-none px-0.5 gap-0.5">
+            {showName && (
+              <span
+                className={`text-[11px] truncate max-w-full px-1.5 py-0.5 rounded-sm leading-tight text-center ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground font-medium shadow-2xs"
+                    : "text-foreground font-normal"
+                }`}
+                title={fullName}
+              >
+                {displayName}
+              </span>
+            )}
+            {showItemInfo && infoLabel && (
+              <span className="text-[10px] font-mono text-muted-foreground leading-tight truncate max-w-full">
+                {infoLabel}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     );
   },
@@ -192,5 +239,9 @@ export const ImageThumbnailCard = React.memo(
     prev.left === next.left &&
     prev.top === next.top &&
     prev.style?.left === next.style?.left &&
-    prev.style?.top === next.style?.top
+    prev.style?.top === next.style?.top &&
+    prev.thumbnailQuality === next.thumbnailQuality &&
+    prev.showName === next.showName &&
+    prev.showItemInfo === next.showItemInfo &&
+    prev.showExtension === next.showExtension
 );

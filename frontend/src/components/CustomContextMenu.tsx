@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Eye,
@@ -7,15 +7,12 @@ import {
   Copy,
   Trash2,
   FolderPlus,
-  CheckSquare,
-  Square,
   Upload,
   FolderMinus,
   Edit2,
   ExternalLink,
   Star,
   RotateCcw,
-  Check,
   LayoutGrid,
   LayoutList,
   Columns3,
@@ -43,6 +40,15 @@ import { cn } from "cn";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { isMacOS } from "@/lib/macos";
 import type { GalleryLayoutMode } from "@/lib/workspace-search";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ThumbnailQuality } from "@/lib/gallery-display";
 
 export interface ContextMenuPosition {
   x: number;
@@ -70,6 +76,20 @@ export interface ContextMenuProps {
   // General / layout
   layoutMode?: GalleryLayoutMode;
   onLayoutModeChange?: (mode: GalleryLayoutMode) => void;
+  thumbnailQuality?: ThumbnailQuality;
+  onThumbnailQualityChange?: (quality: ThumbnailQuality) => void;
+  showName?: boolean;
+  onShowNameChange?: (value: boolean) => void;
+  showItemInfo?: boolean;
+  onShowItemInfoChange?: (value: boolean) => void;
+  showExtension?: boolean;
+  onShowExtensionChange?: (value: boolean) => void;
+  includeSubfolders?: boolean;
+  onIncludeSubfoldersChange?: (value: boolean) => void;
+  showSidebar?: boolean;
+  onShowSidebarChange?: (value: boolean) => void;
+  showInspector?: boolean;
+  onShowInspectorChange?: (value: boolean) => void;
   onPreview?: () => void;
   onRename?: () => void;
   onReveal?: () => void;
@@ -82,10 +102,6 @@ export interface ContextMenuProps {
   onRestore?: () => void;
   onOpenAddToFolderPalette?: () => void;
   onRemoveFromCurrentFolder?: () => void;
-  onSelectAll?: () => void;
-  onClearSelection?: () => void;
-  onImportFiles?: () => void;
-  onCreateFolder?: () => void;
 }
 
 export function CustomContextMenu({
@@ -105,6 +121,20 @@ export function CustomContextMenu({
   onExportFolder,
   layoutMode = "justified",
   onLayoutModeChange,
+  thumbnailQuality = "speed",
+  onThumbnailQualityChange,
+  showName = true,
+  onShowNameChange,
+  showItemInfo = true,
+  onShowItemInfoChange,
+  showExtension = true,
+  onShowExtensionChange,
+  includeSubfolders = false,
+  onIncludeSubfoldersChange,
+  showSidebar = true,
+  onShowSidebarChange,
+  showInspector = true,
+  onShowInspectorChange,
   onPreview,
   onRename,
   onReveal,
@@ -117,18 +147,18 @@ export function CustomContextMenu({
   onRestore,
   onOpenAddToFolderPalette,
   onRemoveFromCurrentFolder,
-  onSelectAll,
-  onClearSelection,
-  onImportFiles,
-  onCreateFolder,
 }: ContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [measuredHeight, setMeasuredHeight] = useState<number>(320);
+  const [selectOpen, setSelectOpen] = useState<"layout" | "thumbnail" | false>(
+    false
+  );
 
   const effectiveTarget: ContextMenuTarget =
     targetType || (targetFolder ? "folder" : isItemContext ? "file" : "general");
+  const showSearch = effectiveTarget === "file" || effectiveTarget === "folder";
 
   const pluginMenuItems = useMemo(() => {
     const ctx: PluginContextMenuContext<Item> = {
@@ -201,13 +231,26 @@ export function CustomContextMenu({
     if (!position) return;
 
     const handlePointerDown = (e: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node | null;
+      if (selectOpen) return;
+      if (
+        target instanceof Element &&
+        (target.closest("[data-slot='select-content']") ||
+          target.closest("[data-slot='select-trigger']"))
+      ) {
+        return;
+      }
+      if (menuRef.current && !menuRef.current.contains(target as Node)) {
         onClose();
       }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (selectOpen) {
+          setSelectOpen(false);
+          return;
+        }
         onClose();
       }
     };
@@ -218,12 +261,12 @@ export function CustomContextMenu({
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [position, onClose]);
+  }, [position, onClose, selectOpen]);
 
   if (!position) return null;
 
   // Position adjustments to stay within window boundaries (max 80% viewport height)
-  const menuWidth = 256;
+  const menuWidth = 280;
   const maxMenuHeight = window.innerHeight * 0.8;
   const currentHeight = Math.min(measuredHeight || 320, maxMenuHeight);
   const adjustedX = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 12));
@@ -242,7 +285,6 @@ export function CustomContextMenu({
   // rendered solely when both the preceding and the following section exist.
   const isMac = isMacOS();
   const copyShortcutLabel = isMac ? "⌘C" : "Ctrl+C";
-  const selectAllShortcutLabel = isMac ? "⌘A" : "Ctrl+A";
   const hasPrimaryActions = Boolean(
     onPreview ||
       onReveal ||
@@ -282,6 +324,206 @@ export function CustomContextMenu({
     },
   ];
 
+  const settingRowClass =
+    "flex items-center gap-2 px-2 py-1.5 text-xs rounded-md";
+
+  const renderSettingRow = (
+    id: string,
+    label: string,
+    control: ReactNode,
+    interactive = false
+  ) => (
+    <div key={id} className={settingRowClass}>
+      <span className="flex-1 truncate">{label}</span>
+      <span
+        className="shrink-0"
+        onPointerDown={
+          interactive
+            ? (event) => {
+                event.stopPropagation();
+              }
+            : undefined
+        }
+        onKeyDown={
+          interactive
+            ? (event) => {
+                event.stopPropagation();
+              }
+            : undefined
+        }
+      >
+        {control}
+      </span>
+    </div>
+  );
+
+  const renderToggleRow = (
+    id: string,
+    label: string,
+    checked: boolean,
+    onChange?: (value: boolean) => void
+  ) => {
+    if (!onChange) return null;
+    return renderSettingRow(
+      id,
+      label,
+      <Switch
+        size="sm"
+        checked={checked}
+        onCheckedChange={onChange}
+        aria-label={label}
+      />
+    );
+  };
+
+  const renderCanvasDisplaySettings = (withLeadingSeparator = true) => {
+    const hasDisplaySettings = Boolean(
+      onLayoutModeChange ||
+        onThumbnailQualityChange ||
+        onShowNameChange ||
+        onShowItemInfoChange ||
+        onShowExtensionChange ||
+        onIncludeSubfoldersChange ||
+        onShowSidebarChange ||
+        onShowInspectorChange
+    );
+    if (!hasDisplaySettings) return null;
+
+    const layoutItems = layoutOptions.map(({ mode, label }) => ({
+      value: mode,
+      label,
+    }));
+    const thumbnailItems = [
+      { value: "speed", label: t("contextMenu.thumbnailSpeed") },
+      { value: "original", label: t("contextMenu.thumbnailOriginal") },
+    ];
+
+    return (
+      <>
+        {withLeadingSeparator && <CommandSeparator className="my-1" />}
+        <div className="p-1">
+          {onLayoutModeChange &&
+            renderSettingRow(
+              "layout",
+              t("contextMenu.layout"),
+              <Select
+                value={layoutMode}
+                items={layoutItems}
+                modal={false}
+                open={selectOpen === "layout"}
+                onOpenChange={(open) => setSelectOpen(open ? "layout" : false)}
+                onValueChange={(value) => {
+                  if (value) onLayoutModeChange(value as GalleryLayoutMode);
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="h-6 min-w-[7.5rem] gap-1 rounded-md border-border/70 bg-muted/40 px-1.5 py-0 text-[10px]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent
+                  align="end"
+                  alignItemWithTrigger={false}
+                  className="min-w-[8.5rem]"
+                >
+                  {layoutOptions.map(({ mode, label, icon: Icon }) => (
+                    <SelectItem key={mode} value={mode} className="text-xs">
+                      <Icon className="size-3.5" />
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>,
+              true
+            )}
+          {onThumbnailQualityChange &&
+            renderSettingRow(
+              "thumbnail",
+              t("contextMenu.thumbnail"),
+              <Select
+                value={thumbnailQuality}
+                items={thumbnailItems}
+                modal={false}
+                open={selectOpen === "thumbnail"}
+                onOpenChange={(open) =>
+                  setSelectOpen(open ? "thumbnail" : false)
+                }
+                onValueChange={(value) => {
+                  if (value === "speed" || value === "original") {
+                    onThumbnailQualityChange(value);
+                  }
+                }}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="h-6 min-w-[5.5rem] rounded-md border-border/70 bg-muted/40 px-1.5 py-0 text-[10px]"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent
+                  align="end"
+                  alignItemWithTrigger={false}
+                  className="min-w-[7rem]"
+                >
+                  <SelectItem value="speed" className="text-xs">
+                    {t("contextMenu.thumbnailSpeed")}
+                  </SelectItem>
+                  <SelectItem value="original" className="text-xs">
+                    {t("contextMenu.thumbnailOriginal")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>,
+              true
+            )}
+          {renderToggleRow(
+            "show-name",
+            t("contextMenu.showName"),
+            showName,
+            onShowNameChange
+          )}
+          {renderToggleRow(
+            "show-item-info",
+            t("contextMenu.showItemInfo"),
+            showItemInfo,
+            onShowItemInfoChange
+          )}
+          {renderToggleRow(
+            "show-extension",
+            t("contextMenu.showExtension"),
+            showExtension,
+            onShowExtensionChange
+          )}
+          {renderToggleRow(
+            "include-subfolders",
+            t("contextMenu.includeSubfolders"),
+            includeSubfolders,
+            onIncludeSubfoldersChange
+          )}
+        </div>
+        {(onShowSidebarChange || onShowInspectorChange) && (
+          <>
+            <CommandSeparator className="my-1" />
+            <div className="p-1">
+              {renderToggleRow(
+                "show-sidebar",
+                t("contextMenu.showSidebar"),
+                showSidebar,
+                onShowSidebarChange
+              )}
+              {renderToggleRow(
+                "show-inspector",
+                t("contextMenu.showInspector"),
+                showInspector,
+                onShowInspectorChange
+              )}
+            </div>
+          </>
+        )}
+      </>
+    );
+  };
+
   return (
     <div
       ref={menuRef}
@@ -290,24 +532,49 @@ export function CustomContextMenu({
         top: `${adjustedY}px`,
         maxHeight: "80vh",
       }}
-      className="fixed z-50 w-64 max-h-[80vh] flex flex-col rounded-xl border border-border/80 bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-md p-1 select-none overflow-hidden"
+      className="fixed z-50 w-[280px] max-h-[80vh] flex flex-col rounded-xl border border-border/80 bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-md p-1 select-none overflow-hidden"
     >
-      <Command className="rounded-lg bg-transparent p-0 flex flex-col max-h-[80vh] overflow-hidden">
-        {/* Minimal search field: full-bleed, square, no fill — just a bottom rule. */}
-        <CommandInput
-          value={search}
-          onValueChange={setSearch}
-          placeholder={t("contextMenu.searchPlaceholder")}
-          wrapperClassName="p-0"
-          groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-2.5 shadow-none ring-0!"
-          addonClassName="pl-0 pr-1.5 [&_svg]:size-3.5"
-          className="h-8 text-xs bg-transparent placeholder:text-muted-foreground/70 shrink-0"
-        />
+      <Command
+        shouldFilter={showSearch}
+        onPointerDown={(event) => {
+          const target = event.target as HTMLElement | null;
+          if (
+            target?.closest("[data-slot='select-trigger']") ||
+            target?.closest("[data-slot='select-content']")
+          ) {
+            event.stopPropagation();
+          }
+        }}
+        onKeyDown={(event) => {
+          if (selectOpen) {
+            event.stopPropagation();
+          }
+        }}
+        className="rounded-lg bg-transparent p-0 flex flex-col max-h-[80vh] overflow-hidden"
+      >
+        {showSearch && (
+          <CommandInput
+            value={search}
+            onValueChange={setSearch}
+            placeholder={t("contextMenu.searchPlaceholder")}
+            wrapperClassName="p-0"
+            groupClassName="rounded-none border-x-transparent! border-t-transparent! border-b-border/60! bg-transparent px-2.5 shadow-none ring-0!"
+            addonClassName="pl-0 pr-1.5 [&_svg]:size-3.5"
+            className="h-8 text-xs bg-transparent placeholder:text-muted-foreground/70 shrink-0"
+          />
+        )}
 
-        <CommandList className="max-h-[calc(80vh-44px)] p-1 overflow-y-auto flex-1">
-          <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">
-            {t("contextMenu.noResults")}
-          </CommandEmpty>
+        <CommandList
+          className={cn(
+            "p-1 overflow-y-auto flex-1",
+            showSearch ? "max-h-[calc(80vh-44px)]" : "max-h-[80vh]"
+          )}
+        >
+          {showSearch && (
+            <CommandEmpty className="py-2.5 text-center text-xs text-muted-foreground">
+              {t("contextMenu.noResults")}
+            </CommandEmpty>
+          )}
 
           {/* ================= FOLDER CONTEXT ================= */}
           {effectiveTarget === "folder" ? (
@@ -429,38 +696,8 @@ export function CustomContextMenu({
               </CommandGroup>
             ) : (
               <>
-                <CommandGroup>
-                  {onSelectAll && (
-                    <CommandItem
-                      onSelect={() => {
-                        onSelectAll();
-                        onClose();
-                      }}
-                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                    >
-                      <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="flex-1">{t("contextMenu.selectAll")}</span>
-                      <CommandShortcut className="text-[10px] font-mono tracking-normal">
-                        {selectAllShortcutLabel}
-                      </CommandShortcut>
-                    </CommandItem>
-                  )}
-                  {onClearSelection && selectedCount > 0 && (
-                    <CommandItem
-                      onSelect={() => {
-                        onClearSelection();
-                        onClose();
-                      }}
-                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                    >
-                      <Square className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                      <CommandShortcut className="text-[10px] font-mono tracking-normal">
-                        Esc
-                      </CommandShortcut>
-                    </CommandItem>
-                  )}
-                  {onEmptyTrash && (
+                {onEmptyTrash ? (
+                  <CommandGroup>
                     <CommandItem
                       onSelect={() => {
                         onEmptyTrash();
@@ -471,40 +708,10 @@ export function CustomContextMenu({
                       <Trash2 className="size-3.5 shrink-0" />
                       <span>{t("workspace.emptyTrash")}</span>
                     </CommandItem>
-                  )}
-                </CommandGroup>
+                  </CommandGroup>
+                ) : null}
 
-                {onLayoutModeChange && (
-                  <>
-                    <CommandSeparator className="my-1" />
-                    <CommandGroup heading={t("contextMenu.layout")}>
-                      {layoutOptions.map(({ mode, label, icon: Icon }) => {
-                        const active = layoutMode === mode;
-                        return (
-                          <CommandItem
-                            key={mode}
-                            onSelect={() => {
-                              onLayoutModeChange(mode);
-                              onClose();
-                            }}
-                            className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                          >
-                            <Icon
-                              className={cn(
-                                "size-3.5 shrink-0",
-                                active ? "text-primary" : "text-muted-foreground"
-                              )}
-                            />
-                            <span className={cn("flex-1", active && "font-medium text-primary")}>
-                              {label}
-                            </span>
-                            {active && <Check className="size-3.5 text-primary shrink-0" />}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  </>
-                )}
+                {renderCanvasDisplaySettings(Boolean(onEmptyTrash))}
               </>
             )
           ) : isItemContext ? (
@@ -679,93 +886,7 @@ export function CustomContextMenu({
           ) : (
             /* ================= CANVAS / BACKGROUND CONTEXT ================= */
             <>
-              <CommandGroup>
-                {onSelectAll && (
-                  <CommandItem
-                    onSelect={() => {
-                      onSelectAll();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <CheckSquare className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">{t("contextMenu.selectAll")}</span>
-                    <CommandShortcut className="text-[10px] font-mono tracking-normal">{selectAllShortcutLabel}</CommandShortcut>
-                  </CommandItem>
-                )}
-
-                {onClearSelection && selectedCount > 0 && (
-                  <CommandItem
-                    onSelect={() => {
-                      onClearSelection();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <Square className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                    <CommandShortcut className="text-[10px] font-mono tracking-normal">Esc</CommandShortcut>
-                  </CommandItem>
-                )}
-
-                {onImportFiles && (
-                  <CommandItem
-                    onSelect={() => {
-                      onImportFiles();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <Upload className="size-3.5 text-muted-foreground shrink-0" />
-                    <span>{t("contextMenu.importLocalFiles")}</span>
-                  </CommandItem>
-                )}
-
-                {onCreateFolder && (
-                  <CommandItem
-                    onSelect={() => {
-                      onCreateFolder();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <FolderPlus className="size-3.5 text-muted-foreground shrink-0" />
-                    <span>{t("contextMenu.newFolder")}</span>
-                  </CommandItem>
-                )}
-              </CommandGroup>
-
-              {onLayoutModeChange && (
-                <>
-                  <CommandSeparator className="my-1" />
-                  <CommandGroup heading={t("contextMenu.layout")}>
-                    {layoutOptions.map(({ mode, label, icon: Icon }) => {
-                      const active = layoutMode === mode;
-                      return (
-                        <CommandItem
-                          key={mode}
-                          onSelect={() => {
-                            onLayoutModeChange(mode);
-                            onClose();
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                        >
-                          <Icon
-                            className={cn(
-                              "size-3.5 shrink-0",
-                              active ? "text-primary" : "text-muted-foreground"
-                            )}
-                          />
-                          <span className={cn("flex-1", active && "font-medium text-primary")}>
-                            {label}
-                          </span>
-                          {active && <Check className="size-3.5 text-primary shrink-0" />}
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                </>
-              )}
+              {renderCanvasDisplaySettings(false)}
               {renderPluginItems()}
             </>
           )}
