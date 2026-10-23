@@ -7,7 +7,6 @@ import {
   Copy,
   Trash2,
   FolderPlus,
-  Square,
   Upload,
   FolderMinus,
   Edit2,
@@ -103,7 +102,6 @@ export interface ContextMenuProps {
   onRestore?: () => void;
   onOpenAddToFolderPalette?: () => void;
   onRemoveFromCurrentFolder?: () => void;
-  onClearSelection?: () => void;
 }
 
 export function CustomContextMenu({
@@ -149,7 +147,6 @@ export function CustomContextMenu({
   onRestore,
   onOpenAddToFolderPalette,
   onRemoveFromCurrentFolder,
-  onClearSelection,
 }: ContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -699,41 +696,22 @@ export function CustomContextMenu({
               </CommandGroup>
             ) : (
               <>
-                {(onClearSelection && selectedCount > 0) || onEmptyTrash ? (
+                {onEmptyTrash ? (
                   <CommandGroup>
-                    {onClearSelection && selectedCount > 0 && (
-                      <CommandItem
-                        onSelect={() => {
-                          onClearSelection();
-                          onClose();
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                      >
-                        <Square className="size-3.5 text-muted-foreground shrink-0" />
-                        <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                        <CommandShortcut className="text-[10px] font-mono tracking-normal">
-                          Esc
-                        </CommandShortcut>
-                      </CommandItem>
-                    )}
-                    {onEmptyTrash && (
-                      <CommandItem
-                        onSelect={() => {
-                          onEmptyTrash();
-                          onClose();
-                        }}
-                        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="size-3.5 shrink-0" />
-                        <span>{t("workspace.emptyTrash")}</span>
-                      </CommandItem>
-                    )}
+                    <CommandItem
+                      onSelect={() => {
+                        onEmptyTrash();
+                        onClose();
+                      }}
+                      className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer text-destructive focus:text-destructive"
+                    >
+                      <Trash2 className="size-3.5 shrink-0" />
+                      <span>{t("workspace.emptyTrash")}</span>
+                    </CommandItem>
                   </CommandGroup>
                 ) : null}
 
-                {renderCanvasDisplaySettings(
-                  Boolean((onClearSelection && selectedCount > 0) || onEmptyTrash)
-                )}
+                {renderCanvasDisplaySettings(Boolean(onEmptyTrash))}
               </>
             )
           ) : isItemContext ? (
@@ -908,23 +886,7 @@ export function CustomContextMenu({
           ) : (
             /* ================= CANVAS / BACKGROUND CONTEXT ================= */
             <>
-              {onClearSelection && selectedCount > 0 && (
-                <CommandGroup>
-                  <CommandItem
-                    onSelect={() => {
-                      onClearSelection();
-                      onClose();
-                    }}
-                    className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                  >
-                    <Square className="size-3.5 text-muted-foreground shrink-0" />
-                    <span className="flex-1">{t("contextMenu.deselectAll")}</span>
-                    <CommandShortcut className="text-[10px] font-mono tracking-normal">Esc</CommandShortcut>
-                  </CommandItem>
-                </CommandGroup>
-              )}
-
-              {renderCanvasDisplaySettings(selectedCount > 0 && Boolean(onClearSelection))}
+              {renderCanvasDisplaySettings(false)}
               {renderPluginItems()}
             </>
           )}

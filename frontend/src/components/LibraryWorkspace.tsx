@@ -3194,10 +3194,6 @@ export function LibraryWorkspace({
                 handleBatchRemoveFromFolder(activeFolderId);
               }
             }}
-            onClearSelection={() => {
-              setSelectedOrder([]);
-              setActiveItemId(null);
-            }}
             onCreateSubfolder={(parentId) => {
               setFolderCreateDialog({ open: true, parentId });
               setFolderCreateName("");
