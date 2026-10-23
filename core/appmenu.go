@@ -39,6 +39,7 @@ const (
 	AppMenuCaptureWindow     AppMenuAction = "capture-window"
 	AppMenuOpenMainWindow    AppMenuAction = "open-main-window"
 	AppMenuToggleMainWindow  AppMenuAction = "toggle-main-window"
+	AppMenuEnterLightweight  AppMenuAction = "enter-lightweight"
 )
 
 // Window-scoped commands, executed in the webview because they act on one
@@ -237,13 +238,16 @@ func (s *Service) InvokeAppMenu(action string) error {
 		return err
 	case AppMenuOpenMainWindow:
 		if h := s.getHost(); h != nil {
-			h.FocusMainWindow()
+			h.OpenMainWindow()
 		}
 		return nil
 	case AppMenuToggleMainWindow:
 		if h := s.getHost(); h != nil {
 			h.ToggleMainWindow()
 		}
+		return nil
+	case AppMenuEnterLightweight:
+		s.EnterLightweightMode()
 		return nil
 	case AppMenuSettings:
 		return s.OpenSettingsWindow()
@@ -286,6 +290,7 @@ func TrayMenuModelWithSettings(appName string, isZh bool, settings ShortcutSetti
 	windowTitle := "Window Capture"
 	showTitle := "Show Main Window"
 	settingsTitle := "Settings…"
+	liteTitle := "Enter Lightweight Mode"
 	quitTitle := "Quit " + appName
 
 	if isZh {
@@ -294,6 +299,7 @@ func TrayMenuModelWithSettings(appName string, isZh bool, settings ShortcutSetti
 		windowTitle = "窗口截图"
 		showTitle = "显示主窗口"
 		settingsTitle = "偏好设置…"
+		liteTitle = "立即进入轻量模式"
 		quitTitle = "退出 " + appName
 	}
 
@@ -304,6 +310,7 @@ func TrayMenuModelWithSettings(appName string, isZh bool, settings ShortcutSetti
 		{Separator: true},
 		{Label: showTitle, Action: AppMenuOpenMainWindow, Accelerator: appMenuAcceleratorFromSettings(AppMenuToggleMainWindow, settings)},
 		{Label: settingsTitle, Action: AppMenuSettings, Accelerator: appMenuAcceleratorFromSettings(AppMenuSettings, settings)},
+		{Label: liteTitle, Action: AppMenuEnterLightweight},
 		{Separator: true},
 		{Label: quitTitle, Action: AppMenuQuit, Accelerator: appMenuAcceleratorFromSettings(AppMenuQuit, settings)},
 	}
