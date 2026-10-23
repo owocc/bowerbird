@@ -35,4 +35,27 @@ func TestSetThemeAppliesNativeAppearance(t *testing.T) {
 	}
 }
 
+func TestSetLightweightModeCancelsIdleWhenDisabled(t *testing.T) {
+	host := &recordingHost{}
+	svc := NewService(nil)
+	AttachHost(svc, host)
+
+	if err := svc.SetLightweightModeEnabled(true); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if host.count("cancel-lightweight-idle") != 0 {
+		t.Fatal("enabling should not cancel idle")
+	}
+	if err := svc.SetLightweightModeEnabled(false); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if host.count("cancel-lightweight-idle") != 1 {
+		t.Fatalf("cancel count = %d, want 1", host.count("cancel-lightweight-idle"))
+	}
+	svc.EnterLightweightMode()
+	if host.count("enter-lightweight") != 1 {
+		t.Fatalf("enter count = %d, want 1", host.count("enter-lightweight"))
+	}
+}
+
 var _ Host = (*recordingHost)(nil)

@@ -390,6 +390,10 @@ export const Service = {
   getLanguage(): Promise<string> {
     return call("Service.GetLanguage");
   },
+  /** GetLightweightModeEnabled reports whether idle webviews should be torn down. */
+  getLightweightModeEnabled(): Promise<boolean> {
+    return call("Service.GetLightweightModeEnabled");
+  },
   /** GetLogFilePath returns the absolute path of the on-disk app.log file. */
   getLogFilePath(): Promise<string> {
     return call("Service.GetLogFilePath");
@@ -628,6 +632,14 @@ export const Service = {
    */
   setLanguage(language: string): Promise<void> {
     return call("Service.SetLanguage", language);
+  },
+  /** SetLightweightModeEnabled persists the idle-webview teardown preference. */
+  setLightweightModeEnabled(enabled: boolean): Promise<void> {
+    return call("Service.SetLightweightModeEnabled", enabled);
+  },
+  /** EnterLightweightMode immediately destroys webview windows. */
+  enterLightweightMode(): Promise<void> {
+    return call("Service.EnterLightweightMode");
   },
   setManager(mgr: LibraryManager | null): Promise<void> {
     return call("Service.SetManager", mgr);

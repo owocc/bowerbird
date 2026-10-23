@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"bowerbird/core"
 
@@ -37,7 +38,13 @@ type appHost struct {
 
 	svc      *core.Service
 	quitting atomic.Bool
+
+	idleMu     sync.Mutex
+	idleTimer  *time.Timer
+	liteActive atomic.Bool
 }
+
+const lightweightIdleDelay = time.Minute
 
 func newAppHost(svc *core.Service) *appHost {
 	return &appHost{
@@ -112,6 +119,7 @@ func (h *appHost) OpenWindow(spec core.WindowSpec) error {
 	h.mu.Lock()
 	if existing, ok := h.windows[spec.Name]; ok {
 		h.mu.Unlock()
+		h.CancelLightweightIdle()
 		existing.Show()
 		existing.Focus()
 		return nil
@@ -160,8 +168,10 @@ func (h *appHost) CloseWindow(name string) {
 }
 
 func (h *appHost) FocusMainWindow() {
+	h.CancelLightweightIdle()
 	w := h.mainWindow()
 	if w == nil {
+		h.OpenMainWindow()
 		return
 	}
 	w.Show()
@@ -192,6 +202,8 @@ func (h *appHost) CloseMainWindow() {
 // OpenMainWindow creates a fresh main window, or reveals the one that is
 // already open.
 func (h *appHost) OpenMainWindow() {
+	h.CancelLightweightIdle()
+	h.liteActive.Store(false)
 	h.mu.Lock()
 	if h.main != nil {
 		h.mu.Unlock()
@@ -240,8 +252,56 @@ func (h *appHost) createMainWindow() *mygo.Window {
 		}
 		e.PreventDefault()
 		w.Hide()
+		h.scheduleLightweightIdle()
 	})
 	return w
+}
+
+func (h *appHost) scheduleLightweightIdle() {
+	if h.svc == nil || !h.svc.GetLightweightModeEnabled() {
+		return
+	}
+	h.idleMu.Lock()
+	defer h.idleMu.Unlock()
+	if h.idleTimer != nil {
+		h.idleTimer.Stop()
+	}
+	h.idleTimer = time.AfterFunc(lightweightIdleDelay, func() {
+		h.EnterLightweightMode()
+	})
+}
+
+func (h *appHost) CancelLightweightIdle() {
+	h.idleMu.Lock()
+	defer h.idleMu.Unlock()
+	if h.idleTimer != nil {
+		h.idleTimer.Stop()
+		h.idleTimer = nil
+	}
+}
+
+func (h *appHost) EnterLightweightMode() {
+	if h.quitting.Load() {
+		return
+	}
+	h.CancelLightweightIdle()
+	h.liteActive.Store(true)
+
+	h.mu.Lock()
+	windows := make([]*mygo.Window, 0, len(h.windows))
+	for name, w := range h.windows {
+		windows = append(windows, w)
+		delete(h.windows, name)
+	}
+	h.main = nil
+	h.mu.Unlock()
+
+	for _, w := range windows {
+		if w != nil {
+			w.Destroy()
+		}
+	}
+	log.Printf("[Lightweight] webview windows destroyed; Go process still running")
 }
 
 func (h *appHost) OpenDirectory(title string) (string, error) {
@@ -566,8 +626,12 @@ func main() {
 
 	mygo.App.OnOpenURL(handleProtocol)
 	revealApp := func() {
-		if host.mainWindow() != nil {
-			host.FocusMainWindow()
+		if host.mainWindow() != nil || host.liteActive.Load() {
+			host.OpenMainWindow()
+			return
+		}
+		if coreMgr != nil && coreMgr.GetActiveLibrary() != nil {
+			host.OpenMainWindow()
 			return
 		}
 		if err := coreService.OpenSetupWindow(); err != nil {
@@ -590,6 +654,9 @@ func main() {
 		}
 	})
 	mygo.App.OnWindowAllClosed(func() {
+		if host.liteActive.Load() || host.quitting.Load() {
+			return
+		}
 		if runtime.GOOS != "darwin" {
 			mygo.App.Quit()
 		}

@@ -60,6 +60,12 @@ type Host interface {
 	// ApplyTheme syncs the native window / system appearance with the app
 	// colour mode ("dark", "light", or "system").
 	ApplyTheme(theme string)
+
+	// EnterLightweightMode destroys every webview window and leaves only the
+	// Go process (tray, API, capture) running.
+	EnterLightweightMode()
+	// CancelLightweightIdle stops the "hidden for a minute" teardown timer.
+	CancelLightweightIdle()
 }
 
 // AttachHost wires a host into a service before it is bound. It is a package

@@ -38,6 +38,7 @@ const (
 	AppMenuCaptureFullscreen AppMenuAction = "capture-fullscreen"
 	AppMenuCaptureWindow     AppMenuAction = "capture-window"
 	AppMenuOpenMainWindow    AppMenuAction = "open-main-window"
+	AppMenuEnterLightweight  AppMenuAction = "enter-lightweight"
 )
 
 // Window-scoped commands, executed in the webview because they act on one
@@ -254,8 +255,11 @@ func (s *Service) InvokeAppMenu(action string) error {
 		return err
 	case AppMenuOpenMainWindow:
 		if h := s.getHost(); h != nil {
-			h.FocusMainWindow()
+			h.OpenMainWindow()
 		}
+		return nil
+	case AppMenuEnterLightweight:
+		s.EnterLightweightMode()
 		return nil
 	case AppMenuSettings:
 		return s.OpenSettingsWindow()
@@ -294,6 +298,7 @@ func TrayMenuModel(appName string, isZh bool) []TrayMenuItem {
 	windowTitle := "Window Capture"
 	showTitle := "Show Main Window"
 	settingsTitle := "Settings…"
+	liteTitle := "Enter Lightweight Mode"
 	quitTitle := "Quit " + appName
 
 	if isZh {
@@ -302,6 +307,7 @@ func TrayMenuModel(appName string, isZh bool) []TrayMenuItem {
 		windowTitle = "窗口截图"
 		showTitle = "显示主窗口"
 		settingsTitle = "偏好设置…"
+		liteTitle = "立即进入轻量模式"
 		quitTitle = "退出 " + appName
 	}
 
@@ -312,6 +318,7 @@ func TrayMenuModel(appName string, isZh bool) []TrayMenuItem {
 		{Separator: true},
 		{Label: showTitle, Action: AppMenuOpenMainWindow},
 		{Label: settingsTitle, Action: AppMenuSettings, Accelerator: appMenuAccelerator(AppMenuSettings)},
+		{Label: liteTitle, Action: AppMenuEnterLightweight},
 		{Separator: true},
 		{Label: quitTitle, Action: AppMenuQuit, Accelerator: appMenuAccelerator(AppMenuQuit)},
 	}
