@@ -69,9 +69,7 @@ func NormalizeShortcutSettings(in ShortcutSettings) ShortcutSettings {
 			continue
 		}
 		norm := NormalizeAccelerator(accel)
-		if norm == "" {
-			continue
-		}
+		// Empty is an explicit unset — keep it so the action has no shortcut.
 		out.Bindings[id] = norm
 	}
 	return out
@@ -81,6 +79,9 @@ func ValidateShortcutSettings(in ShortcutSettings) error {
 	norm := NormalizeShortcutSettings(in)
 	seen := map[string]string{}
 	for id, accel := range norm.Bindings {
+		if accel == "" {
+			continue
+		}
 		key := strings.ToLower(accel)
 		if other, ok := seen[key]; ok {
 			return fmt.Errorf("shortcut conflict: %s and %s both use %s", other, id, accel)
@@ -92,7 +93,7 @@ func ValidateShortcutSettings(in ShortcutSettings) error {
 
 func (s ShortcutSettings) Accelerator(id string) string {
 	if s.Bindings != nil {
-		if v := strings.TrimSpace(s.Bindings[id]); v != "" {
+		if v, ok := s.Bindings[id]; ok {
 			return NormalizeAccelerator(v)
 		}
 	}

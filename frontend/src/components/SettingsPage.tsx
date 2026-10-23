@@ -1027,10 +1027,11 @@ export function SettingsPage() {
                             {t(row.descKey)}
                           </div>
                         </div>
+                        <div className="flex shrink-0 items-center gap-1">
                         <button
                           type="button"
                           className={cn(
-                            "shrink-0 rounded-md border px-2 py-1 text-[11px] font-mono font-medium shadow-2xs cursor-pointer",
+                            "rounded-md border px-2 py-1 text-[11px] font-mono font-medium shadow-2xs cursor-pointer",
                             recording
                               ? "border-primary bg-primary/10 text-primary"
                               : "border-border bg-muted/60 text-foreground hover:bg-muted"
@@ -1043,6 +1044,18 @@ export function SettingsPage() {
                             e.stopPropagation();
                             if (e.key === "Escape") {
                               setRecordingShortcut(null);
+                              return;
+                            }
+                            if (e.key === "Backspace" || e.key === "Delete") {
+                              const nextBindings = { ...shortcutBindings, [row.id]: "" };
+                              try {
+                                await SetShortcutSettings({ bindings: nextBindings } as ShortcutSettings);
+                                setShortcutBindings(nextBindings);
+                                setRecordingShortcut(null);
+                                notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                              } catch (err) {
+                                notifyError(err);
+                              }
                               return;
                             }
                             const next = eventToAccelerator(e.nativeEvent);
@@ -1062,6 +1075,27 @@ export function SettingsPage() {
                             ? t("settings.shortcuts.recording")
                             : displayAccelerator(accel, isMacOS()) || t("settings.shortcuts.unset")}
                         </button>
+                        {accel && !recording ? (
+                          <button
+                            type="button"
+                            className="rounded-md border border-border px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-muted cursor-pointer"
+                            onClick={async (e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              const nextBindings = { ...shortcutBindings, [row.id]: "" };
+                              try {
+                                await SetShortcutSettings({ bindings: nextBindings } as ShortcutSettings);
+                                setShortcutBindings(nextBindings);
+                                notifySuccess(SuccessCodes.SETTINGS_SAVED);
+                              } catch (err) {
+                                notifyError(err);
+                              }
+                            }}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                        </div>
                       </div>
                     );
                   })}

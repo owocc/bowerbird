@@ -316,7 +316,7 @@
     },
     "shortcuts": {
       "title": "Keyboard shortcuts",
-      "description": "Click a shortcut, then press a new key combination. Capture shortcuts also work globally.",
+      "description": "Click a shortcut, then press a new key combination. Press Backspace or Delete while recording to clear it. Capture shortcuts also work globally.",
       "areaTitle": "Area Capture",
       "areaDesc": "Drag to select any screen area and save to library",
       "windowTitle": "Window Capture",

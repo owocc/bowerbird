@@ -316,7 +316,7 @@
     },
     "shortcuts": {
       "title": "键盘快捷键",
-      "description": "点击快捷键后按下新组合即可自定义。截图快捷键同时作为全局热键生效。",
+      "description": "点击快捷键后按下新组合即可自定义。录制时按 Backspace 或 Delete 可取消该快捷键。截图快捷键同时作为全局热键生效。",
       "areaTitle": "区域截图",
       "areaDesc": "自由框选屏幕区域并导入资源库",
       "windowTitle": "窗口截图",

@@ -23,6 +23,24 @@ func TestShortcutConflict(t *testing.T) {
 	}
 }
 
+func TestShortcutUnset(t *testing.T) {
+	s := DefaultShortcutSettings()
+	s.Bindings[ShortcutCaptureArea] = ""
+	norm := NormalizeShortcutSettings(s)
+	if got := norm.Bindings[ShortcutCaptureArea]; got != "" {
+		t.Fatalf("expected empty binding, got %q", got)
+	}
+	if got := norm.Accelerator(ShortcutCaptureArea); got != "" {
+		t.Fatalf("expected empty accelerator, got %q", got)
+	}
+	if err := ValidateShortcutSettings(s); err != nil {
+		t.Fatalf("unset should not conflict: %v", err)
+	}
+	if got := norm.Bindings[ShortcutCaptureFullscreen]; got != "Alt+S" {
+		t.Fatalf("other bindings should stay default, got %q", got)
+	}
+}
+
 func TestScreenshotDisplayName(t *testing.T) {
 	now := time.Date(2026, 4, 8, 12, 0, 0, 0, time.UTC)
 	settings := DefaultScreenshotSettings()
