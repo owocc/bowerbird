@@ -31,6 +31,9 @@ type Host interface {
 	CloseWindow(name string)
 	// FocusMainWindow shows and focuses the main window.
 	FocusMainWindow()
+	// ToggleMainWindow shows the main window when it is hidden or unfocused,
+	// and hides it when it is already the front window.
+	ToggleMainWindow()
 	// CloseMainWindow closes the main window for real (it is not hidden the way
 	// a user close is) and forgets it, so a later OpenMainWindow starts fresh.
 	CloseMainWindow()

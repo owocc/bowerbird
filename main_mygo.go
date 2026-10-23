@@ -176,6 +176,19 @@ func (h *appHost) FocusMainWindow() {
 	mygo.App.Focus()
 }
 
+func (h *appHost) ToggleMainWindow() {
+	w := h.mainWindow()
+	if w == nil {
+		h.OpenMainWindow()
+		return
+	}
+	if w.IsVisible() && w.IsFocused() {
+		w.Hide()
+		return
+	}
+	h.FocusMainWindow()
+}
+
 // CloseMainWindow destroys the main window instead of hiding it. A user click
 // on the close button still hides the window; this path is for leaving a
 // library, where the window must actually go away.
@@ -461,23 +474,18 @@ func (h *appHost) registerGlobalShortcuts() {
 		return
 	}
 	settings := h.svc.GetShortcutSettings()
-	type binding struct {
-		id string
-		fn func() (*core.Item, error)
-	}
-	for _, sc := range []binding{
-		{core.ShortcutCaptureArea, h.svc.CaptureArea},
-		{core.ShortcutCaptureFullscreen, h.svc.CaptureFullscreen},
-		{core.ShortcutCaptureWindow, h.svc.CaptureWindow},
-	} {
-		accel := core.AcceleratorForMyGo(settings.Accelerator(sc.id))
+	for _, def := range core.ShortcutCatalog() {
+		if def.Scope != core.ShortcutScopeGlobal {
+			continue
+		}
+		accel := core.AcceleratorForMyGo(settings.Accelerator(def.ID))
 		if accel == "" {
 			continue
 		}
-		fn := sc.fn
+		id := def.ID
 		if err := mygo.GlobalShortcut.Register(accel, func() {
-			if _, err := fn(); err != nil {
-				log.Printf("[Capture] %s: %v", accel, err)
+			if err := h.svc.InvokeAppMenu(id); err != nil {
+				log.Printf("[GlobalShortcut] %s: %v", id, err)
 			}
 		}); err != nil {
 			log.Printf("[GlobalShortcut] %s registration error: %v", accel, err)

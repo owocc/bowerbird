@@ -16,6 +16,7 @@ export const APP_MENU_ACTION = {
   captureFullscreen: "capture-fullscreen",
   captureWindow: "capture-window",
   openMainWindow: "open-main-window",
+  toggleMainWindow: "toggle-main-window",
   settings: "settings",
   logs: "logs",
   about: "about",

@@ -23,6 +23,21 @@ func TestShortcutConflict(t *testing.T) {
 	}
 }
 
+func TestShortcutScope(t *testing.T) {
+	if got := ShortcutScopeFor(ShortcutCaptureArea); got != ShortcutScopeGlobal {
+		t.Fatalf("capture should be global, got %q", got)
+	}
+	if got := ShortcutScopeFor(ShortcutToggleMainWindow); got != ShortcutScopeGlobal {
+		t.Fatalf("toggle main should be global, got %q", got)
+	}
+	if got := ShortcutScopeFor(ShortcutOpenSettings); got != ShortcutScopeApp {
+		t.Fatalf("settings should be app, got %q", got)
+	}
+	if IsGlobalShortcut(ShortcutZoomIn) {
+		t.Fatal("zoom should not be global")
+	}
+}
+
 func TestShortcutUnset(t *testing.T) {
 	s := DefaultShortcutSettings()
 	s.Bindings[ShortcutCaptureArea] = ""

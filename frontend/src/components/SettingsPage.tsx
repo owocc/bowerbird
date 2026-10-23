@@ -92,6 +92,7 @@ import type {
   Folder,
 } from "../../bindings/bowerbird/core/models";
 import { displayAccelerator, eventToAccelerator } from "@/lib/accelerator";
+import { SHORTCUT_CATALOG, shortcutScope } from "@/lib/shortcuts";
 import { QRCodeSVG } from "qrcode.react";
 import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
@@ -121,22 +122,7 @@ type SettingsSectionId =
   | "extension"
   | "mobile";
 
-const SHORTCUT_ROWS: { id: string; titleKey: string; descKey: string }[] = [
-  { id: "capture-area", titleKey: "settings.shortcuts.areaTitle", descKey: "settings.shortcuts.areaDesc" },
-  { id: "capture-fullscreen", titleKey: "settings.shortcuts.fullscreenTitle", descKey: "settings.shortcuts.fullscreenDesc" },
-  { id: "capture-window", titleKey: "settings.shortcuts.windowTitle", descKey: "settings.shortcuts.windowDesc" },
-  { id: "settings", titleKey: "settings.shortcuts.settingsTitle", descKey: "settings.shortcuts.settingsDesc" },
-  { id: "logs", titleKey: "settings.shortcuts.logsTitle", descKey: "settings.shortcuts.logsDesc" },
-  { id: "reload", titleKey: "settings.shortcuts.reloadTitle", descKey: "settings.shortcuts.reloadDesc" },
-  { id: "force-reload", titleKey: "settings.shortcuts.forceReloadTitle", descKey: "settings.shortcuts.forceReloadDesc" },
-  { id: "fullscreen", titleKey: "settings.shortcuts.fullscreenWinTitle", descKey: "settings.shortcuts.fullscreenWinDesc" },
-  { id: "devtools", titleKey: "settings.shortcuts.devtoolsTitle", descKey: "settings.shortcuts.devtoolsDesc" },
-  { id: "quit", titleKey: "settings.shortcuts.quitTitle", descKey: "settings.shortcuts.quitDesc" },
-  { id: "close-window", titleKey: "settings.shortcuts.closeTitle", descKey: "settings.shortcuts.closeDesc" },
-  { id: "zoom-in", titleKey: "settings.shortcuts.zoomInTitle", descKey: "settings.shortcuts.zoomInDesc" },
-  { id: "zoom-out", titleKey: "settings.shortcuts.zoomOutTitle", descKey: "settings.shortcuts.zoomOutDesc" },
-  { id: "zoom-reset", titleKey: "settings.shortcuts.zoomResetTitle", descKey: "settings.shortcuts.zoomResetDesc" },
-];
+const SHORTCUT_ROWS = SHORTCUT_CATALOG;
 
 function flattenFolders(folders: Folder[], prefix = ""): { id: string; label: string }[] {
   const out: { id: string; label: string }[] = [];
@@ -1022,7 +1008,14 @@ export function SettingsPage() {
                         className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card/70 p-3"
                       >
                         <div className="min-w-0">
-                          <div className="text-xs font-medium">{t(row.titleKey)}</div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="text-xs font-medium">{t(row.titleKey)}</div>
+                            {shortcutScope(row.id) === "global" ? (
+                              <span className="rounded bg-primary/10 px-1 py-px text-[9px] font-medium text-primary">
+                                {t("settings.shortcuts.globalBadge")}
+                              </span>
+                            ) : null}
+                          </div>
                           <div className="text-[10px] text-muted-foreground">
                             {t(row.descKey)}
                           </div>

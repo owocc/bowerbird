@@ -9,11 +9,21 @@ import (
 
 const ShortcutsChangedEvent = "shortcuts-changed"
 
+// ShortcutScope is whether a binding is registered as a global OS hotkey
+// or only while a Bowerbird window is focused.
+type ShortcutScope = string
+
+const (
+	ShortcutScopeApp    ShortcutScope = "app"
+	ShortcutScopeGlobal ShortcutScope = "global"
+)
+
 // Shortcut IDs for every customizable action.
 const (
 	ShortcutCaptureArea       = "capture-area"
 	ShortcutCaptureFullscreen = "capture-fullscreen"
 	ShortcutCaptureWindow     = "capture-window"
+	ShortcutToggleMainWindow  = "toggle-main-window"
 	ShortcutOpenSettings      = "settings"
 	ShortcutLogs              = "logs"
 	ShortcutReload            = "reload"
@@ -26,6 +36,47 @@ const (
 	ShortcutZoomOut           = "zoom-out"
 	ShortcutZoomReset         = "zoom-reset"
 )
+
+// ShortcutDef is the catalog entry for one action. Scope is the only
+// distinction: global actions are registered as OS hotkeys; everything else
+// is in-app only (the default).
+type ShortcutDef struct {
+	ID    string
+	Scope ShortcutScope
+}
+
+func ShortcutCatalog() []ShortcutDef {
+	return []ShortcutDef{
+		{ID: ShortcutCaptureArea, Scope: ShortcutScopeGlobal},
+		{ID: ShortcutCaptureFullscreen, Scope: ShortcutScopeGlobal},
+		{ID: ShortcutCaptureWindow, Scope: ShortcutScopeGlobal},
+		{ID: ShortcutToggleMainWindow, Scope: ShortcutScopeGlobal},
+		{ID: ShortcutOpenSettings, Scope: ShortcutScopeApp},
+		{ID: ShortcutLogs, Scope: ShortcutScopeApp},
+		{ID: ShortcutReload, Scope: ShortcutScopeApp},
+		{ID: ShortcutForceReload, Scope: ShortcutScopeApp},
+		{ID: ShortcutFullscreen, Scope: ShortcutScopeApp},
+		{ID: ShortcutDevTools, Scope: ShortcutScopeApp},
+		{ID: ShortcutQuit, Scope: ShortcutScopeApp},
+		{ID: ShortcutCloseWindow, Scope: ShortcutScopeApp},
+		{ID: ShortcutZoomIn, Scope: ShortcutScopeApp},
+		{ID: ShortcutZoomOut, Scope: ShortcutScopeApp},
+		{ID: ShortcutZoomReset, Scope: ShortcutScopeApp},
+	}
+}
+
+func ShortcutScopeFor(id string) ShortcutScope {
+	for _, def := range ShortcutCatalog() {
+		if def.ID == id {
+			return def.Scope
+		}
+	}
+	return ShortcutScopeApp
+}
+
+func IsGlobalShortcut(id string) bool {
+	return ShortcutScopeFor(id) == ShortcutScopeGlobal
+}
 
 // ShortcutSettings maps action id -> accelerator (e.g. "Alt+A", "CmdOrCtrl+,").
 type ShortcutSettings struct {
@@ -44,6 +95,7 @@ func DefaultShortcutSettings() ShortcutSettings {
 			ShortcutCaptureArea:       "Alt+A",
 			ShortcutCaptureFullscreen: "Alt+S",
 			ShortcutCaptureWindow:     "Alt+W",
+			ShortcutToggleMainWindow:  "Alt+B",
 			ShortcutOpenSettings:      settingsAccel,
 			ShortcutLogs:              "CmdOrCtrl+L",
 			ShortcutReload:            "CmdOrCtrl+R",

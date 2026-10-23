@@ -38,6 +38,7 @@ const (
 	AppMenuCaptureFullscreen AppMenuAction = "capture-fullscreen"
 	AppMenuCaptureWindow     AppMenuAction = "capture-window"
 	AppMenuOpenMainWindow    AppMenuAction = "open-main-window"
+	AppMenuToggleMainWindow  AppMenuAction = "toggle-main-window"
 )
 
 // Window-scoped commands, executed in the webview because they act on one
@@ -108,12 +109,24 @@ func shortcutIDForAppMenu(action string) string {
 		return ShortcutCaptureFullscreen
 	case AppMenuCaptureWindow:
 		return ShortcutCaptureWindow
+	case AppMenuToggleMainWindow, AppMenuOpenMainWindow:
+		return ShortcutToggleMainWindow
 	case AppMenuSettings:
 		return ShortcutOpenSettings
 	case AppMenuLogs:
 		return ShortcutLogs
 	case AppMenuReload:
 		return ShortcutReload
+	case AppMenuForceReload:
+		return ShortcutForceReload
+	case AppMenuCloseWindow:
+		return ShortcutCloseWindow
+	case AppMenuZoomIn:
+		return ShortcutZoomIn
+	case AppMenuZoomOut:
+		return ShortcutZoomOut
+	case AppMenuZoomReset:
+		return ShortcutZoomReset
 	case AppMenuFullscreen:
 		return ShortcutFullscreen
 	case AppMenuDevTools:
@@ -227,6 +240,11 @@ func (s *Service) InvokeAppMenu(action string) error {
 			h.FocusMainWindow()
 		}
 		return nil
+	case AppMenuToggleMainWindow:
+		if h := s.getHost(); h != nil {
+			h.ToggleMainWindow()
+		}
+		return nil
 	case AppMenuSettings:
 		return s.OpenSettingsWindow()
 
@@ -284,7 +302,7 @@ func TrayMenuModelWithSettings(appName string, isZh bool, settings ShortcutSetti
 		{Label: windowTitle, Action: AppMenuCaptureWindow, Accelerator: appMenuAcceleratorFromSettings(AppMenuCaptureWindow, settings)},
 		{Label: fullscreenTitle, Action: AppMenuCaptureFullscreen, Accelerator: appMenuAcceleratorFromSettings(AppMenuCaptureFullscreen, settings)},
 		{Separator: true},
-		{Label: showTitle, Action: AppMenuOpenMainWindow},
+		{Label: showTitle, Action: AppMenuOpenMainWindow, Accelerator: appMenuAcceleratorFromSettings(AppMenuToggleMainWindow, settings)},
 		{Label: settingsTitle, Action: AppMenuSettings, Accelerator: appMenuAcceleratorFromSettings(AppMenuSettings, settings)},
 		{Separator: true},
 		{Label: quitTitle, Action: AppMenuQuit, Accelerator: appMenuAcceleratorFromSettings(AppMenuQuit, settings)},
