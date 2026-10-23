@@ -16,6 +16,7 @@ export const APP_MENU_ACTION = {
   captureFullscreen: "capture-fullscreen",
   captureWindow: "capture-window",
   openMainWindow: "open-main-window",
+  toggleMainWindow: "toggle-main-window",
   settings: "settings",
   logs: "logs",
   about: "about",
@@ -66,6 +67,10 @@ export async function runAppMenuAction(action: string): Promise<void> {
 }
 
 let menuPromise: Promise<AppMenuItem[]> | null = null;
+
+export function invalidateAppMenuCache() {
+  menuPromise = null;
+}
 
 /**
  * Loads the application menu model from the Go bridge, caching it for the

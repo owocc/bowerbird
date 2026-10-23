@@ -213,6 +213,23 @@ export interface NetworkInterfaceInfo {
   selected: boolean;
 }
 
+/** ShortcutSettings maps action id -> accelerator (e.g. "Alt+A", "CmdOrCtrl+,"). */
+export interface ShortcutSettings {
+  bindings: Record<string, string>;
+}
+
+/** ScreenshotSettings controls how captures are encoded, named, tagged and filed. */
+export interface ScreenshotSettings {
+  format: string;
+  quality: number;
+  naming: string;
+  includeDate: boolean;
+  includeApp: boolean;
+  autoTag: boolean;
+  folderId: string;
+  customPattern?: string;
+}
+
 /** NetworkSettings stores user-configured proxy settings. */
 export interface NetworkSettings {
   /** "system" | "direct" | "custom" */
@@ -446,6 +463,12 @@ export const Service = {
   /** GetNetworkSettings returns the persisted network/proxy configuration. */
   getNetworkSettings(): Promise<NetworkSettings> {
     return call("Service.GetNetworkSettings");
+  },
+  getScreenshotSettings(): Promise<ScreenshotSettings> {
+    return call("Service.GetScreenshotSettings");
+  },
+  getShortcutSettings(): Promise<ShortcutSettings> {
+    return call("Service.GetShortcutSettings");
   },
   /** GetPendingPluginInstall returns any pending plugin installation request. */
   getPendingPluginInstall(): Promise<PluginInstallRequest | null> {
@@ -691,6 +714,12 @@ export const Service = {
   /** SetNetworkSettings validates, persists, and applies network/proxy configuration. */
   setNetworkSettings(settings: NetworkSettings): Promise<void> {
     return call("Service.SetNetworkSettings", settings);
+  },
+  setScreenshotSettings(settings: ScreenshotSettings): Promise<void> {
+    return call("Service.SetScreenshotSettings", settings);
+  },
+  setShortcutSettings(settings: ShortcutSettings): Promise<void> {
+    return call("Service.SetShortcutSettings", settings);
   },
   /** SetPluginEnabled enables or disables the specified plugin. */
   setPluginEnabled(id: string, enabled: boolean): Promise<void> {

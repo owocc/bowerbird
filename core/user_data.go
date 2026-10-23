@@ -20,10 +20,12 @@ type UserData struct {
 	Language string `json:"language,omitempty"`
 	// LightweightModeEnabled, when true, destroys webview windows after the
 	// main window has been hidden for a minute (or immediately from the tray).
-	LightweightModeEnabled bool            `json:"lightweightModeEnabled,omitempty"`
-	Network                NetworkSettings `json:"network,omitempty"`
-	Mobile                 *MobileSettings `json:"mobile,omitempty"`
-	UpdatedAt              int64           `json:"updatedAt"`
+	LightweightModeEnabled bool                `json:"lightweightModeEnabled,omitempty"`
+	Network                NetworkSettings     `json:"network,omitempty"`
+	Mobile                 *MobileSettings     `json:"mobile,omitempty"`
+	Shortcuts              *ShortcutSettings   `json:"shortcuts,omitempty"`
+	Screenshot             *ScreenshotSettings `json:"screenshot,omitempty"`
+	UpdatedAt              int64               `json:"updatedAt"`
 }
 
 // UserDataStore provides thread-safe, atomic persistence for user configuration.
@@ -388,6 +390,42 @@ func (s *UserDataStore) RemoveMobileToken(token string) error {
 		}
 	}
 	s.data.Mobile.Tokens = newTokens
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+func (s *UserDataStore) GetShortcutSettings() ShortcutSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.Shortcuts == nil {
+		return DefaultShortcutSettings()
+	}
+	return NormalizeShortcutSettings(*s.data.Shortcuts)
+}
+
+func (s *UserDataStore) SetShortcutSettings(settings ShortcutSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	norm := NormalizeShortcutSettings(settings)
+	s.data.Shortcuts = &norm
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+func (s *UserDataStore) GetScreenshotSettings() ScreenshotSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.Screenshot == nil {
+		return DefaultScreenshotSettings()
+	}
+	return NormalizeScreenshotSettings(*s.data.Screenshot)
+}
+
+func (s *UserDataStore) SetScreenshotSettings(settings ScreenshotSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	norm := NormalizeScreenshotSettings(settings)
+	s.data.Screenshot = &norm
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }

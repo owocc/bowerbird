@@ -17,6 +17,8 @@ export type {
   NetworkInterfaceInfo,
   NetworkSettings,
   NetworkTestResult,
+  ScreenshotSettings,
+  ShortcutSettings,
   PluginInstallRequest,
   PluginUpdateInfo,
   Tag,

@@ -3,8 +3,9 @@ import { useTranslation } from "react-i18next";
 import { AlignJustify, AppWindow, Bug, Crop, Info, LogOut, Maximize, Monitor, RotateCw, Settings, Terminal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AppMenuItem } from "../../bindings/bowerbird/core/models";
-import { loadAppMenu, runAppMenuAction } from "@/lib/app-menu";
+import { invalidateAppMenuCache, loadAppMenu, runAppMenuAction } from "@/lib/app-menu";
 import { usesInAppMenuBar } from "@/lib/platform";
+import { Events } from "@/lib/host-runtime";
 import { cn } from "@/lib/utils";
 
 /**
@@ -81,16 +82,22 @@ export function AppMenuButton({ className, align = "start" }: AppMenuButtonProps
     if (!usesInAppMenuBar()) return;
 
     let cancelled = false;
-    loadAppMenu()
-      .then((loaded) => {
-        if (!cancelled) setItems(loaded);
-      })
-      .catch((err) => {
-        console.error("Failed to load the application menu:", err);
-      });
+    const load = () => {
+      invalidateAppMenuCache();
+      loadAppMenu()
+        .then((loaded) => {
+          if (!cancelled) setItems(loaded);
+        })
+        .catch((err) => {
+          console.error("Failed to load the application menu:", err);
+        });
+    };
+    load();
+    const off = Events.On("shortcuts-changed", () => load());
 
     return () => {
       cancelled = true;
+      off();
     };
   }, []);
 
