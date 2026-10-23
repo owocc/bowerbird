@@ -462,8 +462,10 @@
     "title": "偏好设置"
   },
   "setup": {
+    "back": "返回",
     "badge": "本地独立隔离资源库 · SQLite 高性能索引",
     "create": {
+      "button": "创建资料库",
       "chooseLocation": "选择存储路径",
       "creating": "正在初始化…",
       "description": "在您指定的本地目录中创建一个专用的 <code>.library</code> 资源容器。",
@@ -474,7 +476,7 @@
       "previewLabel": "将在本地创建：",
       "storageLabel": "存储位置",
       "submit": "创建并打开资源库",
-      "title": "创建新资源库"
+      "title": "创建资料库"
     },
     "errors": {
       "createLibrary": "创建资源库失败: {{error}}",
@@ -484,13 +486,16 @@
       "selectStorage": "请先选择资源库的存储文件夹"
     },
     "open": {
-      "button": "打开已有资源库",
+      "button": "打开已有资料库",
       "description": "加载已存在的本地 .library 容器及其实时索引数据。",
       "title": "已有资源库？"
     },
     "or": "或",
+    "recent": {
+      "title": "最近打开"
+    },
     "subtitle": "创建全新资源库或打开已有库开始使用。导入的每个文件都会独立存储，与原始路径完全解耦。",
-    "title": "初始化您的资源库"
+    "title": "资料库"
   },
   "sidebar": {
     "all": "全部素材",

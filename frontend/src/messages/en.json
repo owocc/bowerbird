@@ -462,8 +462,10 @@
     "title": "Settings"
   },
   "setup": {
+    "back": "Back",
     "badge": "Local isolated asset library · SQLite index storage",
     "create": {
+      "button": "Create library",
       "chooseLocation": "Choose location",
       "creating": "Initializing…",
       "description": "Create a dedicated <code>.library</code> container folder in a local directory of your choice.",
@@ -489,6 +491,9 @@
       "title": "Already have a library?"
     },
     "or": "or",
+    "recent": {
+      "title": "Recent"
+    },
     "subtitle": "Create a new library or open an existing one to get started. Every imported file is copied into its own directory, fully isolated from the original location.",
     "title": "Set up your library"
   },
