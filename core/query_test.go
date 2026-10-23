@@ -353,6 +353,7 @@ func (h *recordingHost) RunOnMain(fn func())                  { fn() }
 func (h *recordingHost) NativeWindowHandle() uintptr          { return 0 }
 func (h *recordingHost) WriteFilesToClipboard([]string) error { return nil }
 func (h *recordingHost) WriteTextToClipboard(string) error    { return nil }
+func (h *recordingHost) ApplyTheme(string)                    {}
 
 type mobileTestServer struct {
 	mgr     *LibraryManager

@@ -128,6 +128,7 @@ import {
 import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useTrackpadZoom } from "@/hooks/useTrackpadZoom";
+import { useGalleryDisplayPrefs } from "@/lib/gallery-display";
 import { UniversalThumbnail } from "@/components/UniversalThumbnail";
 import { logDiagnostic } from "@/lib/logger";
 import { cn } from "@/lib/utils";
@@ -173,7 +174,28 @@ export function LibraryWorkspace({
   const inlinePreviewOpen = ws.preview === "inline";
   const fullWindowPreviewOpen = ws.preview === "full";
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { prefs: displayPrefs, setPrefs: setDisplayPrefs } =
+    useGalleryDisplayPrefs();
+  const sidebarOpen = displayPrefs.showSidebar;
+  const setSidebarOpen = useCallback(
+    (open: boolean | ((value: boolean) => boolean)) => {
+      setDisplayPrefs((prev) => ({
+        showSidebar:
+          typeof open === "function" ? open(prev.showSidebar) : open,
+      }));
+    },
+    [setDisplayPrefs]
+  );
+  const inspectorOpen = displayPrefs.showInspector;
+  const setInspectorOpen = useCallback(
+    (open: boolean | ((value: boolean) => boolean)) => {
+      setDisplayPrefs((prev) => ({
+        showInspector:
+          typeof open === "function" ? open(prev.showInspector) : open,
+      }));
+    },
+    [setDisplayPrefs]
+  );
   const [items, setItems] = useState<Item[]>([]);
   const [trashItems, setTrashItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -186,7 +208,16 @@ export function LibraryWorkspace({
   });
   const [folderPaletteOpen, setFolderPaletteOpen] = useState(false);
   const [subfoldersCollapsed, setSubfoldersCollapsed] = useState(false);
-  const [includeSubfolders, setIncludeSubfolders] = useState(false);
+  const includeSubfolders = displayPrefs.includeSubfolders;
+  const setIncludeSubfolders = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      setDisplayPrefs((prev) => ({
+        includeSubfolders:
+          typeof value === "function" ? value(prev.includeSubfolders) : value,
+      }));
+    },
+    [setDisplayPrefs]
+  );
   const [dragHoverSubfolderId, setDragHoverSubfolderId] = useState<string | null>(null);
   const draggingItemIdsRef = useRef<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2970,6 +3001,10 @@ export function LibraryWorkspace({
                         items={galleryItemsSource}
                         selectedOrder={selectedOrder}
                         layoutMode={layoutMode}
+                        thumbnailQuality={displayPrefs.thumbnailQuality}
+                        showName={displayPrefs.showName}
+                        showItemInfo={displayPrefs.showItemInfo}
+                        showExtension={displayPrefs.showExtension}
                         scrollElementRef={galleryViewportRef}
                         keyboardNavEnabled={
                           !inlinePreviewOpen &&
@@ -3017,7 +3052,7 @@ export function LibraryWorkspace({
           </ResizablePanel>
 
           {/* COLUMN 3: RIGHT INSPECTOR PANEL (Single Item or Multi-Item) */}
-          {sidebarOpen && (
+          {inspectorOpen && (
             <>
               <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
               <ResizablePanel
@@ -3115,6 +3150,26 @@ export function LibraryWorkspace({
             isTrashFolder={activeFolderId === TRASH_FOLDER_ID}
             layoutMode={layoutMode}
             onLayoutModeChange={(mode) => ws.setLayout(mode)}
+            thumbnailQuality={displayPrefs.thumbnailQuality}
+            onThumbnailQualityChange={(quality) =>
+              setDisplayPrefs({ thumbnailQuality: quality })
+            }
+            showName={displayPrefs.showName}
+            onShowNameChange={(value) => setDisplayPrefs({ showName: value })}
+            showItemInfo={displayPrefs.showItemInfo}
+            onShowItemInfoChange={(value) =>
+              setDisplayPrefs({ showItemInfo: value })
+            }
+            showExtension={displayPrefs.showExtension}
+            onShowExtensionChange={(value) =>
+              setDisplayPrefs({ showExtension: value })
+            }
+            includeSubfolders={includeSubfolders}
+            onIncludeSubfoldersChange={setIncludeSubfolders}
+            showSidebar={sidebarOpen}
+            onShowSidebarChange={setSidebarOpen}
+            showInspector={inspectorOpen}
+            onShowInspectorChange={setInspectorOpen}
             onPreview={() => openPreview("full")}
             onRename={() => activeItem && handleOpenRename(activeItem)}
             onReveal={handleBatchReveal}

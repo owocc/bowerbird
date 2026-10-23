@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Eye,
@@ -15,7 +15,6 @@ import {
   ExternalLink,
   Star,
   RotateCcw,
-  Check,
   LayoutGrid,
   LayoutList,
   Columns3,
@@ -43,6 +42,15 @@ import { cn } from "cn";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { isMacOS } from "@/lib/macos";
 import type { GalleryLayoutMode } from "@/lib/workspace-search";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { ThumbnailQuality } from "@/lib/gallery-display";
 
 export interface ContextMenuPosition {
   x: number;
@@ -70,6 +78,20 @@ export interface ContextMenuProps {
   // General / layout
   layoutMode?: GalleryLayoutMode;
   onLayoutModeChange?: (mode: GalleryLayoutMode) => void;
+  thumbnailQuality?: ThumbnailQuality;
+  onThumbnailQualityChange?: (quality: ThumbnailQuality) => void;
+  showName?: boolean;
+  onShowNameChange?: (value: boolean) => void;
+  showItemInfo?: boolean;
+  onShowItemInfoChange?: (value: boolean) => void;
+  showExtension?: boolean;
+  onShowExtensionChange?: (value: boolean) => void;
+  includeSubfolders?: boolean;
+  onIncludeSubfoldersChange?: (value: boolean) => void;
+  showSidebar?: boolean;
+  onShowSidebarChange?: (value: boolean) => void;
+  showInspector?: boolean;
+  onShowInspectorChange?: (value: boolean) => void;
   onPreview?: () => void;
   onRename?: () => void;
   onReveal?: () => void;
@@ -105,6 +127,20 @@ export function CustomContextMenu({
   onExportFolder,
   layoutMode = "justified",
   onLayoutModeChange,
+  thumbnailQuality = "speed",
+  onThumbnailQualityChange,
+  showName = true,
+  onShowNameChange,
+  showItemInfo = true,
+  onShowItemInfoChange,
+  showExtension = true,
+  onShowExtensionChange,
+  includeSubfolders = false,
+  onIncludeSubfoldersChange,
+  showSidebar = true,
+  onShowSidebarChange,
+  showInspector = true,
+  onShowInspectorChange,
   onPreview,
   onRename,
   onReveal,
@@ -126,6 +162,7 @@ export function CustomContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState("");
   const [measuredHeight, setMeasuredHeight] = useState<number>(320);
+  const [selectOpen, setSelectOpen] = useState(false);
 
   const effectiveTarget: ContextMenuTarget =
     targetType || (targetFolder ? "folder" : isItemContext ? "file" : "general");
@@ -201,7 +238,12 @@ export function CustomContextMenu({
     if (!position) return;
 
     const handlePointerDown = (e: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node | null;
+      if (selectOpen) return;
+      if (target instanceof Element && target.closest("[data-slot='select-content']")) {
+        return;
+      }
+      if (menuRef.current && !menuRef.current.contains(target as Node)) {
         onClose();
       }
     };
@@ -218,12 +260,12 @@ export function CustomContextMenu({
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [position, onClose]);
+  }, [position, onClose, selectOpen]);
 
   if (!position) return null;
 
   // Position adjustments to stay within window boundaries (max 80% viewport height)
-  const menuWidth = 256;
+  const menuWidth = 280;
   const maxMenuHeight = window.innerHeight * 0.8;
   const currentHeight = Math.min(measuredHeight || 320, maxMenuHeight);
   const adjustedX = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 12));
@@ -281,6 +323,205 @@ export function CustomContextMenu({
       icon: LayoutList,
     },
   ];
+  const currentLayout =
+    layoutOptions.find((opt) => opt.mode === layoutMode) ?? layoutOptions[0];
+
+  const stopRowSelect = (e: ReactMouseEvent | ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const renderToggleRow = (
+    id: string,
+    label: string,
+    checked: boolean,
+    onChange?: (value: boolean) => void
+  ) => {
+    if (!onChange) return null;
+    return (
+      <CommandItem
+        key={id}
+        value={label}
+        onSelect={() => onChange(!checked)}
+        className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
+      >
+        <span className="flex-1 truncate">{label}</span>
+        <span
+          data-slot="command-shortcut"
+          className="shrink-0"
+          onPointerDown={stopRowSelect}
+          onClick={(e) => {
+            stopRowSelect(e);
+            onChange(!checked);
+          }}
+        >
+          <Switch
+            size="sm"
+            checked={checked}
+            onCheckedChange={onChange}
+            aria-label={label}
+          />
+        </span>
+      </CommandItem>
+    );
+  };
+
+  const renderCanvasDisplaySettings = () => {
+    const hasDisplaySettings = Boolean(
+      onLayoutModeChange ||
+        onThumbnailQualityChange ||
+        onShowNameChange ||
+        onShowItemInfoChange ||
+        onShowExtensionChange ||
+        onIncludeSubfoldersChange ||
+        onShowSidebarChange ||
+        onShowInspectorChange
+    );
+    if (!hasDisplaySettings) return null;
+
+    return (
+      <>
+        <CommandSeparator className="my-1" />
+        <CommandGroup>
+          {onLayoutModeChange && (
+            <CommandItem
+              value={`${t("contextMenu.layout")} ${currentLayout.label}`}
+              onSelect={() => {}}
+              className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-default"
+            >
+              <span className="flex-1 truncate">{t("contextMenu.layout")}</span>
+              <span
+                data-slot="command-shortcut"
+                className="shrink-0"
+                onPointerDown={stopRowSelect}
+                onClick={stopRowSelect}
+              >
+                <Select
+                  value={layoutMode}
+                  onValueChange={(value) => {
+                    if (value) onLayoutModeChange(value as GalleryLayoutMode);
+                  }}
+                  onOpenChange={setSelectOpen}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-6 min-w-[7.5rem] gap-1 rounded-md border-border/70 bg-muted/40 px-1.5 py-0 text-[10px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent
+                    align="end"
+                    alignItemWithTrigger={false}
+                    className="min-w-[8.5rem]"
+                  >
+                    {layoutOptions.map(({ mode, label, icon: Icon }) => (
+                      <SelectItem key={mode} value={mode} className="text-xs">
+                        <Icon className="size-3.5" />
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </span>
+            </CommandItem>
+          )}
+          {onThumbnailQualityChange && (
+            <CommandItem
+              value={`${t("contextMenu.thumbnail")} ${
+                thumbnailQuality === "original"
+                  ? t("contextMenu.thumbnailOriginal")
+                  : t("contextMenu.thumbnailSpeed")
+              }`}
+              onSelect={() => {}}
+              className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-default"
+            >
+              <span className="flex-1 truncate">
+                {t("contextMenu.thumbnail")}
+              </span>
+              <span
+                data-slot="command-shortcut"
+                className="shrink-0"
+                onPointerDown={stopRowSelect}
+                onClick={stopRowSelect}
+              >
+                <Select
+                  value={thumbnailQuality}
+                  onValueChange={(value) => {
+                    if (value === "speed" || value === "original") {
+                      onThumbnailQualityChange(value);
+                    }
+                  }}
+                  onOpenChange={setSelectOpen}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-6 min-w-[5.5rem] rounded-md border-border/70 bg-muted/40 px-1.5 py-0 text-[10px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent
+                    align="end"
+                    alignItemWithTrigger={false}
+                    className="min-w-[7rem]"
+                  >
+                    <SelectItem value="speed" className="text-xs">
+                      {t("contextMenu.thumbnailSpeed")}
+                    </SelectItem>
+                    <SelectItem value="original" className="text-xs">
+                      {t("contextMenu.thumbnailOriginal")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </span>
+            </CommandItem>
+          )}
+          {renderToggleRow(
+            "show-name",
+            t("contextMenu.showName"),
+            showName,
+            onShowNameChange
+          )}
+          {renderToggleRow(
+            "show-item-info",
+            t("contextMenu.showItemInfo"),
+            showItemInfo,
+            onShowItemInfoChange
+          )}
+          {renderToggleRow(
+            "show-extension",
+            t("contextMenu.showExtension"),
+            showExtension,
+            onShowExtensionChange
+          )}
+          {renderToggleRow(
+            "include-subfolders",
+            t("contextMenu.includeSubfolders"),
+            includeSubfolders,
+            onIncludeSubfoldersChange
+          )}
+        </CommandGroup>
+        {(onShowSidebarChange || onShowInspectorChange) && (
+          <>
+            <CommandSeparator className="my-1" />
+            <CommandGroup>
+              {renderToggleRow(
+                "show-sidebar",
+                t("contextMenu.showSidebar"),
+                showSidebar,
+                onShowSidebarChange
+              )}
+              {renderToggleRow(
+                "show-inspector",
+                t("contextMenu.showInspector"),
+                showInspector,
+                onShowInspectorChange
+              )}
+            </CommandGroup>
+          </>
+        )}
+      </>
+    );
+  };
 
   return (
     <div
@@ -290,7 +531,7 @@ export function CustomContextMenu({
         top: `${adjustedY}px`,
         maxHeight: "80vh",
       }}
-      className="fixed z-50 w-64 max-h-[80vh] flex flex-col rounded-xl border border-border/80 bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-md p-1 select-none overflow-hidden"
+      className="fixed z-50 w-[280px] max-h-[80vh] flex flex-col rounded-xl border border-border/80 bg-popover/95 text-popover-foreground shadow-2xl backdrop-blur-md p-1 select-none overflow-hidden"
     >
       <Command className="rounded-lg bg-transparent p-0 flex flex-col max-h-[80vh] overflow-hidden">
         {/* Minimal search field: full-bleed, square, no fill — just a bottom rule. */}
@@ -474,37 +715,7 @@ export function CustomContextMenu({
                   )}
                 </CommandGroup>
 
-                {onLayoutModeChange && (
-                  <>
-                    <CommandSeparator className="my-1" />
-                    <CommandGroup heading={t("contextMenu.layout")}>
-                      {layoutOptions.map(({ mode, label, icon: Icon }) => {
-                        const active = layoutMode === mode;
-                        return (
-                          <CommandItem
-                            key={mode}
-                            onSelect={() => {
-                              onLayoutModeChange(mode);
-                              onClose();
-                            }}
-                            className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                          >
-                            <Icon
-                              className={cn(
-                                "size-3.5 shrink-0",
-                                active ? "text-primary" : "text-muted-foreground"
-                              )}
-                            />
-                            <span className={cn("flex-1", active && "font-medium text-primary")}>
-                              {label}
-                            </span>
-                            {active && <Check className="size-3.5 text-primary shrink-0" />}
-                          </CommandItem>
-                        );
-                      })}
-                    </CommandGroup>
-                  </>
-                )}
+                {renderCanvasDisplaySettings()}
               </>
             )
           ) : isItemContext ? (
@@ -735,37 +946,7 @@ export function CustomContextMenu({
                 )}
               </CommandGroup>
 
-              {onLayoutModeChange && (
-                <>
-                  <CommandSeparator className="my-1" />
-                  <CommandGroup heading={t("contextMenu.layout")}>
-                    {layoutOptions.map(({ mode, label, icon: Icon }) => {
-                      const active = layoutMode === mode;
-                      return (
-                        <CommandItem
-                          key={mode}
-                          onSelect={() => {
-                            onLayoutModeChange(mode);
-                            onClose();
-                          }}
-                          className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md cursor-pointer"
-                        >
-                          <Icon
-                            className={cn(
-                              "size-3.5 shrink-0",
-                              active ? "text-primary" : "text-muted-foreground"
-                            )}
-                          />
-                          <span className={cn("flex-1", active && "font-medium text-primary")}>
-                            {label}
-                          </span>
-                          {active && <Check className="size-3.5 text-primary shrink-0" />}
-                        </CommandItem>
-                      );
-                    })}
-                  </CommandGroup>
-                </>
-              )}
+              {renderCanvasDisplaySettings()}
               {renderPluginItems()}
             </>
           )}

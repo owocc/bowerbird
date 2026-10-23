@@ -5,6 +5,7 @@ import { ImageThumbnailCard } from "./ImageThumbnailCard";
 import { getFileCategory } from "@/lib/formatters";
 import { logDiagnostic } from "@/lib/logger";
 import type { GalleryLayoutMode } from "@/lib/workspace-search";
+import type { ThumbnailQuality } from "@/lib/gallery-display";
 export interface GalleryItemsSource {
   items: Item[];
   version: number;
@@ -28,6 +29,10 @@ export interface JustifiedGalleryProps {
   onDragStartItem: (e: React.DragEvent, item: Item) => void;
   onItemContextMenu: (e: React.MouseEvent, item: Item) => void;
   onCanvasContextMenu: (e: React.MouseEvent) => void;
+  thumbnailQuality?: ThumbnailQuality;
+  showName?: boolean;
+  showItemInfo?: boolean;
+  showExtension?: boolean;
 }
 
 interface MarqueeBox {
@@ -61,7 +66,8 @@ interface TypedLayoutData {
   idToIndexRef: { map: Map<string, number> | null };
 }
 
-const LABEL_HEIGHT = 28;
+const NAME_LABEL_HEIGHT = 28;
+const INFO_LABEL_HEIGHT = 16;
 const ROW_GAP = 16;
 const WATERFALL_BAND_HEIGHT = 320;
 
@@ -78,7 +84,13 @@ export const JustifiedGallery = React.memo(function JustifiedGallery({
   onDragStartItem,
   onItemContextMenu,
   onCanvasContextMenu,
+  thumbnailQuality = "speed",
+  showName = true,
+  showItemInfo = true,
+  showExtension = true,
 }: JustifiedGalleryProps) {
+  const captionHeight =
+    (showName ? NAME_LABEL_HEIGHT : 0) + (showItemInfo ? INFO_LABEL_HEIGHT : 0);
   const items = Array.isArray(rawItemsProp) ? rawItemsProp : rawItemsProp.items;
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(800);
@@ -334,7 +346,7 @@ export const JustifiedGallery = React.memo(function JustifiedGallery({
       }
 
       const thumbH = baseColWidth;
-      const cHeight = thumbH + LABEL_HEIGHT;
+      const cHeight = thumbH + captionHeight;
       const totalRows = Math.ceil(n / numCols);
 
       const unitStart = new Int32Array(totalRows);
@@ -421,7 +433,7 @@ export const JustifiedGallery = React.memo(function JustifiedGallery({
         const colW = colWidths[minCol];
         const ratio = getItemRatio(items[i]);
         const thumbH = Math.max(48, Math.round(colW / ratio));
-        const cHeight = thumbH + LABEL_HEIGHT;
+        const cHeight = thumbH + captionHeight;
         const top = minH;
 
         cardLeft[i] = colLefts[minCol];
@@ -541,7 +553,7 @@ export const JustifiedGallery = React.memo(function JustifiedGallery({
         }
       }
 
-      const cHeight = finalThumbHeight + LABEL_HEIGHT;
+      const cHeight = finalThumbHeight + captionHeight;
       const uSize = isLastRow ? cHeight : cHeight + ROW_GAP;
       let xCursor = 0;
       for (let c = 0; c < rowLen; c++) {
@@ -628,7 +640,7 @@ export const JustifiedGallery = React.memo(function JustifiedGallery({
       waterfallBands: null,
       idToIndexRef: { map: null },
     };
-  }, [items, containerWidth, targetRowHeight, gap, layoutMode]);
+  }, [items, containerWidth, targetRowHeight, gap, layoutMode, captionHeight]);
 
   // Lazy O(1) lookup from item ID to flat index (only built on demand when user clicks/navigates)
   const getFlatIndexById = useCallback(
@@ -1277,6 +1289,10 @@ export const JustifiedGallery = React.memo(function JustifiedGallery({
             onDoubleClick={handleCardDoubleClick}
             onDragStart={handleCardDragStart}
             onContextMenu={handleCardContextMenu}
+            thumbnailQuality={thumbnailQuality}
+            showName={showName}
+            showItemInfo={showItemInfo}
+            showExtension={showExtension}
           />
         );
       })}
