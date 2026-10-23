@@ -47,7 +47,9 @@ type MobileServer struct {
 	mdnsServer  *zeroconf.Server
 	port        int
 	running     bool
-	pairingCode string
+	pairingCode          string
+	legacyPairToken      string
+	legacyPairTokenCode  string
 	codeMu      sync.RWMutex
 	clientsMu   sync.Mutex
 	clients     map[*wsClient]bool
@@ -276,9 +278,11 @@ func (s *MobileServer) regeneratePairingCodeInternal() {
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
 	if err != nil {
 		s.pairingCode = "888888"
-		return
+	} else {
+		s.pairingCode = fmt.Sprintf("%06d", n.Int64())
 	}
-	s.pairingCode = fmt.Sprintf("%06d", n.Int64())
+	s.legacyPairToken = ""
+	s.legacyPairTokenCode = ""
 }
 
 // RestartMDNS re-registers mDNS service with current allowed network interfaces.
@@ -494,9 +498,17 @@ func (s *MobileServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		token := extractToken(r)
-		if token == "" || !s.manager.userData.HasMobileToken(token) {
+		if token == "" {
 			writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized: valid pairing token required")
 			return
+		}
+		if !s.manager.userData.HasMobileToken(token) {
+			issued, ok := s.issueTokenFromLegacyPairingCode(token, r)
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized: valid pairing token required")
+				return
+			}
+			token = issued
 		}
 
 		// Touch last used timestamp asynchronously
@@ -514,6 +526,64 @@ func extractToken(r *http.Request) string {
 		return strings.TrimSpace(queryToken)
 	}
 	return ""
+}
+
+func deviceNameFromRequest(r *http.Request) string {
+	if r == nil {
+		return "Mobile Device"
+	}
+	name := strings.TrimSpace(r.Header.Get("X-Device-Name"))
+	if name == "" {
+		name = strings.TrimSpace(r.URL.Query().Get("deviceName"))
+	}
+	if name == "" {
+		name = "Mobile Device"
+	}
+	return name
+}
+
+// issueTokenFromLegacyPairingCode accepts a 6-digit pairing code sent as a Bearer
+// token (legacy mobile clients) and persists a long-lived API token automatically.
+func (s *MobileServer) issueTokenFromLegacyPairingCode(code string, r *http.Request) (string, bool) {
+	code = strings.TrimSpace(code)
+	if code == "" || code != s.GetPairingCode() {
+		return "", false
+	}
+	if s.manager == nil || s.manager.userData == nil {
+		return "", false
+	}
+
+	s.codeMu.Lock()
+	if s.legacyPairToken != "" && s.legacyPairTokenCode == code && s.manager.userData.HasMobileToken(s.legacyPairToken) {
+		token := s.legacyPairToken
+		s.codeMu.Unlock()
+		return token, true
+	}
+	s.codeMu.Unlock()
+
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		log.Printf("[MobileServer] failed to generate token from pairing code: %v", err)
+		return "", false
+	}
+	token := hex.EncodeToString(tokenBytes)
+	deviceName := deviceNameFromRequest(r)
+	if err := s.manager.userData.AddMobileToken(MobileTokenEntry{
+		Token:      token,
+		DeviceName: deviceName,
+		Source:     MobileTokenSourcePairing,
+		CreatedAt:  time.Now().Unix(),
+		LastUsedAt: time.Now().Unix(),
+	}); err != nil {
+		log.Printf("[MobileServer] failed to persist token from pairing code: %v", err)
+		return "", false
+	}
+	s.codeMu.Lock()
+	s.legacyPairToken = token
+	s.legacyPairTokenCode = code
+	s.codeMu.Unlock()
+	log.Printf("[MobileServer] auto-issued API token from pairing code for %s", deviceName)
+	return token, true
 }
 
 // handleStatus returns server status, version, and active library item count.
@@ -629,9 +699,17 @@ func (s *MobileServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if s.manager != nil && s.manager.userData != nil {
 		settings := s.manager.userData.GetMobileSettings()
 		if settings.PairingRequired {
-			if token == "" || !s.manager.userData.HasMobileToken(token) {
+			if token == "" {
 				writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized: valid pairing token required")
 				return
+			}
+			if !s.manager.userData.HasMobileToken(token) {
+				issued, ok := s.issueTokenFromLegacyPairingCode(token, r)
+				if !ok {
+					writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "unauthorized: valid pairing token required")
+					return
+				}
+				token = issued
 			}
 			go s.manager.userData.TouchMobileToken(token)
 		}
