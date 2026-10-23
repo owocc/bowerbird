@@ -84,14 +84,64 @@ export function useTrackpadZoom({
       floatValueRef.current = next;
       onChange(next);
     };
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinchBaseDistance = 0;
+    let pinchBaseValue = 80;
+
+    const distance = () => {
+      const pts = [...pointers.values()];
+      if (pts.length < 2) return 0;
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      return Math.hypot(dx, dy);
+    };
+
+    const handlePointerDown = (e: PointerEvent) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 2) {
+        pinchBaseDistance = distance();
+        onChange((prev) => {
+          pinchBaseValue = prev;
+          floatValueRef.current = prev;
+          return prev;
+        });
+      }
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size !== 2 || pinchBaseDistance < 8) return;
+      e.preventDefault();
+      const scale = distance() / pinchBaseDistance;
+      const next = Math.max(min, Math.min(max, pinchBaseValue * scale));
+      floatValueRef.current = next;
+      onChange(Math.round(next));
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) {
+        pinchBaseDistance = 0;
+      }
+    };
+
     el.addEventListener("wheel", handleWheel, { passive: false });
     el.addEventListener("gesturestart", handleGestureStart, { passive: false });
     el.addEventListener("gesturechange", handleGestureChange, { passive: false });
+    el.addEventListener("pointerdown", handlePointerDown, { passive: true });
+    el.addEventListener("pointermove", handlePointerMove, { passive: false });
+    el.addEventListener("pointerup", handlePointerUp);
+    el.addEventListener("pointercancel", handlePointerUp);
 
     return () => {
       el.removeEventListener("wheel", handleWheel);
       el.removeEventListener("gesturestart", handleGestureStart);
       el.removeEventListener("gesturechange", handleGestureChange);
+      el.removeEventListener("pointerdown", handlePointerDown);
+      el.removeEventListener("pointermove", handlePointerMove);
+      el.removeEventListener("pointerup", handlePointerUp);
+      el.removeEventListener("pointercancel", handlePointerUp);
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
       }

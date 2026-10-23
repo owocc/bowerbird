@@ -173,6 +173,8 @@ export interface FilterBarProps {
   onHasNoteChange: (hasNote: WorkspacePresenceFilter) => void;
   onRatingChange: (rating: number | null) => void;
   onClearAll: () => void;
+  /** stacked: vertical list for the mobile bottom sheet (filters only, no gallery). */
+  layout?: "pills" | "stacked";
 }
 
 export const FilterBar = React.memo(function FilterBar({
@@ -195,6 +197,7 @@ export const FilterBar = React.memo(function FilterBar({
   onHasNoteChange,
   onRatingChange,
   onClearAll,
+  layout = "pills",
 }: FilterBarProps) {
   const { t } = useTranslation();
   const [pinned, setPinned] = useState<FilterCriterionId[]>(loadPinnedCriteria);
@@ -837,7 +840,13 @@ export const FilterBar = React.memo(function FilterBar({
   ];
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap header-interactive-container wails-no-drag">
+    <div
+      className={cn(
+        layout === "stacked"
+          ? "flex flex-col gap-2 py-1"
+          : "flex items-center gap-1.5 flex-wrap header-interactive-container wails-no-drag"
+      )}
+    >
       {visibleCriteria.map((id) => renderCriterionPill(id))}
 
       {/* [+] Button: Popover panel listing all filter criteria with right-aligned Pin toggles */}
@@ -943,5 +952,6 @@ export const FilterBar = React.memo(function FilterBar({
   prev.sizeFilter === next.sizeFilter &&
   prev.hasUrlFilter === next.hasUrlFilter &&
   prev.hasNoteFilter === next.hasNoteFilter &&
-  prev.ratingFilter === next.ratingFilter
+  prev.ratingFilter === next.ratingFilter &&
+  prev.layout === next.layout
 );

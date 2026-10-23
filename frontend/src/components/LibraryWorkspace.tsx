@@ -18,6 +18,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ListFilter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +58,9 @@ import {
   type ContextMenuPosition,
 } from "@/components/CustomContextMenu";
 import { DropzoneOverlay } from "@/components/DropzoneOverlay";
+import { PushDrawer, pushDrawerOffsetStyle } from "@/components/PushDrawer";
+import { BottomSheet } from "@/components/BottomSheet";
+import { MobileSelectionBar } from "@/components/MobileSelectionBar";
 import {
   FilterBar,
   itemMatchesColorFilter,
@@ -128,6 +132,7 @@ import {
 import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";
 import { useFileDrop } from "@/hooks/useFileDrop";
 import { useTrackpadZoom } from "@/hooks/useTrackpadZoom";
+import { useIsMobileLayout } from "@/hooks/useIsMobileLayout";
 import { useGalleryDisplayPrefs } from "@/lib/gallery-display";
 import { UniversalThumbnail } from "@/components/UniversalThumbnail";
 import { logDiagnostic } from "@/lib/logger";
@@ -155,6 +160,9 @@ export function LibraryWorkspace({
   onLibraryChanged,
 }: LibraryWorkspaceProps) {
   const { t } = useTranslation();
+  const isMobile = useIsMobileLayout();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
 
   const ws = useWorkspaceSearch();
   const { canGoBack, goBack } = useHistoryNavigation();
@@ -2315,7 +2323,7 @@ export function LibraryWorkspace({
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-      <div className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag">
+      <div className="relative flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag">
         <input
           ref={fileInputRef}
           type="file"
@@ -2332,8 +2340,9 @@ export function LibraryWorkspace({
         <ResizablePanelGroup
           orientation="horizontal"
           className="h-full w-full select-none overflow-hidden"
+          style={isMobile ? pushDrawerOffsetStyle(mobileNavOpen) : undefined}
         >
-          {sidebarOpen && (
+          {sidebarOpen && !isMobile && (
             <>
               <ResizablePanel
                 id="sidebar-panel"
@@ -2360,6 +2369,7 @@ export function LibraryWorkspace({
                     navigateToFolder(id);
                     setSelectedOrder([]);
                     setActiveItemId(null);
+                    if (isMobile) setMobileNavOpen(false);
                   }}
                   onCreateFolder={handleCreateFolder}
                   onRenameFolder={handleRenameFolder}
@@ -2446,8 +2456,10 @@ export function LibraryWorkspace({
                 <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-no-drag">
                   {/* Left operable container: full height, strictly header-interactive-container + wails-no-drag */}
                   <MainHeaderSafePrefix
-                    sidebarOpen={sidebarOpen}
-                    onToggleSidebar={() => setSidebarOpen(true)}
+                    sidebarOpen={isMobile ? false : sidebarOpen}
+                    onToggleSidebar={() =>
+                      isMobile ? setMobileNavOpen(true) : setSidebarOpen(true)
+                    }
                   >
                     <HistoryNavButtons className="mr-1" />
 
@@ -2470,7 +2482,7 @@ export function LibraryWorkspace({
                     </span>
 
                     {/* Thumbnail row height zoom slider: [-] [slider] [+] (matches ZoomControls structure) */}
-                    <div className="relative flex items-center gap-1 ml-2 header-interactive-container wails-no-drag slider-control-container select-none">
+                    <div className="relative hidden sm:flex items-center gap-1 ml-2 header-interactive-container wails-no-drag slider-control-container select-none">
                       <button
                         type="button"
                         onClick={() => setRowHeight((h) => Math.max(60, h - 10))}
@@ -2558,6 +2570,16 @@ export function LibraryWorkspace({
                       </Badge>
                     )}
 
+                    {isMobile ? (
+                      <button
+                        type="button"
+                        onClick={() => setFilterSheetOpen(true)}
+                        className="h-6.5 px-2 rounded-md text-[11px] font-medium inline-flex items-center gap-1.5 border border-border/60 bg-muted/30 text-muted-foreground"
+                      >
+                        <ListFilter className="size-3" />
+                        <span>{t("filters.manageFilters")}</span>
+                      </button>
+                    ) : (
                     <FilterBar
                       libraryTopColors={libraryTopColors}
                       folders={folders}
@@ -2579,6 +2601,7 @@ export function LibraryWorkspace({
                       onRatingChange={(r) => ws.setRatingFilter(r)}
                       onClearAll={() => ws.clearAllFilters()}
                     />
+                    )}
                   </div>
 
                   {/* Right controls: Trash action buttons or sort toggle */}
@@ -2657,7 +2680,7 @@ export function LibraryWorkspace({
                     targetType: "general",
                   });
                 }}
-                className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag"
+                className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag touch-pan-y"
               >
                 {loading ? (
                   <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">
@@ -3052,7 +3075,7 @@ export function LibraryWorkspace({
           </ResizablePanel>
 
           {/* COLUMN 3: RIGHT INSPECTOR PANEL (Single Item or Multi-Item) */}
-          {inspectorOpen && (
+          {inspectorOpen && !isMobile && (
             <>
               <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
               <ResizablePanel
@@ -3117,6 +3140,94 @@ export function LibraryWorkspace({
             </>
           )}
         </ResizablePanelGroup>
+
+
+        {isMobile && (
+          <PushDrawer open={mobileNavOpen} onClose={() => setMobileNavOpen(false)}>
+            <SidebarDirectoryTree
+              library={library}
+              folders={folders}
+              activeFolderId={activeFolderId}
+              totalItemCount={workspaceStats?.total ?? 0}
+              untaggedCount={workspaceStats?.untaggedCount ?? 0}
+              uncategorizedCount={workspaceStats?.uncategorizedCount ?? 0}
+              historyCount={historyItems.length}
+              trashCount={trashCount}
+              tagsCount={tags.length}
+              tagsSidebarOpen={tagsSidebarOpen}
+              onToggleTagsSidebar={() => {
+                ws.toggleTagsPanel();
+              }}
+              onSelectFolder={(id) => {
+                navigateToFolder(id);
+                setSelectedOrder([]);
+                setActiveItemId(null);
+                setMobileNavOpen(false);
+              }}
+              onCreateFolder={handleCreateFolder}
+              onRenameFolder={handleRenameFolder}
+              onDeleteFolder={handleDeleteFolder}
+              onMoveItemToFolder={handleMoveItemToFolder}
+              onDropFolderImport={handleDropFolderImport}
+              onDropItemOnTrash={async (ids) => {
+                applyOptimisticMoveToTrash(ids);
+                await BatchMoveToTrash(ids);
+                void refreshFolders();
+                notifySuccess(SuccessCodes.MOVED_TO_TRASH);
+              }}
+              onEmptyTrash={handleRequestEmptyTrash}
+              onCloseLibrary={async () => {
+                await CloseLibrary();
+                onLibraryClosed();
+              }}
+              onLibraryChanged={onLibraryChanged}
+              onToggleCollapse={() => setMobileNavOpen(false)}
+            />
+          </PushDrawer>
+        )}
+        {isMobile && (
+          <BottomSheet
+            open={filterSheetOpen}
+            onClose={() => setFilterSheetOpen(false)}
+            title={t("filters.manageFilters")}
+          >
+            <FilterBar
+              layout="stacked"
+              libraryTopColors={libraryTopColors}
+              folders={folders}
+              categoryFilter={categoryFilter}
+              colorFilter={colorFilter}
+              folderFilter={folderFilter}
+              orientationFilter={orientationFilter}
+              sizeFilter={sizeFilter}
+              hasUrlFilter={hasUrlFilter}
+              hasNoteFilter={hasNoteFilter}
+              ratingFilter={ratingFilter}
+              onCategoryChange={(cat) => ws.setCategory(cat)}
+              onColorChange={(c) => ws.setColorFilter(c)}
+              onFolderChange={(f) => ws.setFolderFilter(f)}
+              onOrientationChange={(o) => ws.setOrientationFilter(o)}
+              onSizeChange={(s) => ws.setSizeFilter(s)}
+              onHasUrlChange={(u) => ws.setHasUrlFilter(u)}
+              onHasNoteChange={(n) => ws.setHasNoteFilter(n)}
+              onRatingChange={(r) => ws.setRatingFilter(r)}
+              onClearAll={() => ws.clearAllFilters()}
+            />
+          </BottomSheet>
+        )}
+        {isMobile && (
+          <MobileSelectionBar
+            selectedCount={selectedOrder.length}
+            folders={folders}
+            tags={tags}
+            onClear={() => {
+              setSelectedOrder([]);
+              setActiveItemId(null);
+            }}
+            onAddToFolder={handleBatchAddToFolder}
+            onAddTag={handleBatchAddTag}
+          />
+        )}
 
         {/* FULL-WINDOW POPUP PREVIEW (Space key) */}
         {fullWindowPreviewOpen && (
