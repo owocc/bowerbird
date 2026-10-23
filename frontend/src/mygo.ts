@@ -33,6 +33,15 @@ export interface AppMenuItem {
   destructive?: boolean;
 }
 
+/** CreatedMobileToken is returned once when creating an API token. */
+export interface CreatedMobileToken {
+  id: string;
+  name: string;
+  source: string;
+  token: string;
+  createdAt: number;
+}
+
 /** Folder represents a virtual organizational directory in the library. */
 export interface Folder {
   id: string;
@@ -177,15 +186,6 @@ export interface MobileDeviceInfo {
   lastUsedAt?: number;
   connected: boolean;
   tokenHint?: string;
-}
-
-/** CreatedMobileToken is returned once when creating an API token. */
-export interface CreatedMobileToken {
-  id: string;
-  name: string;
-  source: string;
-  token: string;
-  createdAt: number;
 }
 
 /** MobileServerStatus contains desktop-facing diagnostics and pairing details. */
@@ -361,6 +361,10 @@ export const Service = {
   createLibrary(parentDir: string, libName: string): Promise<LibraryInfo | null> {
     return call("Service.CreateLibrary", parentDir, libName);
   },
+  /** CreateMobileAPIToken creates a long-lived API token (same auth as pairing). */
+  createMobileAPIToken(name: string): Promise<CreatedMobileToken | null> {
+    return call("Service.CreateMobileAPIToken", name);
+  },
   createTag(name: string): Promise<Tag | null> {
     return call("Service.CreateTag", name);
   },
@@ -375,6 +379,10 @@ export const Service = {
   },
   emptyTrash(): Promise<void> {
     return call("Service.EmptyTrash");
+  },
+  /** EnterLightweightMode immediately destroys webview windows. */
+  enterLightweightMode(): Promise<void> {
+    return call("Service.EnterLightweightMode");
   },
   getAPIServerPort(): Promise<number> {
     return call("Service.GetAPIServerPort");
@@ -411,6 +419,10 @@ export const Service = {
   getLanguage(): Promise<string> {
     return call("Service.GetLanguage");
   },
+  /** GetLightweightModeEnabled reports whether idle webviews should be torn down. */
+  getLightweightModeEnabled(): Promise<boolean> {
+    return call("Service.GetLightweightModeEnabled");
+  },
   /** GetLogFilePath returns the absolute path of the on-disk app.log file. */
   getLogFilePath(): Promise<string> {
     return call("Service.GetLogFilePath");
@@ -430,18 +442,6 @@ export const Service = {
   /** GetMobileServerStatus returns the operational status and pairing code of the mobile LAN server. */
   getMobileServerStatus(): Promise<MobileServerStatus | null> {
     return call("Service.GetMobileServerStatus");
-  },
-  /** ListMobileDevices returns persisted pairing/API tokens and live connection state. */
-  listMobileDevices(): Promise<MobileDeviceInfo[]> {
-    return call("Service.ListMobileDevices");
-  },
-  /** CreateMobileAPIToken creates a long-lived API token (same auth as pairing). */
-  createMobileAPIToken(name: string): Promise<CreatedMobileToken | null> {
-    return call("Service.CreateMobileAPIToken", name);
-  },
-  /** RevokeMobileDevice removes a pairing or API token and disconnects matching sockets. */
-  revokeMobileDevice(id: string): Promise<void> {
-    return call("Service.RevokeMobileDevice", id);
   },
   /** GetNetworkSettings returns the persisted network/proxy configuration. */
   getNetworkSettings(): Promise<NetworkSettings> {
@@ -534,6 +534,10 @@ export const Service = {
   /** ListInstalledPlugins returns all plugins installed in the user data directory. */
   listInstalledPlugins(): Promise<InstalledPlugin[]> {
     return call("Service.ListInstalledPlugins");
+  },
+  /** ListMobileDevices returns persisted pairing/API tokens and live connection state. */
+  listMobileDevices(): Promise<MobileDeviceInfo[]> {
+    return call("Service.ListMobileDevices");
   },
   /**
    * LogDragTrace forwards a frontend drag/drop trace event into the native drag
@@ -632,6 +636,10 @@ export const Service = {
   revealLogFile(): Promise<void> {
     return call("Service.RevealLogFile");
   },
+  /** RevokeMobileDevice removes a pairing or API token and disconnects matching sockets. */
+  revokeMobileDevice(id: string): Promise<void> {
+    return call("Service.RevokeMobileDevice", id);
+  },
   saveItemThumbnail(itemID: string, base64Data: string, videoWidth: number, videoHeight: number): Promise<Item | null> {
     return call("Service.SaveItemThumbnail", itemID, base64Data, videoWidth, videoHeight);
   },
@@ -661,6 +669,13 @@ export const Service = {
    */
   setLanguage(language: string): Promise<void> {
     return call("Service.SetLanguage", language);
+  },
+  /**
+   * SetLightweightModeEnabled persists the preference. Disabling it cancels any
+   * pending idle teardown.
+   */
+  setLightweightModeEnabled(enabled: boolean): Promise<void> {
+    return call("Service.SetLightweightModeEnabled", enabled);
   },
   setManager(mgr: LibraryManager | null): Promise<void> {
     return call("Service.SetManager", mgr);

@@ -104,6 +104,41 @@ func (s *Service) SetLanguage(language string) error {
 	return nil
 }
 
+// LightweightModeChangedEvent is broadcast when the user toggles lightweight mode.
+const LightweightModeChangedEvent = "lightweight-mode-changed"
+
+// GetLightweightModeEnabled reports whether idle webviews should be torn down.
+func (s *Service) GetLightweightModeEnabled() bool {
+	if s.mgr == nil || s.mgr.userData == nil {
+		return false
+	}
+	return s.mgr.userData.GetLightweightModeEnabled()
+}
+
+// SetLightweightModeEnabled persists the preference. Disabling it cancels any
+// pending idle teardown.
+func (s *Service) SetLightweightModeEnabled(enabled bool) error {
+	if s.mgr != nil && s.mgr.userData != nil {
+		if err := s.mgr.userData.SetLightweightModeEnabled(enabled); err != nil {
+			return err
+		}
+	}
+	if !enabled {
+		if h := s.getHost(); h != nil {
+			h.CancelLightweightIdle()
+		}
+	}
+	s.emit(LightweightModeChangedEvent, enabled)
+	return nil
+}
+
+// EnterLightweightMode immediately destroys webview windows.
+func (s *Service) EnterLightweightMode() {
+	if h := s.getHost(); h != nil {
+		h.EnterLightweightMode()
+	}
+}
+
 // OpenSettingsWindow opens the settings UI in its own window. Only a single
 // instance is created; later calls simply reveal and focus the existing one.
 func (s *Service) OpenSettingsWindow() error {

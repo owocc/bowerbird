@@ -15,6 +15,7 @@
     "logs": "运行日志…",
     "openMainWindow": "显示主窗口",
     "quit": "退出 Bowerbird",
+    "enterLightweight": "立即进入轻量模式",
     "reload": "重新加载",
     "settings": "偏好设置…"
   },
@@ -303,6 +304,11 @@
       "light": "浅色",
       "lightDescription": "常驻浅色模式",
       "title": "外观模式"
+    },
+    "lightweight": {
+      "title": "轻量模式",
+      "description": "开启后，关闭窗口一分钟将停止 WebView 进程，仅保留核心 Go 进程（托盘、截图、API）。也可从菜单栏/托盘立即进入轻量模式。",
+      "enable": "启用轻量模式"
     },
     "language": {
       "title": "界面语言",

@@ -66,6 +66,8 @@ import {
   CheckPluginUpdates,
   UpgradePlugin,
   GetPendingPluginInstall,
+  GetLightweightModeEnabled,
+  SetLightweightModeEnabled,
   GetNetworkSettings,
   SetNetworkSettings,
   TestNetworkConnection,
@@ -386,6 +388,7 @@ export function SettingsPage() {
   const [createdToken, setCreatedToken] = useState<CreatedMobileToken | null>(null);
   const [copiedToken, setCopiedToken] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [lightweightEnabled, setLightweightEnabled] = useState(false);
 
   const loadMobileData = () => {
     GetMobileServerStatus()
@@ -402,9 +405,23 @@ export function SettingsPage() {
 
   useEffect(() => {
     loadMobileData();
+    GetLightweightModeEnabled()
+      .then((enabled) => setLightweightEnabled(Boolean(enabled)))
+      .catch(() => {});
     const timer = window.setInterval(loadMobileData, 4000);
     return () => window.clearInterval(timer);
   }, []);
+
+  const handleToggleLightweight = async (enabled: boolean) => {
+    const previous = lightweightEnabled;
+    setLightweightEnabled(enabled);
+    try {
+      await SetLightweightModeEnabled(enabled);
+    } catch (err) {
+      setLightweightEnabled(previous);
+      notifyError(err);
+    }
+  };
 
   const handleToggleMobileServer = async (enabled: boolean) => {
     try {
@@ -911,6 +928,26 @@ export function SettingsPage() {
                       );
                     }
                   )}
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">
+                    {t("settings.lightweight.title")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.lightweight.description")}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 px-3.5 py-3">
+                  <span className="text-xs font-medium">
+                    {t("settings.lightweight.enable")}
+                  </span>
+                  <Switch
+                    checked={lightweightEnabled}
+                    onCheckedChange={handleToggleLightweight}
+                  />
                 </div>
               </section>
 
