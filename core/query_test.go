@@ -344,6 +344,7 @@ func (h *recordingHost) OpenWindow(WindowSpec) error          { return nil }
 func (h *recordingHost) FocusWindow(string) bool              { return false }
 func (h *recordingHost) CloseWindow(string)                   {}
 func (h *recordingHost) FocusMainWindow()                     {}
+func (h *recordingHost) ToggleMainWindow()                    {}
 func (h *recordingHost) CloseMainWindow()                     {}
 func (h *recordingHost) OpenMainWindow()                      {}
 func (h *recordingHost) OpenDirectory(string) (string, error) { return "", nil }

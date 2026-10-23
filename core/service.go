@@ -696,6 +696,45 @@ func (s *Service) SetNetworkSettings(settings NetworkSettings) error {
 	return nil
 }
 
+func (s *Service) GetShortcutSettings() ShortcutSettings {
+	if s.mgr == nil {
+		return DefaultShortcutSettings()
+	}
+	return s.mgr.GetShortcutSettings()
+}
+
+func (s *Service) SetShortcutSettings(settings ShortcutSettings) error {
+	norm := NormalizeShortcutSettings(settings)
+	if err := ValidateShortcutSettings(norm); err != nil {
+		return err
+	}
+	if s.mgr != nil {
+		if err := s.mgr.SetShortcutSettings(norm); err != nil {
+			return err
+		}
+	}
+	s.emit(ShortcutsChangedEvent, norm)
+	return nil
+}
+
+func (s *Service) GetScreenshotSettings() ScreenshotSettings {
+	if s.mgr == nil {
+		return DefaultScreenshotSettings()
+	}
+	return s.mgr.GetScreenshotSettings()
+}
+
+func (s *Service) SetScreenshotSettings(settings ScreenshotSettings) error {
+	norm := NormalizeScreenshotSettings(settings)
+	if s.mgr != nil {
+		if err := s.mgr.SetScreenshotSettings(norm); err != nil {
+			return err
+		}
+	}
+	s.emit(ScreenshotSettingsChangedEvent, norm)
+	return nil
+}
+
 // TestNetworkConnection tests HTTP connectivity to targetURL through current or provided proxy settings.
 func (s *Service) TestNetworkConnection(targetURL string) (*NetworkTestResult, error) {
 	settings := s.GetNetworkSettings()

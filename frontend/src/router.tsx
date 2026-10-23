@@ -21,7 +21,6 @@ import { Button } from "@/components/ui/button";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { AppMenuButton } from "@/components/AppMenuButton";
 import { usesInAppMenuBar } from "@/lib/platform";
-import { useSettingsShortcut } from "@/hooks/useSettingsShortcut";
 import { useAppShortcuts } from "@/hooks/useAppShortcuts";
 import { useHistoryShortcuts } from "@/hooks/useHistoryShortcuts";
 import { isMacOS } from "@/lib/macos";
@@ -29,10 +28,7 @@ import { OpenSetupWindow, OpenSettingsWindow } from "../bindings/bowerbird/core/
 import { FolderOpen, Settings } from "lucide-react";
 
 function RootLayout() {
-  // App-local Cmd/Ctrl+ shortcut for the settings window, active on every route.
-  useSettingsShortcut();
-  // Standard window/app shortcuts on the platforms that draw their own menu
-  // (Windows and Linux); macOS gets them from its native menu.
+  // In-app shortcuts (settings/logs on every window; window chrome on Win/Linux).
   useAppShortcuts();
   // Browser-style Back/Forward shortcuts, wired to the router history.
   useHistoryShortcuts();

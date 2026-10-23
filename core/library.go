@@ -160,6 +160,42 @@ func (m *LibraryManager) SetNetworkSettings(settings NetworkSettings) error {
 	return nil
 }
 
+func (m *LibraryManager) GetShortcutSettings() ShortcutSettings {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.userData != nil {
+		return m.userData.GetShortcutSettings()
+	}
+	return DefaultShortcutSettings()
+}
+
+func (m *LibraryManager) SetShortcutSettings(settings ShortcutSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.userData != nil {
+		return m.userData.SetShortcutSettings(settings)
+	}
+	return nil
+}
+
+func (m *LibraryManager) GetScreenshotSettings() ScreenshotSettings {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.userData != nil {
+		return m.userData.GetScreenshotSettings()
+	}
+	return DefaultScreenshotSettings()
+}
+
+func (m *LibraryManager) SetScreenshotSettings(settings ScreenshotSettings) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.userData != nil {
+		return m.userData.SetScreenshotSettings(settings)
+	}
+	return nil
+}
+
 func (m *LibraryManager) GetPluginManager() *PluginManager {
 	return m.pluginMgr
 }
@@ -1597,7 +1633,11 @@ func (m *LibraryManager) importSingleFile(srcPath string) (*Item, error) {
 
 // ImportSingleFileWithTags imports a single file and applies tags in a single atomic database commit.
 func (m *LibraryManager) ImportSingleFileWithTags(srcPath string, tags []string) (*Item, error) {
-	res := m.prepareSingleFileImport(importJob{index: 0, srcPath: srcPath, tags: tags})
+	return m.ImportSingleFileWithTagsAndFolder(srcPath, tags, "")
+}
+
+func (m *LibraryManager) ImportSingleFileWithTagsAndFolder(srcPath string, tags []string, folderID string) (*Item, error) {
+	res := m.prepareSingleFileImport(importJob{index: 0, srcPath: srcPath, tags: tags, folderID: folderID})
 	if res.err != nil {
 		return nil, res.err
 	}
