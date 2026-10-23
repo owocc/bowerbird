@@ -31,6 +31,12 @@ type Host interface {
 	CloseWindow(name string)
 	// FocusMainWindow shows and focuses the main window.
 	FocusMainWindow()
+	// CloseMainWindow closes the main window for real (it is not hidden the way
+	// a user close is) and forgets it, so a later OpenMainWindow starts fresh.
+	CloseMainWindow()
+	// OpenMainWindow creates the main window when it is gone, or shows and
+	// focuses it when it is still open.
+	OpenMainWindow()
 
 	// OpenDirectory asks the user for a directory.
 	OpenDirectory(title string) (string, error)
