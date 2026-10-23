@@ -365,6 +365,47 @@ func TestMobileAPIEndpoints(t *testing.T) {
 	if srvStatus.PairedDevices != 1 {
 		t.Errorf("expected 1 paired device, got %d", srvStatus.PairedDevices)
 	}
+	if len(srvStatus.Devices) != 1 {
+		t.Fatalf("expected 1 device in status, got %d", len(srvStatus.Devices))
+	}
+	if srvStatus.Devices[0].Name != "TestPhone" {
+		t.Errorf("expected TestPhone, got %s", srvStatus.Devices[0].Name)
+	}
+
+	created, err := svc.CreateMobileAPIToken("CI Token")
+	if err != nil {
+		t.Fatalf("CreateMobileAPIToken failed: %v", err)
+	}
+	if created == nil || len(created.Token) != 64 {
+		t.Fatalf("expected 64-char API token, got %+v", created)
+	}
+	if !mgr.GetUserDataStore().HasMobileToken(created.Token) {
+		t.Fatal("expected API token to be persisted")
+	}
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/items", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Token)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/items with API token failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with API token, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	devices, err := svc.ListMobileDevices()
+	if err != nil {
+		t.Fatalf("ListMobileDevices failed: %v", err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(devices))
+	}
+	if err := svc.RevokeMobileDevice(created.ID); err != nil {
+		t.Fatalf("RevokeMobileDevice failed: %v", err)
+	}
+	if mgr.GetUserDataStore().HasMobileToken(created.Token) {
+		t.Fatal("expected API token to be revoked")
+	}
 
 	// Test code regeneration
 	oldCode := srvStatus.PairingCode

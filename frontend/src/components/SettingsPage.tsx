@@ -76,8 +76,10 @@ import {
   RegenerateMobilePairingCode,
   GetMobilePairingURL,
   SetMobileAllowedNetworks,
+  CreateMobileAPIToken,
+  RevokeMobileDevice,
 } from "../../bindings/bowerbird/core/service";
-import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult, MobileServerStatus } from "../../bindings/bowerbird/core/models";
+import type { PluginUpdateInfo, NetworkSettings, NetworkTestResult, MobileServerStatus, CreatedMobileToken } from "../../bindings/bowerbird/core/models";
 import { QRCodeSVG } from "qrcode.react";
 import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
@@ -379,6 +381,11 @@ export function SettingsPage() {
   const [regeneratingCode, setRegeneratingCode] = useState(false);
   const [togglingMobile, setTogglingMobile] = useState(false);
   const [copiedMobileUrl, setCopiedMobileUrl] = useState(false);
+  const [apiTokenName, setApiTokenName] = useState("");
+  const [creatingToken, setCreatingToken] = useState(false);
+  const [createdToken, setCreatedToken] = useState<CreatedMobileToken | null>(null);
+  const [copiedToken, setCopiedToken] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
 
   const loadMobileData = () => {
     GetMobileServerStatus()
@@ -395,6 +402,8 @@ export function SettingsPage() {
 
   useEffect(() => {
     loadMobileData();
+    const timer = window.setInterval(loadMobileData, 4000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const handleToggleMobileServer = async (enabled: boolean) => {
@@ -419,6 +428,43 @@ export function SettingsPage() {
       notifyError(err);
     } finally {
       setRegeneratingCode(false);
+    }
+  };
+
+  const handleCreateApiToken = async () => {
+    try {
+      setCreatingToken(true);
+      const created = await CreateMobileAPIToken(apiTokenName.trim());
+      if (created) {
+        setCreatedToken(created);
+        setApiTokenName("");
+        loadMobileData();
+      }
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setCreatingToken(false);
+    }
+  };
+
+  const handleCopyCreatedToken = async () => {
+    if (!createdToken?.token) return;
+    await copyTextToClipboard(createdToken.token);
+    setCopiedToken(true);
+    notifySuccess(t("settings.mobile.copiedToken"));
+    setTimeout(() => setCopiedToken(false), 2000);
+  };
+
+  const handleRevokeDevice = async (id: string) => {
+    try {
+      setRevokingId(id);
+      await RevokeMobileDevice(id);
+      if (createdToken?.id === id) setCreatedToken(null);
+      loadMobileData();
+    } catch (err) {
+      notifyError(err);
+    } finally {
+      setRevokingId(null);
     }
   };
 
@@ -1679,6 +1725,102 @@ export function SettingsPage() {
                   </div>
                 </div>
               </div>
+
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold text-foreground">
+                    {t("settings.mobile.connectedDevicesTitle")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.mobile.connectedDevicesDesc")}
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  {mobileStatus?.devices && mobileStatus.devices.length > 0 ? (
+                    mobileStatus.devices.map((device) => (
+                      <div
+                        key={device.id}
+                        className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border/50 bg-muted/20"
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium truncate">{device.name}</span>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-[9px] h-4 px-1.5",
+                                device.connected
+                                  ? "text-emerald-600 border-emerald-500/30"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {device.connected ? t("settings.mobile.online") : t("settings.mobile.offline")}
+                            </Badge>
+                            <Badge variant="secondary" className="text-[9px] h-4 px-1.5">
+                              {device.source === "api"
+                                ? t("settings.mobile.sourceApi")
+                                : t("settings.mobile.sourcePairing")}
+                            </Badge>
+                          </div>
+                          {device.tokenHint && (
+                            <code className="font-mono text-[10px] text-muted-foreground">{device.tokenHint}</code>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs text-destructive"
+                          disabled={revokingId === device.id}
+                          onClick={() => handleRevokeDevice(device.id)}
+                        >
+                          {t("settings.mobile.revoke")}
+                        </Button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-xs text-muted-foreground py-2 text-center">
+                      {t("settings.mobile.noDevices")}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold text-foreground">
+                    {t("settings.mobile.apiTokenTitle")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.mobile.apiTokenDesc")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={apiTokenName}
+                    onChange={(e) => setApiTokenName(e.target.value)}
+                    placeholder={t("settings.mobile.apiTokenNamePlaceholder")}
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs shrink-0"
+                    disabled={creatingToken}
+                    onClick={handleCreateApiToken}
+                  >
+                    {creatingToken ? t("settings.mobile.creatingToken") : t("settings.mobile.createToken")}
+                  </Button>
+                </div>
+                {createdToken && (
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
+                    <p className="text-[11px] text-muted-foreground">{t("settings.mobile.tokenCreatedOnce")}</p>
+                    <code className="block font-mono text-[11px] break-all text-foreground">{createdToken.token}</code>
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleCopyCreatedToken}>
+                      {copiedToken ? t("settings.mobile.copiedToken") : t("settings.mobile.copyToken")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {/* Discovery Networks Section */}
               <div className="rounded-xl border border-border/70 bg-card p-4 space-y-3">
                 <div className="space-y-0.5">

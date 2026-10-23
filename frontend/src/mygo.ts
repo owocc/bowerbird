@@ -168,6 +168,26 @@ export interface LogEntry {
   durationMs?: number;
 }
 
+/** MobileDeviceInfo is a persisted token shown in desktop connection settings. */
+export interface MobileDeviceInfo {
+  id: string;
+  name: string;
+  source: string;
+  createdAt: number;
+  lastUsedAt?: number;
+  connected: boolean;
+  tokenHint?: string;
+}
+
+/** CreatedMobileToken is returned once when creating an API token. */
+export interface CreatedMobileToken {
+  id: string;
+  name: string;
+  source: string;
+  token: string;
+  createdAt: number;
+}
+
 /** MobileServerStatus contains desktop-facing diagnostics and pairing details. */
 export interface MobileServerStatus {
   enabled: boolean;
@@ -180,6 +200,7 @@ export interface MobileServerStatus {
   pairingRequired: boolean;
   allowedNetworks: string[];
   availableNetworks: NetworkInterfaceInfo[];
+  devices: MobileDeviceInfo[];
 }
 
 /** NetworkInterfaceInfo describes an available network interface for mobile discovery. */
@@ -409,6 +430,18 @@ export const Service = {
   /** GetMobileServerStatus returns the operational status and pairing code of the mobile LAN server. */
   getMobileServerStatus(): Promise<MobileServerStatus | null> {
     return call("Service.GetMobileServerStatus");
+  },
+  /** ListMobileDevices returns persisted pairing/API tokens and live connection state. */
+  listMobileDevices(): Promise<MobileDeviceInfo[]> {
+    return call("Service.ListMobileDevices");
+  },
+  /** CreateMobileAPIToken creates a long-lived API token (same auth as pairing). */
+  createMobileAPIToken(name: string): Promise<CreatedMobileToken | null> {
+    return call("Service.CreateMobileAPIToken", name);
+  },
+  /** RevokeMobileDevice removes a pairing or API token and disconnects matching sockets. */
+  revokeMobileDevice(id: string): Promise<void> {
+    return call("Service.RevokeMobileDevice", id);
   },
   /** GetNetworkSettings returns the persisted network/proxy configuration. */
   getNetworkSettings(): Promise<NetworkSettings> {
