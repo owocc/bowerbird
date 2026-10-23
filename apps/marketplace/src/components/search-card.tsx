@@ -1,32 +1,17 @@
 import * as React from "react";
 import { Link } from "@tanstack/react-router";
-import { Check, Star, Download, ExternalLink } from "lucide-react";
+import { Star } from "lucide-react";
 import type { MarketplacePlugin } from "../data/plugins";
 import { getPluginIcon } from "./plugin-icon";
-import { DesktopContext } from "../lib/desktop-context";
+import { BuiltinBadge } from "./builtin-badge";
+import { PluginActionButton } from "./plugin-action-button";
 
 interface Props {
   plugin: MarketplacePlugin;
 }
 
 export function SearchCard({ plugin }: Props) {
-  const { installedPlugins, installingId, installViaAPI, installViaProtocol } =
-    React.useContext(DesktopContext);
-
-  const isInstalled = installedPlugins.has(plugin.id);
-  const isInstalling = installingId === plugin.id;
   const Icon = getPluginIcon(plugin.iconName);
-
-  const handleInstall = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isInstalled || isInstalling) return;
-    if (installViaAPI) {
-      void installViaAPI(plugin);
-    } else {
-      installViaProtocol(plugin);
-    }
-  };
 
   const screenshots =
     plugin.screenshots && plugin.screenshots.length > 0
@@ -59,6 +44,7 @@ export function SearchCard({ plugin }: Props) {
               <h3 className="font-bold text-sm text-foreground truncate group-hover:text-primary transition-colors">
                 {plugin.name}
               </h3>
+              <BuiltinBadge plugin={plugin} />
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-muted text-muted-foreground border border-border">
                 v{plugin.version}
               </span>
@@ -89,24 +75,8 @@ export function SearchCard({ plugin }: Props) {
           </div>
         </Link>
 
-        {/* Action Button */}
         <div className="shrink-0 flex items-center gap-1.5">
-          {isInstalled ? (
-            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-              <Check className="w-3.5 h-3.5" />
-              <span>已安装</span>
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={handleInstall}
-              disabled={isInstalling}
-              className="px-3.5 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all shrink-0 cursor-pointer flex items-center gap-1"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{isInstalling ? "安装中" : "安装"}</span>
-            </button>
-          )}
+          <PluginActionButton plugin={plugin} />
         </div>
       </div>
 

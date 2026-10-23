@@ -1,9 +1,11 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import * as React from "react";
-import { ChevronRight, Sparkles, BookOpen, Download, Check } from "lucide-react";
+import { ChevronRight, Sparkles, BookOpen } from "lucide-react";
 import { getAllPlugins, usePluginsCatalog, type MarketplacePlugin } from "../data/plugins";
 import { HeroFeaturedCard } from "../components/hero-featured-card";
 import { getPluginIcon } from "../components/plugin-icon";
+import { BuiltinBadge } from "../components/builtin-badge";
+import { PluginActionButton } from "../components/plugin-action-button";
 import { DesktopContext } from "../lib/desktop-context";
 import { useI18n } from "../lib/i18n";
 
@@ -25,9 +27,8 @@ function formatLocalizedDate(date: Date, locale: string): string {
 
 export function AppsPage() {
   const { t, locale } = useI18n();
-  const navigate = useNavigate();
   const { plugins: catalogPlugins } = usePluginsCatalog();
-  const { installedPlugins, installingId, installViaAPI, installViaProtocol } =
+  const { installedPlugins, installViaAPI, installViaProtocol } =
     React.useContext(DesktopContext);
 
   const allPlugins = catalogPlugins && catalogPlugins.length > 0 ? catalogPlugins : getAllPlugins();
@@ -159,7 +160,6 @@ export function AppsPage() {
                 <div className="divide-y divide-border">
                   {previewList.map((plugin: MarketplacePlugin, index: number) => {
                     const Icon = getPluginIcon(plugin.iconName);
-                    const isInst = installedPlugins.has(plugin.id);
                     return (
                       <div
                         key={plugin.id}
@@ -178,6 +178,7 @@ export function AppsPage() {
                               <span className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
                                 {plugin.name}
                               </span>
+                              <BuiltinBadge plugin={plugin} />
                               {index === 0 && (
                                 <span className="text-[10px] px-1.5 py-0.5 bg-[#FF9500]/15 text-[#FF9500] font-bold rounded">
                                   {t("apps.badgeHot")}
@@ -196,21 +197,7 @@ export function AppsPage() {
                         </Link>
 
                         <div className="shrink-0 flex items-center gap-1.5">
-                          {isInst ? (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              <span>已安装</span>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => handleQuickInstall(plugin, e)}
-                              className="px-3 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                            >
-                              <Download className="w-3 h-3" />
-                              <span>安装</span>
-                            </button>
-                          )}
+                          <PluginActionButton plugin={plugin} onInstall={handleQuickInstall} />
                         </div>
                       </div>
                     );
@@ -247,7 +234,6 @@ export function AppsPage() {
                 <div className="divide-y divide-border">
                   {metadataList.map((plugin: MarketplacePlugin, index: number) => {
                     const Icon = getPluginIcon(plugin.iconName);
-                    const isInst = installedPlugins.has(plugin.id);
                     return (
                       <div
                         key={plugin.id}
@@ -266,6 +252,7 @@ export function AppsPage() {
                               <span className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
                                 {plugin.name}
                               </span>
+                              <BuiltinBadge plugin={plugin} />
                               {index === 0 && (
                                 <span className="text-[10px] px-1.5 py-0.5 bg-[#007AFF]/15 text-[#007AFF] font-bold rounded">
                                   {t("apps.badgeWorkflow")}
@@ -284,21 +271,7 @@ export function AppsPage() {
                         </Link>
 
                         <div className="shrink-0 flex items-center gap-1.5">
-                          {isInst ? (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              <span>已安装</span>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => handleQuickInstall(plugin, e)}
-                              className="px-3 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                            >
-                              <Download className="w-3 h-3" />
-                              <span>安装</span>
-                            </button>
-                          )}
+                          <PluginActionButton plugin={plugin} onInstall={handleQuickInstall} />
                         </div>
                       </div>
                     );
@@ -348,7 +321,6 @@ export function AppsPage() {
                 <div className="divide-y divide-border">
                   {devDataList.map((plugin: MarketplacePlugin, index: number) => {
                     const Icon = getPluginIcon(plugin.iconName);
-                    const isInst = installedPlugins.has(plugin.id);
                     return (
                       <div
                         key={plugin.id}
@@ -367,6 +339,7 @@ export function AppsPage() {
                               <span className="font-semibold text-sm text-foreground truncate group-hover:text-primary transition-colors">
                                 {plugin.name}
                               </span>
+                              <BuiltinBadge plugin={plugin} />
                               {index === 0 && (
                                 <span className="text-[10px] px-1.5 py-0.5 bg-[#FF2D55]/15 text-[#FF2D55] font-bold rounded">
                                   {t("apps.badgeGenerate")}
@@ -385,21 +358,7 @@ export function AppsPage() {
                         </Link>
 
                         <div className="shrink-0 flex items-center gap-1.5">
-                          {isInst ? (
-                            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1">
-                              <Check className="w-3 h-3" />
-                              <span>已安装</span>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={(e) => handleQuickInstall(plugin, e)}
-                              className="px-3 py-1 rounded-full bg-secondary hover:bg-primary hover:text-primary-foreground text-foreground border border-border text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
-                            >
-                              <Download className="w-3 h-3" />
-                              <span>安装</span>
-                            </button>
-                          )}
+                          <PluginActionButton plugin={plugin} onInstall={handleQuickInstall} />
                         </div>
                       </div>
                     );

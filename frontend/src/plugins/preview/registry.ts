@@ -70,8 +70,8 @@ export class PreviewPluginRegistry {
   }
 
   private canPluginDisable(plugin: PreviewPlugin): boolean {
+    if (plugin.internal) return false;
     if (plugin.canDisable === false) return false;
-    if (plugin.builtin) return false;
     return plugin.canDisable ?? true;
   }
 
@@ -157,7 +157,7 @@ export class PreviewPluginRegistry {
 
   /**
    * Enables or disables a plugin if it allows disabling.
-   * Built-in core plugins (Image, Video) cannot be disabled.
+   * Internal fallback plugins cannot be disabled.
    */
   setEnabled(pluginId: string, enabled: boolean): boolean {
     const plugin = this.plugins.find((p) => p.id === pluginId);

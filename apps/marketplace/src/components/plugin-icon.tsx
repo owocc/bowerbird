@@ -10,7 +10,8 @@ import {
   Database,
   Palette,
   FileCode,
-  Layers,
+  FileImage,
+  FileVideo,
 } from "lucide-react";
 
 export function getPluginIcon(iconName?: string) {
@@ -33,6 +34,10 @@ export function getPluginIcon(iconName?: string) {
       return Palette;
     case "box":
       return Box;
+    case "image":
+      return FileImage;
+    case "video":
+      return FileVideo;
     default:
       return FileCode;
   }

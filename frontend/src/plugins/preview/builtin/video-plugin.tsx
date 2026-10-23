@@ -1105,7 +1105,7 @@ export const VideoPreviewPlugin: PreviewPlugin = {
   version: "1.0.0",
   author: "Bowerbird",
   builtin: true,
-  canDisable: false,
+  canDisable: true,
   priority: 90,
   extensions: VIDEO_EXTENSIONS,
   mimePrefixes: [

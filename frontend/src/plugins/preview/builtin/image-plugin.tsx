@@ -256,7 +256,7 @@ export const ImagePreviewPlugin: PreviewPlugin = {
   version: "1.0.0",
   author: "Bowerbird",
   builtin: true,
-  canDisable: false,
+  canDisable: true,
   priority: 100,
   extensions: IMAGE_EXTENSIONS,
   mimePrefixes: ["image/"],

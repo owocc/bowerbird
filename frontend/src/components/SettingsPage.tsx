@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Check,
@@ -7,13 +7,13 @@ import {
   Sun,
   Settings2,
   Blocks,
-  Lock,
   FileImage,
   FileVideo,
   Puzzle,
   Sparkles,
-  ZoomIn,
   Globe,
+  Info,
+  MoreHorizontal,
   Copy,
   CheckCheck,
   Layers,
@@ -48,6 +48,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   GetAssetServerPort,
   OpenExternalURL,
@@ -184,6 +196,8 @@ function PluginIcon({ pluginId, className }: { pluginId: string; className?: str
   }
 }
 
+const MARKETPLACE_BASE_URL = "http://localhost:3000";
+
 function PluginCard({
   item,
   updateInfo,
@@ -202,9 +216,8 @@ function PluginCard({
     ? t(plugin.descriptionKey)
     : plugin.description;
 
-  const extensions = plugin.extensions ?? [];
-
-  const handleUninstall = async () => {
+  const handleUninstall = async (event: MouseEvent) => {
+    event.stopPropagation();
     try {
       await fetch("http://127.0.0.1:41595/api/plugin/uninstall", {
         method: "POST",
@@ -218,20 +231,33 @@ function PluginCard({
     notifySuccess(t("settings.plugins.uninstalledSuccess", { defaultValue: `Uninstalled ${displayName}` }));
   };
 
+  const openStoreDetail = () => {
+    void OpenExternalURL(`${MARKETPLACE_BASE_URL}/plugins/${encodeURIComponent(plugin.id)}`);
+  };
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={openStoreDetail}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openStoreDetail();
+        }
+      }}
       className={cn(
-        "rounded-xl border p-4 transition-colors",
+        "rounded-xl border px-3.5 py-3 transition-colors cursor-pointer",
         enabled
           ? "border-border/70 bg-card/70 hover:border-border"
           : "border-border/40 bg-muted/20 opacity-85 hover:opacity-100"
       )}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3 min-w-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div
             className={cn(
-              "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
+              "flex size-9 shrink-0 items-center justify-center rounded-xl transition-colors",
               enabled
                 ? "bg-primary/10 text-primary"
                 : "bg-muted/60 text-muted-foreground"
@@ -239,35 +265,17 @@ function PluginCard({
           >
             <PluginIcon pluginId={plugin.id} className="size-4.5" />
           </div>
-          <div className="min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex items-center gap-1.5 min-w-0">
               <h3 className="text-xs font-semibold text-foreground truncate">
                 {displayName}
               </h3>
-              <span className="text-[10px] font-mono text-muted-foreground">
-                {plugin.id}
-              </span>
-              {plugin.version && (
-                <Badge
-                  variant="secondary"
-                  className="h-4 px-1.5 text-[10px] font-mono"
-                >
-                  v{plugin.version}
-                </Badge>
-              )}
-              {plugin.builtin ? (
+              {plugin.builtin && (
                 <Badge
                   variant="outline"
                   className="h-4 px-1.5 text-[10px] border-primary/30 bg-primary/5 text-primary"
                 >
                   {t("settings.plugins.builtinBadge")}
-                </Badge>
-              ) : (
-                <Badge
-                  variant="secondary"
-                  className="h-4 px-1.5 text-[10px] bg-primary/10 text-primary border border-primary/20"
-                >
-                  Remote
                 </Badge>
               )}
               {updateInfo && (
@@ -276,39 +284,22 @@ function PluginCard({
                   className="h-4 px-1.5 text-[10px] bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 gap-1 font-mono"
                 >
                   <ArrowUpCircle className="size-2.5" />
-                  v{updateInfo.latestVersion} Available
-                </Badge>
-              )}
-              {plugin.kind === "metadata" && (
-                <Badge
-                  variant="secondary"
-                  className="h-4 px-1.5 text-[10px] gap-1"
-                >
-                  <Sparkles className="size-2.5" />
-                  {t("settings.plugins.metadataBadge")}
-                </Badge>
-              )}
-              {plugin.supportsZoom && (
-                <Badge
-                  variant="secondary"
-                  className="h-4 px-1.5 text-[10px] gap-1"
-                >
-                  <ZoomIn className="size-2.5" />
-                  {t("settings.plugins.supportsZoom")}
+                  v{updateInfo.latestVersion}
                 </Badge>
               )}
             </div>
-
             {displayDescription && (
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
+              <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-1">
                 {displayDescription}
               </p>
             )}
           </div>
         </div>
 
-        {/* Enable / Disable Switch Control (Built-in core plugins are locked on) */}
-        <div className="shrink-0 flex items-center gap-2 pt-0.5">
+        <div
+          className="shrink-0 flex items-center gap-1.5"
+          onClick={(event) => event.stopPropagation()}
+        >
           {updateInfo && (
             <Button
               variant="default"
@@ -323,7 +314,7 @@ function PluginCard({
               ) : (
                 <Download className="size-2.5" />
               )}
-              <span>{isUpgrading ? "Updating..." : "Update"}</span>
+              <span>{isUpgrading ? t("settings.plugins.updating") : t("settings.plugins.update")}</span>
             </Button>
           )}
           {!plugin.builtin && (
@@ -337,58 +328,16 @@ function PluginCard({
               <Trash2 className="size-3.5" />
             </Button>
           )}
-          {!canDisable ? (
-            <div
-              title={t("settings.plugins.cannotDisableHint")}
-              className="inline-flex items-center gap-2"
-            >
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-                <Lock className="size-3 text-muted-foreground/80" />
-                <span>{t("settings.plugins.alwaysEnabled")}</span>
-              </span>
-              <Switch checked={true} disabled={true} aria-label={displayName} />
-            </div>
-          ) : (
-            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-              <span
-                className={cn(
-                  "text-[11px] font-medium transition-colors",
-                  enabled ? "text-primary" : "text-muted-foreground"
-                )}
-              >
-                {enabled
-                  ? t("settings.plugins.enabled")
-                  : t("settings.plugins.disabled")}
-              </span>
-              <Switch
-                checked={enabled}
-                onCheckedChange={(checked) =>
-                  previewRegistry.setEnabled(plugin.id, checked)
-                }
-                aria-label={displayName}
-              />
-            </label>
-          )}
+          <Switch
+            checked={enabled}
+            disabled={!canDisable}
+            onCheckedChange={(checked) =>
+              previewRegistry.setEnabled(plugin.id, checked)
+            }
+            aria-label={displayName}
+          />
         </div>
       </div>
-
-      {extensions.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-border/40 flex items-start gap-2">
-          <span className="text-[10px] font-medium text-muted-foreground shrink-0 pt-0.5">
-            {t("settings.plugins.supportedFormats")}:
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {extensions.map((ext) => (
-              <span
-                key={ext}
-                className="rounded-md bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground"
-              >
-                .{ext}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -396,7 +345,7 @@ function PluginCard({
 /**
  * Settings window with a 2-column sidebar layout:
  * - General Settings (Colour mode)
- * - Plugin Management (Installed preview plugins, built-in Image & Video locked on)
+ * - Plugin Management (Installed preview plugins; built-ins can be disabled)
  */
 export function SettingsPage() {
   const { t } = useTranslation();
@@ -669,6 +618,7 @@ export function SettingsPage() {
   }, []);
 
   const handleCheckUpdates = async () => {
+    setCheckingUpdates(true);
     try {
       let updates: PluginUpdateInfo[] = [];
       try {
@@ -1046,54 +996,80 @@ export function SettingsPage() {
 
           {activeSection === "plugins" && (
             <div className="max-w-2xl space-y-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="space-y-0.5">
-                  <h2 className="text-xs font-semibold">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h2 className="text-xs font-semibold truncate">
                     {t("settings.plugins.title")}
                   </h2>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    {t("settings.plugins.description")}
-                  </p>
+                  <TooltipProvider delay={120}>
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <button
+                            type="button"
+                            className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/60 cursor-pointer"
+                            aria-label={t("settings.plugins.description")}
+                          />
+                        }
+                      >
+                        <Info className="size-3.5" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs text-left leading-relaxed">
+                        {t("settings.plugins.description")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleScanLocalPlugins}
-                    disabled={scanningPlugins}
-                    className="h-8 gap-1.5 text-xs cursor-pointer"
-                    title={t("settings.plugins.scanLocal", { defaultValue: "Scan Local Plugins" })}
-                  >
-                    <FolderOpen className={cn("size-3.5 text-primary", scanningPlugins && "animate-pulse")} />
-                    <span>
-                      {scanningPlugins
-                        ? t("settings.plugins.scanning", { defaultValue: "Scanning…" })
-                        : t("settings.plugins.scanLocal", { defaultValue: "Scan Local Plugins" })}
-                    </span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleCheckUpdates}
-                    disabled={checkingUpdates}
-                    className="h-8 gap-1.5 text-xs cursor-pointer"
-                  >
-                    <RefreshCw className={cn("size-3.5", checkingUpdates && "animate-spin text-primary")} />
-                    <span>{checkingUpdates ? "Checking..." : t("settings.plugins.checkUpdates", { defaultValue: "Check Updates" })}</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => OpenExternalURL("http://localhost:3000")}
-                    className="h-8 gap-1.5 text-xs cursor-pointer"
-                  >
-                    <Store className="size-3.5 text-primary" />
-                    <span>{t("settings.plugins.visitMarketplace", { defaultValue: "Visit Marketplace" })}</span>
-                  </Button>
+                <div className="flex items-center gap-2 shrink-0">
                   <Badge variant="secondary" className="text-[11px] font-mono">
                     {t("settings.plugins.installedCount", {
                       count: installedPlugins.length,
                     })}
                   </Badge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          className="cursor-pointer"
+                          aria-label={t("settings.plugins.moreActions")}
+                        />
+                      }
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem
+                        disabled={scanningPlugins}
+                        onClick={handleScanLocalPlugins}
+                      >
+                        <FolderOpen className={cn("size-3.5", scanningPlugins && "animate-pulse")} />
+                        <span>
+                          {scanningPlugins
+                            ? t("settings.plugins.scanning")
+                            : t("settings.plugins.scanLocal")}
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={checkingUpdates}
+                        onClick={handleCheckUpdates}
+                      >
+                        <RefreshCw className={cn("size-3.5", checkingUpdates && "animate-spin")} />
+                        <span>
+                          {checkingUpdates
+                            ? t("settings.plugins.checkingUpdates")
+                            : t("settings.plugins.checkUpdates")}
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => OpenExternalURL(MARKETPLACE_BASE_URL)}
+                      >
+                        <Store className="size-3.5" />
+                        <span>{t("settings.plugins.visitMarketplace")}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               </div>
 

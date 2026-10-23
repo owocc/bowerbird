@@ -13,7 +13,7 @@ Bowerbird is a cross-platform desktop digital asset manager built with **mygo (G
    - On import (and automatically in the background for existing libraries), Bowerbird extracts the **dominant color**, a **6-color perceptual palette**, color model, alpha channel presence, aspect ratio, orientation (`landscape` / `portrait` / `square`), resolution (megapixels), and JPEG EXIF camera/capture metadata.
 3. **Pluggable File Preview Architecture (`PreviewPluginRegistry`)**
    - Built-in preview plugins for **Images** (with damped trackpad pinch-to-zoom, 2-finger pan, and >125% minimap) and **Video** (multi-engine HLS/MPEG-TS/DASH/Native player), plus **System Icon Fallback**.
-   - Built-in core plugins (`builtin.image` and `builtin.video`) are always enabled and cannot be disabled; all installed plugins can be inspected in the Settings panel (`800×650` sidebar layout).
+   - Built-in core plugins (`builtin.image` and `builtin.video`) are listed in the plugin store with a built-in marker and can be disabled from Settings (`800×650` sidebar layout). The internal fallback plugin remains always on.
    - Supports both inline workspace preview (`Double-click`) and full-window QuickLook (`Space`).
 4. **Multi-Dimensional Filtering Bar**
    - Unified dropdown filters for **File Type**, **Color Swatches** (perceptual ΔE matching against preset and library palette colors), **Tags**, **Virtual Folders**, and **Orientation**.
@@ -71,8 +71,8 @@ All file previews—both in the main/fullscreen modal (`UnifiedPreviewModal`) an
 
 | Plugin ID | Priority | Status | Handled Formats | Capabilities |
 | :--- | :--- | :--- | :--- | :--- |
-| `builtin.image` | `100` | Built-in (Always Enabled) | `png, jpg, jpeg, webp, gif, bmp, svg, ico, tiff, tif, avif` | Damped trackpad zoom (`25%`–`800%`), 2-finger pan when zoomed in, interactive MiniMap (`>125%`), borderless inspector preview |
-| `builtin.video` | `90` | Built-in (Always Enabled) | `mp4, mov, qt, webm, mkv, avi, m4v, flv, f4v, ts, mts, m2ts, m3u8, m3u, mpd, ogv, ogm, 3gp, 3g2, wmv, asf, mpg, mpeg, m2v, vob, rmvb, rm` | Multi-engine player (**hls.js** + **mpegts.js** + **dash.js** + HTML5 Native), standalone shadcn UI bottom control bar (`0.25x`–`8x` speed menu, hover volume slider, ±5s seek, loop, fullscreen), cover/first-frame color palette extraction, and cover-only inspector preview |
+| `builtin.image` | `100` | Built-in (disableable) | `png, jpg, jpeg, webp, gif, bmp, svg, ico, tiff, tif, avif` | Damped trackpad zoom (`25%`–`800%`), 2-finger pan when zoomed in, interactive MiniMap (`>125%`), borderless inspector preview |
+| `builtin.video` | `90` | Built-in (disableable) | `mp4, mov, qt, webm, mkv, avi, m4v, flv, f4v, ts, mts, m2ts, m3u8, m3u, mpd, ogv, ogm, 3gp, 3g2, wmv, asf, mpg, mpeg, m2v, vob, rmvb, rm` | Multi-engine player (**hls.js** + **mpegts.js** + **dash.js** + HTML5 Native), standalone shadcn UI bottom control bar (`0.25x`–`8x` speed menu, hover volume slider, ±5s seek, loop, fullscreen), cover/first-frame color palette extraction, and cover-only inspector preview |
 | `builtin.fallback` | `0` | Internal Fallback | `*` (catch-all fallback) | Native OS file icon rendering via `/asset/icon/<ext>` |
 ### Registering a Custom Preview Plugin
 
