@@ -3194,20 +3194,9 @@ export function LibraryWorkspace({
                 handleBatchRemoveFromFolder(activeFolderId);
               }
             }}
-            onSelectAll={() => {
-              setSelectedOrder(filteredItems.map((i) => i.id));
-              if (filteredItems.length > 0) {
-                setActiveItemId(filteredItems[filteredItems.length - 1].id);
-              }
-            }}
             onClearSelection={() => {
               setSelectedOrder([]);
               setActiveItemId(null);
-            }}
-            onImportFiles={() => fileInputRef.current?.click()}
-            onCreateFolder={() => {
-              setFolderCreateDialog({ open: true, parentId: undefined });
-              setFolderCreateName("");
             }}
             onCreateSubfolder={(parentId) => {
               setFolderCreateDialog({ open: true, parentId });
