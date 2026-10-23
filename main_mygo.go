@@ -29,8 +29,11 @@ type appHost struct {
 	mu      sync.RWMutex
 	windows map[string]*mygo.Window
 	main    *mygo.Window
-	events  map[string]*mygo.Event[any]
-	tray    *mygo.Tray
+	// openingMain is set while a main window is being created, so a second
+	// OpenMainWindow waits for the first instead of building another one.
+	openingMain chan struct{}
+	events      map[string]*mygo.Event[any]
+	tray        *mygo.Tray
 
 	svc      *core.Service
 	quitting atomic.Bool
@@ -165,6 +168,80 @@ func (h *appHost) FocusMainWindow() {
 	w.Restore()
 	w.Focus()
 	mygo.App.Focus()
+}
+
+// CloseMainWindow destroys the main window instead of hiding it. A user click
+// on the close button still hides the window; this path is for leaving a
+// library, where the window must actually go away.
+func (h *appHost) CloseMainWindow() {
+	w := h.mainWindow()
+	if w == nil {
+		return
+	}
+	h.mu.Lock()
+	if h.main == w {
+		h.main = nil
+	}
+	if h.windows["main"] == w {
+		delete(h.windows, "main")
+	}
+	h.mu.Unlock()
+	w.Destroy()
+}
+
+// OpenMainWindow creates a fresh main window, or reveals the one that is
+// already open.
+func (h *appHost) OpenMainWindow() {
+	h.mu.Lock()
+	if h.main != nil {
+		h.mu.Unlock()
+		h.FocusMainWindow()
+		return
+	}
+	if h.openingMain != nil {
+		done := h.openingMain
+		h.mu.Unlock()
+		<-done
+		h.FocusMainWindow()
+		return
+	}
+	done := make(chan struct{})
+	h.openingMain = done
+	h.mu.Unlock()
+
+	w := h.createMainWindow()
+
+	h.mu.Lock()
+	h.main = w
+	h.windows["main"] = w
+	h.openingMain = nil
+	close(done)
+	h.mu.Unlock()
+}
+
+// createMainWindow builds the main window with the same options used at
+// launch. Callers publish it through setMain or OpenMainWindow.
+func (h *appHost) createMainWindow() *mygo.Window {
+	w := mygo.NewWindow(mygo.WindowOptions{
+		Title:           "Bowerbird",
+		URL:             "/",
+		Width:           1280,
+		Height:          800,
+		MinWidth:        900,
+		MinHeight:       600,
+		TitleBarStyle:   mygo.TitleBarHiddenInset,
+		BackgroundColor: "#06070f",
+	})
+	keepWindowTitle(w)
+	h.attachDrop(w)
+	w.OnClose(func(e *mygo.CloseEvent) {
+		if h.quitting.Load() {
+			return
+		}
+		e.PreventDefault()
+		w.Hide()
+	})
+	return w
 }
 
 func (h *appHost) OpenDirectory(title string) (string, error) {
@@ -447,18 +524,28 @@ func main() {
 	}
 
 	mygo.App.OnOpenURL(handleProtocol)
+	revealApp := func() {
+		if host.mainWindow() != nil {
+			host.FocusMainWindow()
+			return
+		}
+		if err := coreService.OpenSetupWindow(); err != nil {
+			log.Printf("[Window] setup: %v", err)
+		}
+	}
+
 	mygo.App.OnSecondInstance(func(args []string, workingDir string) {
 		for _, arg := range args {
 			if strings.HasPrefix(arg, "bowerbird://") {
 				handleProtocol(arg)
 			}
 		}
-		host.FocusMainWindow()
+		revealApp()
 	})
 
 	mygo.App.OnActivate(func(hasVisibleWindows bool) {
 		if !hasVisibleWindows {
-			host.FocusMainWindow()
+			revealApp()
 		}
 	})
 	mygo.App.OnWindowAllClosed(func() {
@@ -486,27 +573,17 @@ func main() {
 		tracePath := core.StartDragTraceSession(fmt.Sprintf("os=%s arch=%s", runtime.GOOS, runtime.GOARCH))
 		log.Printf("[DragTrace] drag trace file: %s", tracePath)
 
-		mainWin := mygo.NewWindow(mygo.WindowOptions{
-			Title:           "Bowerbird",
-			URL:             "/",
-			Width:           1280,
-			Height:          800,
-			MinWidth:        900,
-			MinHeight:       600,
-			TitleBarStyle:   mygo.TitleBarHiddenInset,
-			BackgroundColor: "#06070f",
-		})
-		keepWindowTitle(mainWin)
-		log.Printf("[Window] main title=%q", mainWin.Title())
-		host.setMain(mainWin)
-		host.attachDrop(mainWin)
-		mainWin.OnClose(func(e *mygo.CloseEvent) {
-			if host.quitting.Load() {
-				return
+		// No library yet: only the setup window is shown. Choosing one creates the
+		// main window (see Service.OpenLibrary / CreateLibrary).
+		if coreMgr.GetActiveLibrary() == nil {
+			if err := coreService.OpenSetupWindow(); err != nil {
+				log.Printf("[Window] setup: %v", err)
 			}
-			e.PreventDefault()
-			mainWin.Hide()
-		})
+		} else {
+			mainWin := host.createMainWindow()
+			log.Printf("[Window] main title=%q", mainWin.Title())
+			host.setMain(mainWin)
+		}
 
 		if runtime.GOOS == "darwin" {
 			mygo.App.SetMenu(host.buildAppMenu())

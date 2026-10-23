@@ -1,9 +1,17 @@
-import { useState } from "react";
-import { useTranslation, Trans } from "react-i18next";
-import { FolderPlus, FolderOpen, Folder, Sparkles, AlertCircle, ArrowRight, Settings } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  FolderPlus,
+  FolderOpen,
+  Folder,
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Settings,
+  Layers3,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
 import { AppMenuButton } from "@/components/AppMenuButton";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { usesInAppMenuBar } from "@/lib/platform";
@@ -14,6 +22,7 @@ import {
   SelectLibraryDialog,
   OpenSettingsWindow,
   CloseSetupWindow,
+  GetRecentLibraries,
 } from "../../bindings/bowerbird/core/service";
 import type { LibraryInfo } from "../../bindings/bowerbird/core/models";
 import { getErrorMessage, notifyError, notifySuccess } from "@/lib/notify";
@@ -23,12 +32,37 @@ interface LibrarySetupProps {
   onLibraryOpened?: (lib: LibraryInfo) => void;
 }
 
+type SetupView = "home" | "create";
+
+function libraryDisplayName(path: string): string {
+  const normalized = path.replace(/[/\\]+$/, "");
+  const parts = normalized.split(/[/\\]/);
+  const lastPart = parts[parts.length - 1] || path;
+  return lastPart.endsWith(".library") ? lastPart.slice(0, -8) : lastPart;
+}
+
 export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
   const { t } = useTranslation();
+  const [view, setView] = useState<SetupView>("home");
   const [libName, setLibName] = useState("MyAssets");
   const [parentDir, setParentDir] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recentLibraries, setRecentLibraries] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    GetRecentLibraries()
+      .then((list) => {
+        if (!cancelled) setRecentLibraries(list || []);
+      })
+      .catch((err) => {
+        console.error("Failed to load recent libraries:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleOpened = (lib: LibraryInfo) => {
     if (onLibraryOpened) {
@@ -106,6 +140,24 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
     }
   };
 
+  const handleOpenRecent = async (path: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const lib = await OpenLibrary(path);
+      if (lib) {
+        notifySuccess(SuccessCodes.LIBRARY_OPENED);
+        handleOpened(lib);
+      }
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      setError(msg);
+      notifyError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const previewPath = parentDir
     ? `${parentDir}/${libName.trim() || "MyAssets"}${libName.endsWith(".library") ? "" : ".library"}`
     : "";
@@ -116,6 +168,11 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
     } catch (err) {
       console.error("Failed to open settings window:", err);
     }
+  };
+
+  const switchView = (next: SetupView) => {
+    setError(null);
+    setView(next);
   };
 
   return (
@@ -144,18 +201,10 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
         </button>
       )}
 
-      <div className="w-full max-w-xl space-y-6 pt-4">
-        {/* Brand header */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium">
-            <Sparkles className="size-3.5" />
-            <span>{t("setup.badge")}</span>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight">{t("setup.title")}</h1>
-          <p className="text-sm text-muted-foreground">
-            {t("setup.subtitle")}
-          </p>
-        </div>
+      <div className="w-full max-w-md space-y-8 pt-4">
+        <h1 className="text-center text-3xl font-bold tracking-tight">
+          {view === "create" ? t("setup.create.title") : t("setup.title")}
+        </h1>
 
         {error && (
           <div className="p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2.5">
@@ -164,102 +213,126 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
           </div>
         )}
 
-        {/* Create new library card */}
-        <Card className="border-border shadow-sm">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-base flex items-center gap-2">
-              <FolderPlus className="size-4 text-primary" />
-              <span>{t("setup.create.title")}</span>
-            </CardTitle>
-            <CardDescription className="text-xs">
-              <Trans
-                i18nKey="setup.create.description"
-                components={{ code: <code className="font-mono text-foreground font-semibold" /> }}
-              />
-            </CardDescription>
-          </CardHeader>
-          <form onSubmit={handleCreate}>
-            <CardContent className="space-y-4 text-xs">
-              <div className="space-y-1.5">
-                <label className="font-medium text-foreground">{t("setup.create.nameLabel")}</label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    value={libName}
-                    onChange={(e) => setLibName(e.target.value)}
-                    placeholder={t("setup.create.namePlaceholder")}
-                    className="text-xs h-9"
-                  />
-                  <span className="text-muted-foreground font-mono text-xs shrink-0">.library</span>
+        {view === "home" ? (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-3">
+              <Button
+                type="button"
+                disabled={loading}
+                onClick={() => switchView("create")}
+                className="h-11 gap-2 text-sm"
+              >
+                <FolderPlus className="size-4" />
+                <span>{t("setup.create.button")}</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={loading}
+                onClick={handleOpenExisting}
+                className="h-11 gap-2 text-sm"
+              >
+                <FolderOpen className="size-4" />
+                <span>{t("setup.open.button")}</span>
+              </Button>
+            </div>
+
+            {recentLibraries.length > 0 && (
+              <div className="space-y-2">
+                <p className="px-1 text-xs font-medium text-muted-foreground">
+                  {t("setup.recent.title")}
+                </p>
+                <div className="max-h-64 overflow-y-auto rounded-xl border border-border divide-y divide-border">
+                  {recentLibraries.map((path) => (
+                    <button
+                      key={path}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => handleOpenRecent(path)}
+                      title={path}
+                      className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/60 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Layers3 className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {libraryDisplayName(path)}
+                        </span>
+                        <span className="block truncate text-[11px] text-muted-foreground font-mono">
+                          {path}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
-
-              <div className="space-y-1.5">
-                <label className="font-medium text-foreground">{t("setup.create.storageLabel")}</label>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={parentDir || t("setup.create.noDirectory")}
-                    placeholder={t("setup.create.directoryPlaceholder")}
-                    className={`text-xs h-9 font-mono ${!parentDir ? "text-muted-foreground italic" : ""}`}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handlePickDirectory}
-                    className="shrink-0 h-9 gap-1.5"
-                  >
-                    <Folder className="size-3.5" />
-                    <span>{t("setup.create.chooseLocation")}</span>
-                  </Button>
-                </div>
+            )}
+          </div>
+        ) : (
+          <form onSubmit={handleCreate} className="space-y-4 text-xs">
+            <div className="space-y-1.5">
+              <label className="font-medium text-foreground">{t("setup.create.nameLabel")}</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  value={libName}
+                  onChange={(e) => setLibName(e.target.value)}
+                  placeholder={t("setup.create.namePlaceholder")}
+                  className="text-xs h-9"
+                  autoFocus
+                />
+                <span className="text-muted-foreground font-mono text-xs shrink-0">.library</span>
               </div>
+            </div>
 
-              {previewPath && (
-                <div className="p-2.5 rounded-lg bg-muted/50 border border-border/60 text-[11px] text-muted-foreground space-y-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">{t("setup.create.previewLabel")}</span>
-                  <p className="font-mono text-foreground break-all">{previewPath}</p>
-                </div>
-              )}
-            </CardContent>
-            <CardFooter className="pt-2 flex justify-end">
+            <div className="space-y-1.5">
+              <label className="font-medium text-foreground">{t("setup.create.storageLabel")}</label>
+              <div className="flex gap-2">
+                <Input
+                  readOnly
+                  value={parentDir || t("setup.create.noDirectory")}
+                  placeholder={t("setup.create.directoryPlaceholder")}
+                  className={`text-xs h-9 font-mono ${!parentDir ? "text-muted-foreground italic" : ""}`}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePickDirectory}
+                  className="shrink-0 h-9 gap-1.5"
+                >
+                  <Folder className="size-3.5" />
+                  <span>{t("setup.create.chooseLocation")}</span>
+                </Button>
+              </div>
+            </div>
+
+            {previewPath && (
+              <div className="p-2.5 rounded-lg bg-muted/50 border border-border/60 text-[11px] text-muted-foreground space-y-0.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
+                  {t("setup.create.previewLabel")}
+                </span>
+                <p className="font-mono text-foreground break-all">{previewPath}</p>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={() => switchView("home")}
+                className="gap-1.5 text-xs h-9"
+              >
+                <ArrowLeft className="size-3.5" />
+                <span>{t("setup.back")}</span>
+              </Button>
               <Button type="submit" disabled={loading || !parentDir} className="gap-2 text-xs h-9">
                 <span>{loading ? t("setup.create.creating") : t("setup.create.submit")}</span>
                 <ArrowRight className="size-3.5" />
               </Button>
-            </CardFooter>
-          </form>
-        </Card>
-
-        {/* Open existing library option */}
-        <div className="relative text-center">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
-          </div>
-          <span className="relative bg-background px-3 text-xs text-muted-foreground uppercase font-semibold">
-            {t("setup.or")}
-          </span>
-        </div>
-
-        <Card className="border-dashed border-border bg-muted/20">
-          <CardContent className="py-4 flex items-center justify-between gap-4">
-            <div className="space-y-0.5 text-xs">
-              <p className="font-medium">{t("setup.open.title")}</p>
-              <p className="text-[11px] text-muted-foreground">{t("setup.open.description")}</p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={loading}
-              onClick={handleOpenExisting}
-              className="shrink-0 gap-1.5 text-xs h-9"
-            >
-              <FolderOpen className="size-3.5" />
-              <span>{t("setup.open.button")}</span>
-            </Button>
-          </CardContent>
-        </Card>
+          </form>
+        )}
       </div>
     </div>
   );

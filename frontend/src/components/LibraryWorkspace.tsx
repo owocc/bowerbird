@@ -94,7 +94,6 @@ import {
   RenameItem,
   OpenWithDefaultApp,
   OpenSettingsWindow,
-  OpenSetupWindow,
   RevealInFinder,
   CopyItemsToClipboard,
 } from "../../bindings/bowerbird/core/service";
@@ -2344,9 +2343,11 @@ export function LibraryWorkspace({
                   }}
                   onEmptyTrash={handleRequestEmptyTrash}
                   onCloseLibrary={async () => {
+                    // CloseLibrary closes the main window and leaves only the
+                    // setup window. The main window is created again once a
+                    // library is chosen there.
                     await CloseLibrary();
                     onLibraryClosed();
-                    OpenSetupWindow().catch(console.error);
                   }}
                   onLibraryChanged={onLibraryChanged}
                   onToggleCollapse={() => setSidebarOpen(false)}

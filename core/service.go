@@ -72,6 +72,7 @@ func (s *Service) CreateLibrary(parentDir string, libName string) (*LibraryInfo,
 	}
 	s.emit(LibraryOpenedEvent, info)
 	_ = s.CloseSetupWindow()
+	s.openMainWindow()
 	return info, nil
 }
 
@@ -85,6 +86,7 @@ func (s *Service) OpenLibrary(libraryPath string) (*LibraryInfo, error) {
 	}
 	s.emit(LibraryOpenedEvent, info)
 	_ = s.CloseSetupWindow()
+	s.openMainWindow()
 	return info, nil
 }
 
@@ -97,7 +99,20 @@ func (s *Service) CloseLibrary() error {
 		return WrapAppError(ErrCodeCloseLibraryFailed, err)
 	}
 	s.emit(LibraryClosedEvent, "")
+	// The main window goes away with the library. Only the setup window stays,
+	// and picking a library there creates a fresh main window.
+	if h := s.getHost(); h != nil {
+		h.CloseMainWindow()
+	}
+	_ = s.OpenSetupWindow()
 	return nil
+}
+
+// openMainWindow brings the main window back after a library is chosen.
+func (s *Service) openMainWindow() {
+	if h := s.getHost(); h != nil {
+		h.OpenMainWindow()
+	}
 }
 
 func (s *Service) GetItems(query string, sortOrder string) ([]Item, error) {
