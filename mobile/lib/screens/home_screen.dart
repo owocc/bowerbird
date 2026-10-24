@@ -17,6 +17,8 @@ import '../widgets/share_tag_badge.dart';
 import 'detail_screen.dart';
 import 'inbox_screen.dart';
 import '../widgets/item_preview_overlay.dart';
+import '../widgets/folder_drawer.dart';
+import '../widgets/filter_sheet.dart';
 import 'search_screen.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -46,6 +48,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final RefreshGate _refreshGate = RefreshGate();
   DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
   int _inboxCount = InboxService.instance.count;
+  bool _drawerOpen = false;
+  ItemQuery _query = const ItemQuery();
+  List<MobileFolder> _folders = [];
+  List<MobileTag> _tags = [];
+  List<String> _colors = [];
+  final Set<String> _selectedIds = {};
+  double _gridScale = 3;
+  double _pinchStartScale = 3;
 
   void _onInboxChanged() {
     if (!mounted) return;
@@ -60,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     _loadItems(refresh: true);
+    _loadNavMetadata();
     _scrollController.addListener(_onScroll);
     _initWebSocket();
     WidgetsBinding.instance.addObserver(this);
@@ -163,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final requestOffset = refresh ? 0 : _offset;
     try {
       final result = await ApiService.instance.queryItems(
-        query: const ItemQuery(),
+        query: _query,
         limit: _pageSize,
         offset: requestOffset,
       );
@@ -209,7 +220,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     });
     try {
       final result = await ApiService.instance.queryItems(
-        query: const ItemQuery(),
+        query: _query,
         limit: target,
         offset: 0,
       );
@@ -242,6 +253,179 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _markLocalMutation() {
     _lastLocalMutation = DateTime.now();
     _refreshGate.cancel();
+  }
+
+  Future<void> _loadNavMetadata() async {
+    try {
+      final tags = await ApiService.instance.getTags();
+      final folders = await ApiService.instance.getFolders();
+      final colors = await ApiService.instance.getColors();
+      if (!mounted) return;
+      setState(() {
+        _tags = tags;
+        _folders = folders;
+        _colors = colors;
+      });
+    } catch (_) {}
+  }
+
+  int get _crossAxisCount => _gridScale.round().clamp(2, 5);
+
+  void _selectFolder(String? folderId) {
+    setState(() {
+      _drawerOpen = false;
+      _query = ItemQuery(
+        text: _query.text,
+        type: _query.type,
+        orientation: _query.orientation,
+        tag: _query.tag,
+        folder: folderId,
+        color: _query.color,
+        size: _query.size,
+        rating: _query.rating,
+        hasUrl: _query.hasUrl,
+        hasNote: _query.hasNote,
+      );
+      _selectedIds.clear();
+    });
+    _loadItems(refresh: true);
+  }
+
+  void _openFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FilterSheet(
+        initial: _query,
+        tags: _tags,
+        folders: _folders,
+        colors: _colors,
+        onApply: (q) {
+          setState(() => _query = q);
+          _loadItems(refresh: true);
+        },
+      ),
+    );
+  }
+
+  void _toggleSelected(MobileItem item) {
+    setState(() {
+      if (_selectedIds.contains(item.id)) {
+        _selectedIds.remove(item.id);
+      } else {
+        _selectedIds.add(item.id);
+      }
+    });
+  }
+
+  Future<void> _addSelectedToFolder(MobileFolder folder) async {
+    final ids = _selectedIds.toList();
+    try {
+      for (final id in ids) {
+        await ApiService.instance.addItemToFolder(id, folder.id);
+      }
+      if (!mounted) return;
+      setState(() => _selectedIds.clear());
+      _markLocalMutation();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已添加到「${folder.name}」')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('添加失败: $e'), backgroundColor: Colors.red.shade700),
+      );
+    }
+  }
+
+  Future<void> _addTagToSelected(String tag) async {
+    final ids = _selectedIds.toList();
+    try {
+      for (final id in ids) {
+        await ApiService.instance.addTagToItem(id, tag);
+      }
+      if (!mounted) return;
+      setState(() => _selectedIds.clear());
+      _markLocalMutation();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已添加标签「$tag」')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('添加标签失败: $e'), backgroundColor: Colors.red.shade700),
+      );
+    }
+  }
+
+  Future<void> _pickFolderForSelection() async {
+    final flat = _folders.expand((f) => f.flatten()).toList();
+    if (flat.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('还没有文件夹')));
+      return;
+    }
+    final chosen = await showModalBottomSheet<MobileFolder>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          children: [
+            const ListTile(title: Text('添加到文件夹')),
+            for (final f in flat)
+              ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(f.name),
+                onTap: () => Navigator.pop(ctx, f),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) await _addSelectedToFolder(chosen);
+  }
+
+  Future<void> _pickTagForSelection() async {
+    String? chosen;
+    if (_tags.isNotEmpty) {
+      chosen = await showModalBottomSheet<String>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: ListView(
+            children: [
+              const ListTile(title: Text('添加标签')),
+              for (final t in _tags)
+                ListTile(
+                  leading: const Icon(Icons.label_outline),
+                  title: Text(t.name),
+                  onTap: () => Navigator.pop(ctx, t.name),
+                ),
+              ListTile(
+                leading: const Icon(Icons.add),
+                title: const Text('新建标签'),
+                onTap: () => Navigator.pop(ctx, '__new__'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      chosen = '__new__';
+    }
+    if (chosen == '__new__') {
+      final controller = TextEditingController();
+      chosen = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('新建标签'),
+          content: TextField(controller: controller, autofocus: true),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('添加')),
+          ],
+        ),
+      );
+    }
+    if (chosen != null && chosen.isNotEmpty) await _addTagToSelected(chosen);
   }
 
   Map<String, List<MobileItem>> _groupItemsByMonth(List<MobileItem> items) {
@@ -575,8 +759,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final grouped = _groupItemsByMonth(_items);
 
+    final drawerWidth = MediaQuery.sizeOf(context).width * 2 / 3;
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.folder_outlined),
+          tooltip: '文件夹',
+          onPressed: () => setState(() => _drawerOpen = !_drawerOpen),
+        ),
         title: InkWell(
           borderRadius: BorderRadius.circular(8),
           onTap: _showLibraryPicker,
@@ -615,6 +805,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ),
         actions: [
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _query.toQueryString().isNotEmpty,
+              child: const Icon(Icons.filter_list),
+            ),
+            tooltip: '筛选',
+            onPressed: _openFilterSheet,
+          ),
           Badge.count(
             count: _inboxCount,
             isLabelVisible: _inboxCount > 0,
@@ -644,7 +842,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: Stack(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            transform: Matrix4.translationValues(_drawerOpen ? drawerWidth : 0, 0, 0),
+            child: GestureDetector(
+              onScaleStart: (details) {
+                if (details.pointerCount >= 2) {
+                  _pinchStartScale = _gridScale;
+                }
+              },
+              onScaleUpdate: (details) {
+                if (details.pointerCount < 2) return;
+                final next = (_pinchStartScale / details.scale).clamp(2.0, 5.0);
+                if ((next - _gridScale).abs() >= 0.15) {
+                  setState(() => _gridScale = next);
+                }
+              },
+              child: RefreshIndicator(
         onRefresh: () => _loadItems(refresh: true),
         child: _errorMessage != null && _items.isEmpty
             ? Center(
@@ -712,8 +929,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           SliverPadding(
                             padding: const EdgeInsets.symmetric(horizontal: 2),
                             sliver: SliverGrid(
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 3,
+                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: _crossAxisCount,
                                 crossAxisSpacing: 2,
                                 mainAxisSpacing: 2,
                               ),
@@ -723,9 +940,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   final globalIndex = _items.indexOf(item);
                                   final useAnimatedGif = item.isGif && item.size <= _gifAnimationMaxBytes;
 
+                                  final selected = _selectedIds.contains(item.id);
                                   return GestureDetector(
-                                    onTap: () => _openDetail(globalIndex),
-                                    onLongPress: () => _openItemPreview(item, globalIndex),
+                                    onTap: () {
+                                      if (_selectedIds.isNotEmpty) {
+                                        _toggleSelected(item);
+                                      } else {
+                                        _openDetail(globalIndex);
+                                      }
+                                    },
+                                    onLongPress: () {
+                                      if (_selectedIds.isEmpty) {
+                                        _toggleSelected(item);
+                                      } else {
+                                        _openItemPreview(item, globalIndex);
+                                      }
+                                    },
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
@@ -832,6 +1062,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                             bottom: 4,
                                             child: ShareTagBadge(),
                                           ),
+                                        if (selected)
+                                          Container(
+                                            color: Colors.black38,
+                                            alignment: Alignment.topRight,
+                                            padding: const EdgeInsets.all(6),
+                                            child: const Icon(Icons.check_circle, color: Colors.white),
+                                          ),
                                       ],
                                     ),
                                   );
@@ -864,6 +1101,61 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ],
                   ),
       ),
+            ),
+          ),
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeOutCubic,
+            left: _drawerOpen ? 0 : -drawerWidth,
+            top: 0,
+            bottom: 0,
+            width: drawerWidth,
+            child: FolderDrawer(
+              folders: _folders,
+              selectedFolderId: _query.folder,
+              totalCount: _totalCount,
+              onSelect: _selectFolder,
+            ),
+          ),
+          if (_drawerOpen)
+            Positioned(
+              left: drawerWidth,
+              top: 0,
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                onTap: () => setState(() => _drawerOpen = false),
+                child: Container(color: Colors.black26),
+              ),
+            ),
+        ],
+      ),
+      bottomNavigationBar: _selectedIds.isEmpty
+          ? null
+          : SafeArea(
+              child: Material(
+                elevation: 8,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Row(
+                    children: [
+                      Text('已选 ${_selectedIds.length}'),
+                      const Spacer(),
+                      TextButton(onPressed: () => setState(() => _selectedIds.clear()), child: const Text('取消')),
+                      FilledButton.tonal(
+                        onPressed: _pickTagForSelection,
+                        child: const Text('加标签'),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: _pickFolderForSelection,
+                        child: const Text('添加到…'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
       floatingActionButton: FloatingActionButton(
         heroTag: 'upload_fab',
         tooltip: '上传素材到电脑',
