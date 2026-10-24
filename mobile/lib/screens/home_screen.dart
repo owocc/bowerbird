@@ -334,9 +334,9 @@ class _HomeScreenState extends State<HomeScreen>
         customBorder: const CircleBorder(),
         onTap: onPressed,
         child: SizedBox(
-          width: 40,
-          height: 40,
-          child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
+          width: 48,
+          height: 48,
+          child: Icon(icon, size: 24, color: theme.colorScheme.onSurface),
         ),
       ),
     );
@@ -868,6 +868,7 @@ class _HomeScreenState extends State<HomeScreen>
         surfaceTintColor: Colors.transparent,
         centerTitle: true,
         automaticallyImplyLeading: false,
+        toolbarHeight: kToolbarHeight + 8,
         flexibleSpace: DecoratedBox(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -875,8 +876,10 @@ class _HomeScreenState extends State<HomeScreen>
               end: Alignment.bottomCenter,
               colors: [
                 theme.colorScheme.surface,
+                theme.colorScheme.surface,
                 theme.colorScheme.surface.withValues(alpha: 0),
               ],
+              stops: const [0, 0.45, 1],
             ),
           ),
         ),
@@ -1275,12 +1278,25 @@ class _HomeScreenState extends State<HomeScreen>
                 child: child,
               );
             },
-            child: SafeArea(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    theme.colorScheme.surface,
+                    theme.colorScheme.surface,
+                    theme.colorScheme.surface.withValues(alpha: 0),
+                  ],
+                  stops: const [0, 0.55, 1],
+                ),
+              ),
+              child: SafeArea(
             bottom: false,
             child: SizedBox(
-              height: kToolbarHeight,
+              height: kToolbarHeight + 8,
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: Row(
                   children: [
                     _roundIconButton(
@@ -1290,41 +1306,10 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     const Spacer(),
                     Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: _roundIconButton(
-                        icon: Icons.filter_list,
-                        tooltip: '筛选',
-                        onPressed: _openFilterSheet,
-                        badgeChild: Badge(
-                          isLabelVisible: _query.toQueryString().isNotEmpty,
-                          child: _roundIconButton(
-                            icon: Icons.filter_list,
-                            onPressed: _openFilterSheet,
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: Badge.count(
-                        count: _inboxCount,
-                        isLabelVisible: _inboxCount > 0,
-                        child: _roundIconButton(
-                          icon: Icons.inbox_outlined,
-                          tooltip: '收件箱',
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const InboxScreen()),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.only(right: 8),
                       child: _roundIconButton(
                         icon: Icons.search,
-                        tooltip: 'Search & Filter',
+                        tooltip: '搜索',
                         onPressed: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(builder: (_) => const SearchScreen()),
@@ -1332,14 +1317,80 @@ class _HomeScreenState extends State<HomeScreen>
                         },
                       ),
                     ),
-                    _roundIconButton(
-                      icon: Icons.wifi_off_outlined,
-                      tooltip: 'Disconnect',
-                      onPressed: _disconnect,
+                    PopupMenuButton<String>(
+                      tooltip: '更多',
+                      offset: const Offset(0, 48),
+                      padding: EdgeInsets.zero,
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'filter':
+                            _openFilterSheet();
+                          case 'inbox':
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const InboxScreen()),
+                            );
+                          case 'disconnect':
+                            _disconnect();
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'filter',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.filter_list, size: 20),
+                              const SizedBox(width: 12),
+                              const Text('筛选'),
+                              if (_query.toQueryString().isNotEmpty) ...[
+                                const Spacer(),
+                                Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
+                              ],
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'inbox',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.inbox_outlined, size: 20),
+                              const SizedBox(width: 12),
+                              const Text('收件箱'),
+                              if (_inboxCount > 0) ...[
+                                const Spacer(),
+                                Text('$_inboxCount'),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'disconnect',
+                          child: Row(
+                            children: [
+                              Icon(Icons.wifi_off_outlined, size: 20),
+                              SizedBox(width: 12),
+                              Text('断开连接'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      child: Material(
+                        color: theme.colorScheme.surface,
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                        shape: CircleBorder(
+                          side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
+                        ),
+                        child: const SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Icon(Icons.more_horiz, size: 24),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
+            ),
             ),
             ),
           ),
