@@ -177,7 +177,7 @@ class _InboxScreenState extends State<InboxScreen> {
     final file = InboxService.instance.fileFor(entry);
     if (!entry.isText && entry.isImage && file != null) {
       return ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         child: Image.file(
           file,
           width: 52,
@@ -205,7 +205,7 @@ class _InboxScreenState extends State<InboxScreen> {
       height: 52,
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Stack(
         alignment: Alignment.center,

@@ -268,7 +268,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                         children: [
                           Text(
                             'Local Material Library',
-                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                            style: theme.textTheme.titleMedium,
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -346,8 +346,8 @@ class _ConnectScreenState extends State<ConnectScreen> {
                 Text(
                   'DISCOVERED DESKTOPS',
                   style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.outline,
                   ),
                 ),
                 if (_isScanning)
@@ -392,7 +392,7 @@ class _ConnectScreenState extends State<ConnectScreen> {
                   margin: const EdgeInsets.only(bottom: 8),
                   child: ListTile(
                     leading: const CircleAvatar(child: Icon(Icons.computer)),
-                    title: Text(server.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    title: Text(server.name, style: const TextStyle(fontWeight: FontWeight.w500)),
                     subtitle: Text('${server.host}:${server.port} • v${server.version}'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: _isConnecting ? null : () => _connectToServer(server.url),

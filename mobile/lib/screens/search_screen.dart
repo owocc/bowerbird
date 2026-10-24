@@ -7,6 +7,7 @@ import '../services/refresh_gate.dart';
 import '../services/share_tag_service.dart';
 import '../services/websocket_service.dart';
 import '../widgets/share_tag_badge.dart';
+import '../theme/app_theme.dart';
 import 'detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -244,23 +245,27 @@ class _SearchScreenState extends State<SearchScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: TextField(
-          controller: _searchController,
-          autofocus: false,
-          textInputAction: TextInputAction.search,
-          onSubmitted: (_) => _performSearch(),
-          decoration: InputDecoration(
-            hintText: 'Search items, tags, notes...',
-            border: InputBorder.none,
-            suffixIcon: _searchController.text.isNotEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.clear),
-                    onPressed: () {
-                      _searchController.clear();
-                      _performSearch();
-                    },
-                  )
-                : null,
+        title: Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: TextField(
+            controller: _searchController,
+            autofocus: false,
+            textInputAction: TextInputAction.search,
+            onSubmitted: (_) => _performSearch(),
+            decoration: InputDecoration(
+              hintText: '搜索素材、标签、备注',
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () {
+                        _searchController.clear();
+                        _performSearch();
+                      },
+                    )
+                  : null,
+            ),
           ),
         ),
         actions: [
@@ -282,8 +287,8 @@ class _SearchScreenState extends State<SearchScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-              border: Border(bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.2))),
+              color: theme.colorScheme.surface,
+              border: Border(bottom: BorderSide(color: theme.dividerColor)),
             ),
             child: SingleChildScrollView(
               child: Column(
@@ -301,7 +306,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         final isSelected = _selectedType == item.value;
                         return ChoiceChip(
                           label: Text(item.label),
-                          labelStyle: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+                          labelStyle: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400),
                           selected: isSelected,
                           visualDensity: VisualDensity.compact,
                           onSelected: (val) {
@@ -327,7 +332,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         final isSelected = _selectedOrientation == item.value;
                         return ChoiceChip(
                           label: Text(item.label),
-                          labelStyle: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal),
+                          labelStyle: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400),
                           selected: isSelected,
                           visualDensity: VisualDensity.compact,
                           onSelected: (val) {
@@ -623,7 +628,7 @@ class _SearchScreenState extends State<SearchScreen> {
               const SizedBox(height: 12),
               Text(
                 'Search Error',
-                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium,
               ),
               const SizedBox(height: 4),
               Text(
@@ -644,21 +649,15 @@ class _SearchScreenState extends State<SearchScreen> {
 
     if (_results.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.search_off, size: 64, color: theme.colorScheme.outline),
-            const SizedBox(height: 16),
-            Text(
-              'No matching items',
-              style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Text(
+            '没有匹配的素材',
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: theme.colorScheme.outline,
+              fontWeight: FontWeight.w400,
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Try adjusting your search keywords or active filters',
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-            ),
-          ],
+          ),
         ),
       );
     }
@@ -668,8 +667,8 @@ class _SearchScreenState extends State<SearchScreen> {
       padding: const EdgeInsets.all(8),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 3,
-        crossAxisSpacing: 6,
-        mainAxisSpacing: 6,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
         childAspectRatio: 1.0,
       ),
       itemCount: _results.length,
@@ -693,9 +692,9 @@ class _SearchScreenState extends State<SearchScreen> {
               _performSearch();
             }
           },
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(AppRadii.card),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(AppRadii.card),
             child: Container(
               color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
               child: Stack(
@@ -716,14 +715,14 @@ class _SearchScreenState extends State<SearchScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                         decoration: BoxDecoration(
                           color: Colors.black54,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(AppRadii.chipSmall),
                         ),
                         child: const Text(
                           'GIF',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
@@ -736,7 +735,7 @@ class _SearchScreenState extends State<SearchScreen> {
                         padding: const EdgeInsets.all(2),
                         decoration: BoxDecoration(
                           color: Colors.black54,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(AppRadii.chipSmall),
                         ),
                         child: const Icon(Icons.play_arrow, size: 14, color: Colors.white),
                       ),
