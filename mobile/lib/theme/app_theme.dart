@@ -142,7 +142,7 @@ class AppTheme {
         foregroundColor: text,
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: false,
+        centerTitle: true,
         titleTextStyle: textTheme.titleMedium,
         iconTheme: IconThemeData(color: text),
         surfaceTintColor: Colors.transparent,

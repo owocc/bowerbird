@@ -28,7 +28,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   final List<MobileItem> _items = [];
   final ScrollController _scrollController = ScrollController();
 
@@ -49,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final RefreshGate _refreshGate = RefreshGate();
   DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
   int _inboxCount = InboxService.instance.count;
-  bool _drawerOpen = false;
+  late final AnimationController _drawer;
   ItemQuery _query = const ItemQuery();
   List<MobileFolder> _folders = [];
   List<MobileTag> _tags = [];
@@ -57,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final Set<String> _selectedIds = {};
   double _gridScale = 3;
   double _pinchStartScale = 3;
+  bool _previewOpening = false;
 
   void _onInboxChanged() {
     if (!mounted) return;
@@ -70,6 +72,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _drawer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    );
+    _drawer.addListener(_onDrawerTick);
     _loadItems(refresh: true);
     _loadNavMetadata();
     _scrollController.addListener(_onScroll);
@@ -98,6 +105,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         if (newName != null && newName.isNotEmpty) {
           setState(() => ApiService.instance.libraryName = newName);
         }
+        unawaited(_loadNavMetadata());
         _refreshGate.schedule(() => _loadItems(refresh: true));
       }
     });
@@ -139,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     InboxService.instance.removeListener(_onInboxChanged);
     ShareTagService.instance.removeListener(_onShareTagsChanged);
     _scrollController.dispose();
+    _drawer.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _refreshGate.cancel();
     super.dispose();
@@ -272,9 +281,73 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   int get _crossAxisCount => _gridScale.round().clamp(2, 5);
 
+  double get _drawerWidth => MediaQuery.sizeOf(context).width * 2 / 3;
+
+  bool _drawerInteractable = false;
+
+  void _onDrawerTick() {
+    final next = _drawer.value > 0.001;
+    if (next != _drawerInteractable && mounted) {
+      setState(() => _drawerInteractable = next);
+    }
+  }
+
+  bool get _drawerOpen => _drawer.value > 0.5;
+
+  void _snapDrawer({required bool open}) {
+    if (open) {
+      _drawer.fling(velocity: 2);
+    } else {
+      _drawer.fling(velocity: -2);
+    }
+  }
+
+  void _onDrawerHorizontalUpdate(DragUpdateDetails details) {
+    final next = (_drawer.value + details.delta.dx / _drawerWidth).clamp(0.0, 1.0);
+    _drawer.value = next;
+  }
+
+  void _onDrawerHorizontalEnd(DragEndDetails details) {
+    final v = details.primaryVelocity ?? 0;
+    if (v.abs() > 500) {
+      _snapDrawer(open: v > 0);
+      return;
+    }
+    _snapDrawer(open: _drawer.value > 0.4);
+  }
+
+  Widget _roundIconButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    String? tooltip,
+    Widget? badgeChild,
+  }) {
+    final theme = Theme.of(context);
+    final button = Material(
+      color: theme.colorScheme.surface,
+      elevation: 0,
+      shadowColor: Colors.transparent,
+      shape: CircleBorder(
+        side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
+      ),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Icon(icon, size: 24, color: theme.colorScheme.onSurface),
+        ),
+      ),
+    );
+    final wrapped = badgeChild ?? button;
+    if (tooltip == null) return wrapped;
+    return Tooltip(message: tooltip, child: wrapped);
+  }
+
   void _selectFolder(String? folderId) {
+    _snapDrawer(open: false);
     setState(() {
-      _drawerOpen = false;
       _query = ItemQuery(
         text: _query.text,
         type: _query.type,
@@ -459,8 +532,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _openItemPreview(MobileItem item, int globalIndex) async {
+    if (_previewOpening) return;
+    _previewOpening = true;
     final action = await showItemPreviewOverlay(context, item);
-    if (!mounted || action == null) return;
+    _previewOpening = false;
+    if (!mounted) return;
+    if (action == null) return;
 
     switch (action) {
       case ItemPreviewAction.viewDetail:
@@ -588,6 +665,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text('已切换至资源库: ${lib.name}')),
                                   );
+                                  unawaited(_loadNavMetadata());
                                   _loadItems(refresh: true);
                                 }
                               } catch (e) {
@@ -761,96 +839,59 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final theme = Theme.of(context);
     final grouped = _groupItemsByMonth(_items);
 
-    final drawerWidth = MediaQuery.sizeOf(context).width * 2 / 3;
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.folder_outlined),
-          tooltip: '文件夹',
-          onPressed: () => setState(() => _drawerOpen = !_drawerOpen),
-        ),
-        title: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: _showLibraryPicker,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              ApiService.instance.libraryName ?? 'Bowerbird',
-                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.arrow_drop_down, size: 20),
-                        ],
-                      ),
-                      Text(
-                        '共 $_totalCount 个素材 • 点击切库',
-                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                      ),
-                    ],
-                  ),
+    final drawerWidth = _drawerWidth;
+    final libraryTitle = ApiService.instance.libraryName ?? 'Bowerbird';
+    return Material(
+      color: theme.colorScheme.surface,
+      child: Stack(
+      children: [
+        AnimatedBuilder(
+          animation: _drawer,
+          builder: (context, child) {
+            final t = Curves.easeOutCubic.transform(_drawer.value);
+            return Transform.translate(
+              offset: Offset(drawerWidth * t, 0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.horizontal(
+                  left: Radius.circular(40 * t),
                 ),
+                child: child,
+              ),
+            );
+          },
+          child: Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        centerTitle: true,
+        automaticallyImplyLeading: false,
+        toolbarHeight: kToolbarHeight + 8,
+        flexibleSpace: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                theme.colorScheme.surface,
+                theme.colorScheme.surface,
+                theme.colorScheme.surface.withValues(alpha: 0),
               ],
+              stops: const [0, 0.45, 1],
             ),
           ),
         ),
-        actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: _query.toQueryString().isNotEmpty,
-              child: const Icon(Icons.filter_list),
-            ),
-            tooltip: '筛选',
-            onPressed: _openFilterSheet,
-          ),
-          Badge.count(
-            count: _inboxCount,
-            isLabelVisible: _inboxCount > 0,
-            child: IconButton(
-              icon: const Icon(Icons.inbox_outlined),
-              tooltip: '收件箱',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const InboxScreen()),
-                );
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search & Filter',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SearchScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.wifi_off_outlined),
-            tooltip: 'Disconnect',
-            onPressed: _disconnect,
-          ),
-        ],
+        title: Text(
+          libraryTitle,
+          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
-      body: Stack(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(_drawerOpen ? drawerWidth : 0, 0, 0),
-            child: GestureDetector(
+      body: GestureDetector(
+              onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
+              onHorizontalDragEnd: _drawerInteractable ? _onDrawerHorizontalEnd : null,
               onScaleStart: (details) {
                 if (details.pointerCount >= 2) {
                   _pinchStartScale = _gridScale;
@@ -868,7 +909,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         child: _errorMessage != null && _items.isEmpty
             ? Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: EdgeInsets.fromLTRB(24, MediaQuery.paddingOf(context).top + kToolbarHeight, 24, 24),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -892,7 +933,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             : _items.isEmpty && !_isLoading
                 ? Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(32),
+                      padding: EdgeInsets.fromLTRB(32, MediaQuery.paddingOf(context).top + kToolbarHeight, 32, 32),
                       child: Text(
                         '资料库是空的',
                         style: theme.textTheme.titleMedium?.copyWith(
@@ -906,6 +947,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     controller: _scrollController,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: MediaQuery.paddingOf(context).top + kToolbarHeight),
+                      ),
                       ...grouped.entries.expand((entry) {
                         final monthName = entry.key;
                         final monthItems = entry.value;
@@ -960,10 +1004,18 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     onLongPress: () {
                                       if (_selectedIds.isEmpty) {
                                         _toggleSelected(item);
-                                      } else {
-                                        _openItemPreview(item, globalIndex);
                                       }
                                     },
+                                    onVerticalDragStart: _selectedIds.isNotEmpty
+                                        ? null
+                                        : (_) {},
+                                    onVerticalDragUpdate: _selectedIds.isNotEmpty
+                                        ? null
+                                        : (details) {
+                                            if (details.delta.dy < -6) {
+                                              _openItemPreview(item, globalIndex);
+                                            }
+                                          },
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(AppRadii.card),
                                       child: DecoratedBox(
@@ -1119,34 +1171,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
       ),
             ),
-          ),
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeOutCubic,
-            left: _drawerOpen ? 0 : -drawerWidth,
-            top: 0,
-            bottom: 0,
-            width: drawerWidth,
-            child: FolderDrawer(
-              folders: _folders,
-              selectedFolderId: _query.folder,
-              totalCount: _totalCount,
-              onSelect: _selectFolder,
-            ),
-          ),
-          if (_drawerOpen)
-            Positioned(
-              left: drawerWidth,
-              top: 0,
-              right: 0,
-              bottom: 0,
-              child: GestureDetector(
-                onTap: () => setState(() => _drawerOpen = false),
-                child: Container(color: Colors.black26),
-              ),
-            ),
-        ],
-      ),
       bottomNavigationBar: _selectedIds.isEmpty
           ? null
           : SafeArea(
@@ -1183,6 +1207,196 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onPressed: _isUploading ? null : _handleUpload,
         child: const Icon(Icons.add_photo_alternate_rounded),
       ),
+        ),
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: drawerWidth,
+          child: AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, child) {
+              final t = Curves.easeOutCubic.transform(_drawer.value);
+              return Transform.translate(
+                offset: Offset(drawerWidth * (t - 1), 0),
+                child: child,
+              );
+            },
+            child: GestureDetector(
+              onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
+              onHorizontalDragEnd: _onDrawerHorizontalEnd,
+              child: FolderDrawer(
+                folders: _folders,
+                selectedFolderId: _query.folder,
+                totalCount: _totalCount,
+                onSelect: _selectFolder,
+                libraryName: libraryTitle,
+                onSwitchLibrary: _showLibraryPicker,
+                onSearch: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SearchScreen()),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, _) {
+              final t = Curves.easeOutCubic.transform(_drawer.value);
+              return IgnorePointer(
+                ignoring: t <= 0,
+                child: Padding(
+                  padding: EdgeInsets.only(left: drawerWidth * t),
+                  child: GestureDetector(
+                    onTap: () => _snapDrawer(open: false),
+                    onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
+                    onHorizontalDragEnd: _onDrawerHorizontalEnd,
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.28 * t),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, child) {
+              final t = Curves.easeOutCubic.transform(_drawer.value);
+              return Transform.translate(
+                offset: Offset(drawerWidth * t, 0),
+                child: child,
+              );
+            },
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    theme.colorScheme.surface,
+                    theme.colorScheme.surface,
+                    theme.colorScheme.surface.withValues(alpha: 0),
+                  ],
+                  stops: const [0, 0.55, 1],
+                ),
+              ),
+              child: SafeArea(
+            bottom: false,
+            child: SizedBox(
+              height: kToolbarHeight + 8,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  children: [
+                    _roundIconButton(
+                      icon: Icons.folder_outlined,
+                      tooltip: '文件夹',
+                      onPressed: () => _snapDrawer(open: !_drawerOpen),
+                    ),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _roundIconButton(
+                        icon: Icons.search,
+                        tooltip: '搜索',
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const SearchScreen()),
+                          );
+                        },
+                      ),
+                    ),
+                    PopupMenuButton<String>(
+                      tooltip: '更多',
+                      offset: const Offset(0, 48),
+                      padding: EdgeInsets.zero,
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'filter':
+                            _openFilterSheet();
+                          case 'inbox':
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const InboxScreen()),
+                            );
+                          case 'disconnect':
+                            _disconnect();
+                        }
+                      },
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          value: 'filter',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.filter_list, size: 20),
+                              const SizedBox(width: 12),
+                              const Text('筛选'),
+                              if (_query.toQueryString().isNotEmpty) ...[
+                                const Spacer(),
+                                Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
+                              ],
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'inbox',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.inbox_outlined, size: 20),
+                              const SizedBox(width: 12),
+                              const Text('收件箱'),
+                              if (_inboxCount > 0) ...[
+                                const Spacer(),
+                                Text('$_inboxCount'),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'disconnect',
+                          child: Row(
+                            children: [
+                              Icon(Icons.wifi_off_outlined, size: 20),
+                              SizedBox(width: 12),
+                              Text('断开连接'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      child: Material(
+                        color: theme.colorScheme.surface,
+                        elevation: 0,
+                        shadowColor: Colors.transparent,
+                        shape: CircleBorder(
+                          side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
+                        ),
+                        child: const SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Icon(Icons.more_horiz, size: 24),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ),
+            ),
+          ),
+        ),
+      ],
+    ),
     );
   }
 }

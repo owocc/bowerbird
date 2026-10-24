@@ -18,24 +18,33 @@ String itemPreviewHeroTag(String itemId) => 'item-preview-$itemId';
 /// a large preview, with the action drawer rising from the bottom edge.
 Future<ItemPreviewAction?> showItemPreviewOverlay(
   BuildContext context,
-  MobileItem item,
-) {
+  MobileItem item, {
+  double initialDragOffset = 0,
+}) {
   HapticFeedback.mediumImpact();
   return Navigator.of(context).push<ItemPreviewAction>(
     PageRouteBuilder<ItemPreviewAction>(
       opaque: false,
       barrierColor: Colors.transparent,
-      transitionDuration: const Duration(milliseconds: 280),
+      transitionDuration: const Duration(milliseconds: 220),
       reverseTransitionDuration: const Duration(milliseconds: 240),
-      pageBuilder: (_, _, _) => ItemPreviewOverlay(item: item),
+      pageBuilder: (_, _, _) => ItemPreviewOverlay(
+        item: item,
+        initialDragOffset: initialDragOffset,
+      ),
     ),
   );
 }
 
 class ItemPreviewOverlay extends StatefulWidget {
-  const ItemPreviewOverlay({super.key, required this.item});
+  const ItemPreviewOverlay({
+    super.key,
+    required this.item,
+    this.initialDragOffset = 0,
+  });
 
   final MobileItem item;
+  final double initialDragOffset;
 
   @override
   State<ItemPreviewOverlay> createState() => _ItemPreviewOverlayState();
@@ -48,7 +57,7 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
   static const double _drawerHandleArea = 30;
   static const double _drawerListPadding = 8;
 
-  double _dragOffset = 0;
+  late double _dragOffset;
   bool _dragging = false;
   double _drawerDragOffset = 0;
   bool _drawerDragging = false;
@@ -56,6 +65,12 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
   bool _deleting = false;
 
   MobileItem get _item => widget.item;
+
+  @override
+  void initState() {
+    super.initState();
+    _dragOffset = widget.initialDragOffset;
+  }
 
   void _close([ItemPreviewAction? action]) {
     if (_closing || _deleting) return;
