@@ -232,9 +232,11 @@ class AppTheme {
         elevation: 8,
         shadowColor: Colors.black.withValues(alpha: 0.10),
       ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: background,
+        modalBackgroundColor: background,
+        surfaceTintColor: Colors.transparent,
+        shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.cardLarge)),
         ),
         elevation: 8,
