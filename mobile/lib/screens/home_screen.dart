@@ -16,7 +16,6 @@ import '../services/share_tag_service.dart';
 import '../widgets/share_tag_badge.dart';
 import 'detail_screen.dart';
 import 'inbox_screen.dart';
-import '../widgets/item_preview_overlay.dart';
 import '../widgets/folder_drawer.dart';
 import '../widgets/filter_sheet.dart';
 import 'search_screen.dart';
@@ -48,7 +47,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final RefreshGate _refreshGate = RefreshGate();
   DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
   int _inboxCount = InboxService.instance.count;
-  bool _drawerOpen = false;
+  double _drawerOffset = 0;
+  bool _drawerDragging = false;
   ItemQuery _query = const ItemQuery();
   List<MobileFolder> _folders = [];
   List<MobileTag> _tags = [];
@@ -95,8 +95,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         final data = event['data'] as Map<String, dynamic>? ?? event;
         final newName = data['name'] as String?;
         if (newName != null && newName.isNotEmpty) {
-          setState(() => ApiService.instance.libraryName = newName);
+          setState(() {
+            ApiService.instance.libraryName = newName;
+            _query = const ItemQuery();
+            _selectedIds.clear();
+          });
         }
+        unawaited(_loadNavMetadata());
         _refreshGate.schedule(() => _loadItems(refresh: true));
       }
     });
@@ -271,9 +276,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   int get _crossAxisCount => _gridScale.round().clamp(2, 5);
 
+  bool get _drawerOpen => _drawerOffset > 0.001;
+
+  void _setDrawerOpen(bool open) {
+    setState(() {
+      _drawerDragging = false;
+      _drawerOffset = open ? 1 : 0;
+    });
+  }
+
   void _selectFolder(String? folderId) {
     setState(() {
-      _drawerOpen = false;
+      _drawerDragging = false;
+      _drawerOffset = 0;
       _query = ItemQuery(
         text: _query.text,
         type: _query.type,
@@ -457,28 +472,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openItemPreview(MobileItem item, int globalIndex) async {
-    final action = await showItemPreviewOverlay(context, item);
-    if (!mounted || action == null) return;
-
-    switch (action) {
-      case ItemPreviewAction.viewDetail:
-        await _openDetail(globalIndex);
-      case ItemPreviewAction.copyContent:
-        await _copyItemContent(item);
-      case ItemPreviewAction.download:
-        await _downloadItem(item);
-      case ItemPreviewAction.share:
-        await _shareItem(item);
-      case ItemPreviewAction.delete:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已移入废纸篓')),
-        );
-        _markLocalMutation();
-        await _reloadWindow();
-    }
-  }
-
   Future<void> _disconnect({bool silent = false}) async {
     if (!silent) {
       final confirm = await showDialog<bool>(
@@ -582,11 +575,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               try {
                                 await ApiService.instance.switchLibrary(lib.path);
                                 if (mounted) {
-                                  setState(() => ApiService.instance.libraryName = lib.name);
+                                  setState(() {
+                                    ApiService.instance.libraryName = lib.name;
+                                    _query = const ItemQuery();
+                                    _selectedIds.clear();
+                                    _folders = [];
+                                    _tags = [];
+                                    _colors = [];
+                                  });
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text('已切换至资源库: ${lib.name}')),
                                   );
                                   _loadItems(refresh: true);
+                                  unawaited(_loadNavMetadata());
                                 }
                               } catch (e) {
                                 if (mounted) {
@@ -754,100 +755,56 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     }
   }
+  Widget _circleIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    Widget? badge,
+  }) {
+    final theme = Theme.of(context);
+    final button = Material(
+      color: theme.colorScheme.surface.withValues(alpha: 0.92),
+      shape: const CircleBorder(),
+      elevation: 2,
+      shadowColor: Colors.black26,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(icon, size: 20, color: theme.colorScheme.onSurface),
+        ),
+      ),
+    );
+    return Tooltip(
+      message: tooltip,
+      child: badge == null
+          ? button
+          : Badge(
+              isLabelVisible: true,
+              smallSize: 8,
+              child: button,
+            ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final grouped = _groupItemsByMonth(_items);
+    final media = MediaQuery.of(context);
+    final drawerWidth = media.size.width * 2 / 3;
+    final slide = _drawerOffset * drawerWidth;
 
-    final drawerWidth = MediaQuery.sizeOf(context).width * 2 / 3;
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.folder_outlined),
-          tooltip: '文件夹',
-          onPressed: () => setState(() => _drawerOpen = !_drawerOpen),
-        ),
-        title: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: _showLibraryPicker,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              ApiService.instance.libraryName ?? 'Bowerbird',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(Icons.arrow_drop_down, size: 20),
-                        ],
-                      ),
-                      Text(
-                        '共 $_totalCount 个素材 • 点击切库',
-                        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: _query.toQueryString().isNotEmpty,
-              child: const Icon(Icons.filter_list),
-            ),
-            tooltip: '筛选',
-            onPressed: _openFilterSheet,
-          ),
-          Badge.count(
-            count: _inboxCount,
-            isLabelVisible: _inboxCount > 0,
-            child: IconButton(
-              icon: const Icon(Icons.inbox_outlined),
-              tooltip: '收件箱',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const InboxScreen()),
-                );
-              },
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: 'Search & Filter',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const SearchScreen()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.wifi_off_outlined),
-            tooltip: 'Disconnect',
-            onPressed: _disconnect,
-          ),
-        ],
-      ),
+      extendBodyBehindAppBar: true,
       body: Stack(
         children: [
           AnimatedContainer(
-            duration: const Duration(milliseconds: 280),
+            duration: _drawerDragging ? Duration.zero : const Duration(milliseconds: 280),
             curve: Curves.easeOutCubic,
-            transform: Matrix4.translationValues(_drawerOpen ? drawerWidth : 0, 0, 0),
+            transform: Matrix4.translationValues(slide, 0, 0),
             child: GestureDetector(
               onScaleStart: (details) {
                 if (details.pointerCount >= 2) {
@@ -895,6 +852,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     controller: _scrollController,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
+                      SliverToBoxAdapter(child: SizedBox(height: media.padding.top + 56)),
                       ...grouped.entries.expand((entry) {
                         final monthName = entry.key;
                         final monthItems = entry.value;
@@ -949,19 +907,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                         _openDetail(globalIndex);
                                       }
                                     },
-                                    onLongPress: () {
-                                      if (_selectedIds.isEmpty) {
-                                        _toggleSelected(item);
-                                      } else {
-                                        _openItemPreview(item, globalIndex);
-                                      }
-                                    },
+                                    onLongPress: () => _toggleSelected(item),
                                     child: Stack(
                                       fit: StackFit.expand,
                                       children: [
-                                        Hero(
-                                          tag: itemPreviewHeroTag(item.id),
-                                          child: Image.network(
+                                        Image.network(
                                             useAnimatedGif
                                                 ? ApiService.instance.getOriginalUrl(item.id)
                                                 : ApiService.instance.getThumbnailUrl(item.id),
@@ -998,7 +948,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                               );
                                             },
                                           ),
-                                        ),
                                         if (item.isVideo)
                                           Positioned(
                                             top: 4,
@@ -1104,30 +1053,137 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
           AnimatedPositioned(
-            duration: const Duration(milliseconds: 280),
+            duration: _drawerDragging ? Duration.zero : const Duration(milliseconds: 280),
             curve: Curves.easeOutCubic,
-            left: _drawerOpen ? 0 : -drawerWidth,
+            left: slide - drawerWidth,
             top: 0,
             bottom: 0,
             width: drawerWidth,
-            child: FolderDrawer(
-              folders: _folders,
-              selectedFolderId: _query.folder,
-              totalCount: _totalCount,
-              onSelect: _selectFolder,
+            child: GestureDetector(
+              onHorizontalDragUpdate: (d) {
+                setState(() {
+                  _drawerDragging = true;
+                  _drawerOffset = ((_drawerOffset * drawerWidth + d.delta.dx) / drawerWidth).clamp(0.0, 1.0);
+                });
+              },
+              onHorizontalDragEnd: (d) {
+                final velocity = d.primaryVelocity ?? 0;
+                _setDrawerOpen(velocity > 300 || (_drawerOffset > 0.45 && velocity > -200));
+              },
+              child: FolderDrawer(
+                folders: _folders,
+                selectedFolderId: _query.folder,
+                totalCount: _totalCount,
+                onSelect: _selectFolder,
+              ),
             ),
           ),
-          if (_drawerOpen)
+          if (_drawerOffset > 0)
             Positioned(
-              left: drawerWidth,
+              left: slide,
               top: 0,
               right: 0,
               bottom: 0,
               child: GestureDetector(
-                onTap: () => setState(() => _drawerOpen = false),
-                child: Container(color: Colors.black26),
+                onTap: () => _setDrawerOpen(false),
+                onHorizontalDragUpdate: (d) {
+                  setState(() {
+                    _drawerDragging = true;
+                    _drawerOffset = ((_drawerOffset * drawerWidth + d.delta.dx) / drawerWidth).clamp(0.0, 1.0);
+                  });
+                },
+                onHorizontalDragEnd: (d) {
+                  final velocity = d.primaryVelocity ?? 0;
+                  _setDrawerOpen(velocity > 300 || (_drawerOffset > 0.45 && velocity > -200));
+                },
+                child: Container(color: Colors.black.withValues(alpha: 0.28 * _drawerOffset)),
               ),
             ),
+          Positioned(
+            top: 0,
+            left: slide,
+            right: -slide,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                child: Row(
+                  children: [
+                    _circleIconButton(
+                      icon: Icons.folder_outlined,
+                      tooltip: '文件夹',
+                      onPressed: () => _setDrawerOpen(!_drawerOpen),
+                    ),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: _showLibraryPicker,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    ApiService.instance.libraryName ?? 'Bowerbird',
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                                const Icon(Icons.arrow_drop_down, size: 20),
+                              ],
+                            ),
+                            Text(
+                              '共 $_totalCount 个素材',
+                              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    _circleIconButton(
+                      icon: Icons.filter_list,
+                      tooltip: '筛选',
+                      onPressed: _openFilterSheet,
+                      badge: _query.toQueryString().isNotEmpty ? const SizedBox.shrink() : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Badge.count(
+                      count: _inboxCount,
+                      isLabelVisible: _inboxCount > 0,
+                      child: _circleIconButton(
+                        icon: Icons.inbox_outlined,
+                        tooltip: '收件箱',
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const InboxScreen()),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _circleIconButton(
+                      icon: Icons.search,
+                      tooltip: '搜索',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const SearchScreen()),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _circleIconButton(
+                      icon: Icons.wifi_off_outlined,
+                      tooltip: '断开连接',
+                      onPressed: _disconnect,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       bottomNavigationBar: _selectedIds.isEmpty
@@ -1156,11 +1212,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ),
             ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'upload_fab',
-        tooltip: '上传素材到电脑',
-        onPressed: _isUploading ? null : _handleUpload,
-        child: const Icon(Icons.add_photo_alternate_rounded),
+      floatingActionButton: Material(
+        color: theme.colorScheme.primary,
+        shape: const CircleBorder(),
+        elevation: 4,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: _isUploading ? null : _handleUpload,
+          child: const SizedBox(
+            width: 56,
+            height: 56,
+            child: Icon(Icons.add_photo_alternate_rounded, color: Colors.white),
+          ),
+        ),
       ),
     );
   }

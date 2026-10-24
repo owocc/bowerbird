@@ -37,6 +37,8 @@ class _DetailScreenState extends State<DetailScreen> {
   bool _isCopying = false;
   bool _isDeleting = false;
   double? _copyProgress;
+  double _actionPull = 0;
+  bool _actionPulling = false;
 
   @override
   void initState() {
@@ -279,6 +281,26 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  void _onActionPullUpdate(DragUpdateDetails details) {
+    final next = _actionPull - details.delta.dy;
+    setState(() {
+      _actionPulling = true;
+      _actionPull = next.clamp(0.0, 280.0);
+    });
+  }
+
+  void _onActionPullEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final shouldOpen = _actionPull > 96 || velocity < -700;
+    setState(() {
+      _actionPulling = false;
+      _actionPull = 0;
+    });
+    if (shouldOpen) {
+      _showFullMetadataSheet(_currentItem);
+    }
+  }
+
   void _showFullMetadataSheet(MobileItem item) {
     final detail = _currentDetail;
     final dateStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(item.dateTime);
@@ -318,6 +340,45 @@ class _DetailScreenState extends State<DetailScreen> {
                   Text(
                     item.filename,
                     style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _copyCurrentContent();
+                        },
+                        icon: const Icon(Icons.copy_rounded, size: 18),
+                        label: const Text('复制图片'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _downloadCurrentItem();
+                        },
+                        icon: const Icon(Icons.download_rounded, size: 18),
+                        label: const Text('下载'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _shareCurrentItem();
+                        },
+                        icon: const Icon(Icons.share_rounded, size: 18),
+                        label: const Text('分享'),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.pop(sheetContext);
+                          _confirmDeleteCurrentItem();
+                        },
+                        icon: Icon(Icons.delete_outline, size: 18, color: theme.colorScheme.error),
+                        label: Text('删除', style: TextStyle(color: theme.colorScheme.error)),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 12),
                   const Divider(),
@@ -591,14 +652,18 @@ class _DetailScreenState extends State<DetailScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          PageView.builder(
-            controller: _pageController,
-            itemCount: _items.length,
-            onPageChanged: _onPageChanged,
-            itemBuilder: (context, index) {
-              final item = _items[index];
-              return _buildPage(item, index);
-            },
+          GestureDetector(
+            onVerticalDragUpdate: _onActionPullUpdate,
+            onVerticalDragEnd: _onActionPullEnd,
+            child: PageView.builder(
+              controller: _pageController,
+              itemCount: _items.length,
+              onPageChanged: _onPageChanged,
+              itemBuilder: (context, index) {
+                final item = _items[index];
+                return _buildPage(item, index);
+              },
+            ),
           ),
 
           // Top Overlay Bar
@@ -748,6 +813,47 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ),
 
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              ignoring: _actionPull <= 0,
+              child: AnimatedContainer(
+                duration: _actionPulling ? Duration.zero : const Duration(milliseconds: 180),
+                height: _actionPull,
+                curve: Curves.easeOutCubic,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.72),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                  ),
+                  alignment: Alignment.topCenter,
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white38,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_actionPull > 56)
+                        TextButton.icon(
+                          onPressed: () => _showFullMetadataSheet(currentItem),
+                          icon: const Icon(Icons.info_outline, color: Colors.white),
+                          label: const Text('查看详情', style: TextStyle(color: Colors.white)),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
           // Bottom Metadata Bar
           if (_showOverlays)
             Positioned(
@@ -756,6 +862,8 @@ class _DetailScreenState extends State<DetailScreen> {
               right: 0,
               child: GestureDetector(
                 onTap: () => _showFullMetadataSheet(currentItem),
+                onVerticalDragUpdate: _onActionPullUpdate,
+                onVerticalDragEnd: _onActionPullEnd,
                 child: Container(
                   padding: EdgeInsets.only(
                     top: 16,
