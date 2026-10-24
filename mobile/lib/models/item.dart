@@ -235,6 +235,14 @@ class MobileFolder {
           .toList(),
     );
   }
+
+  List<MobileFolder> flatten({int depth = 0}) {
+    final out = <MobileFolder>[this];
+    for (final child in children) {
+      out.addAll(child.flatten(depth: depth + 1));
+    }
+    return out;
+  }
 }
 enum PairingErrorType {
   invalidCode,

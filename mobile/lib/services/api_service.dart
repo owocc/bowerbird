@@ -467,6 +467,28 @@ class ApiService {
     return [];
   }
 
+  Future<void> addTagToItem(String itemId, String tag) async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/items/$itemId/tags');
+    final response = await http
+        .post(uri, headers: authHeaders, body: jsonEncode({'tag': tag}))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw Exception('添加标签失败: HTTP ${response.statusCode}');
+    }
+  }
+
+  Future<void> addItemToFolder(String itemId, String folderId) async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/items/$itemId/folders');
+    final response = await http
+        .post(uri, headers: authHeaders, body: jsonEncode({'folderId': folderId}))
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw Exception('添加到文件夹失败: HTTP ${response.statusCode}');
+    }
+  }
+
   Future<List<MobileFolder>> getFolders() async {
     if (baseUrl == null) throw Exception('Base URL is not configured');
     final uri = Uri.parse('$baseUrl/api/v1/folders');

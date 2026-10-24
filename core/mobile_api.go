@@ -188,7 +188,7 @@ func (s *MobileServer) Start() error {
 	mux.HandleFunc("/api/v1/colors", s.authMiddleware(s.handleColorsList))
 	mux.HandleFunc("/api/v1/items", s.authMiddleware(s.handleItemsList))
 	mux.HandleFunc("/api/v1/query", s.authMiddleware(s.handleQuery))
-	mux.HandleFunc("/api/v1/items/", s.authMiddleware(s.handleItemDetail))
+	mux.HandleFunc("/api/v1/items/", s.authMiddleware(s.handleItemRoutes))
 	mux.HandleFunc("/api/v1/thumbs/", s.authMiddleware(s.handleThumbnail))
 	mux.HandleFunc("/api/v1/originals/", s.authMiddleware(s.handleOriginal))
 	s.httpServer = &http.Server{
@@ -1364,18 +1364,94 @@ func deriveOrientation(it Item) string {
 	return "landscape"
 }
 
-// handleItemDetail returns complete item metadata, or moves the item to the
-// recycle bin when called with DELETE.
-func (s *MobileServer) handleItemDetail(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+// handleItemRoutes dispatches /api/v1/items/{id} and nested tag/folder writes.
+func (s *MobileServer) handleItemRoutes(w http.ResponseWriter, r *http.Request) {
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/v1/items/"), "/")
+	if rest == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "item id is required")
+		return
+	}
+	parts := strings.Split(rest, "/")
+	itemID := strings.TrimSpace(parts[0])
+	if itemID == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_ID", "item id is required")
+		return
+	}
+	if len(parts) == 1 {
+		s.handleItemDetail(w, r, itemID)
+		return
+	}
+	switch parts[1] {
+	case "tags":
+		s.handleItemAddTag(w, r, itemID)
+	case "folders":
+		s.handleItemAddFolder(w, r, itemID)
+	default:
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "unknown item route")
+	}
+}
+
+func (s *MobileServer) handleItemAddTag(w http.ResponseWriter, r *http.Request, itemID string) {
+	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
+		return
+	}
+	var body struct {
+		Tag string `json:"tag"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid json")
+		return
+	}
+	tag := strings.TrimSpace(body.Tag)
+	if tag == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_TAG", "tag is required")
+		return
+	}
+	if err := s.manager.AddTagToItem(itemID, tag); err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]any{"id": itemID, "tag": tag})
+}
 
-	itemID := strings.TrimPrefix(r.URL.Path, "/api/v1/items/")
-	itemID = strings.TrimSpace(strings.Split(itemID, "/")[0])
-	if itemID == "" {
-		writeError(w, http.StatusBadRequest, "INVALID_ID", "item id is required")
+func (s *MobileServer) handleItemAddFolder(w http.ResponseWriter, r *http.Request, itemID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
+		return
+	}
+	var body struct {
+		FolderID string `json:"folderId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_BODY", "invalid json")
+		return
+	}
+	folderID := strings.TrimSpace(body.FolderID)
+	if folderID == "" {
+		writeError(w, http.StatusBadRequest, "INVALID_FOLDER", "folderId is required")
+		return
+	}
+	if err := s.manager.AddItemToFolder(itemID, folderID); err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]any{"id": itemID, "folderId": folderID})
+}
+
+// handleItemDetail returns complete item metadata, or moves the item to the
+// recycle bin when called with DELETE.
+func (s *MobileServer) handleItemDetail(w http.ResponseWriter, r *http.Request, itemID string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
 		return
 	}
 
