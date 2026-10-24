@@ -21,6 +21,8 @@ class FolderDrawer extends StatelessWidget {
     return Material(
       color: theme.colorScheme.surfaceContainerLow,
       child: SafeArea(
+        top: true,
+        bottom: true,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
