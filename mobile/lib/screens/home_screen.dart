@@ -324,10 +324,12 @@ class _HomeScreenState extends State<HomeScreen>
   }) {
     final theme = Theme.of(context);
     final button = Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      shape: const CircleBorder(),
-      elevation: 1,
-      shadowColor: Colors.black26,
+      color: theme.colorScheme.surface,
+      elevation: 0,
+      shadowColor: Colors.transparent,
+      shape: CircleBorder(
+        side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
+      ),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onPressed,
@@ -838,8 +840,7 @@ class _HomeScreenState extends State<HomeScreen>
     final grouped = _groupItemsByMonth(_items);
 
     final drawerWidth = _drawerWidth;
-    final topInset = MediaQuery.paddingOf(context).top;
-    final headerHeight = kToolbarHeight + topInset;
+    final libraryTitle = ApiService.instance.libraryName ?? 'Bowerbird';
     return Material(
       color: theme.colorScheme.surface,
       child: Stack(
@@ -859,99 +860,31 @@ class _HomeScreenState extends State<HomeScreen>
             );
           },
           child: Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: theme.colorScheme.surface,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         centerTitle: true,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: _roundIconButton(
-            icon: Icons.folder_outlined,
-            tooltip: '文件夹',
-            onPressed: () => _snapDrawer(open: !_drawerOpen),
-          ),
-        ),
-        title: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: _showLibraryPicker,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Flexible(
-                      child: Text(
-                        ApiService.instance.libraryName ?? 'Bowerbird',
-                        style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const Icon(Icons.arrow_drop_down, size: 20),
-                  ],
-                ),
-                Text(
-                  '共 $_totalCount 个素材 • 点击切库',
-                  style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                ),
+        automaticallyImplyLeading: false,
+        flexibleSpace: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                theme.colorScheme.surface,
+                theme.colorScheme.surface.withValues(alpha: 0),
               ],
             ),
           ),
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: _roundIconButton(
-              icon: Icons.filter_list,
-              tooltip: '筛选',
-              onPressed: _openFilterSheet,
-              badgeChild: Badge(
-                isLabelVisible: _query.toQueryString().isNotEmpty,
-                child: _roundIconButton(
-                  icon: Icons.filter_list,
-                  onPressed: _openFilterSheet,
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: Badge.count(
-              count: _inboxCount,
-              isLabelVisible: _inboxCount > 0,
-              child: _roundIconButton(
-                icon: Icons.inbox_outlined,
-                tooltip: '收件箱',
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const InboxScreen()),
-                  );
-                },
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 6),
-            child: _roundIconButton(
-              icon: Icons.search,
-              tooltip: 'Search & Filter',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SearchScreen()),
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: _roundIconButton(
-              icon: Icons.wifi_off_outlined,
-              tooltip: 'Disconnect',
-              onPressed: _disconnect,
-            ),
-          ),
-        ],
+        title: Text(
+          libraryTitle,
+          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       body: GestureDetector(
               onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
@@ -973,7 +906,7 @@ class _HomeScreenState extends State<HomeScreen>
         child: _errorMessage != null && _items.isEmpty
             ? Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: EdgeInsets.fromLTRB(24, MediaQuery.paddingOf(context).top + kToolbarHeight, 24, 24),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -997,7 +930,7 @@ class _HomeScreenState extends State<HomeScreen>
             : _items.isEmpty && !_isLoading
                 ? Center(
                     child: Padding(
-                      padding: const EdgeInsets.all(32),
+                      padding: EdgeInsets.fromLTRB(32, MediaQuery.paddingOf(context).top + kToolbarHeight, 32, 32),
                       child: Text(
                         '资料库是空的',
                         style: theme.textTheme.titleMedium?.copyWith(
@@ -1011,6 +944,9 @@ class _HomeScreenState extends State<HomeScreen>
                     controller: _scrollController,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
+                      SliverToBoxAdapter(
+                        child: SizedBox(height: MediaQuery.paddingOf(context).top + kToolbarHeight),
+                      ),
                       ...grouped.entries.expand((entry) {
                         final monthName = entry.key;
                         final monthItems = entry.value;
@@ -1292,6 +1228,8 @@ class _HomeScreenState extends State<HomeScreen>
                 selectedFolderId: _query.folder,
                 totalCount: _totalCount,
                 onSelect: _selectFolder,
+                libraryName: libraryTitle,
+                onSwitchLibrary: _showLibraryPicker,
                 onSearch: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const SearchScreen()),
@@ -1301,11 +1239,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
         ),
-        Positioned(
-          left: 0,
-          top: headerHeight,
-          right: 0,
-          bottom: 0,
+        Positioned.fill(
           child: AnimatedBuilder(
             animation: _drawer,
             builder: (context, _) {
@@ -1326,6 +1260,88 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               );
             },
+          ),
+        ),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, child) {
+              final t = Curves.easeOutCubic.transform(_drawer.value);
+              return Transform.translate(
+                offset: Offset(drawerWidth * t, 0),
+                child: child,
+              );
+            },
+            child: SafeArea(
+            bottom: false,
+            child: SizedBox(
+              height: kToolbarHeight,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    _roundIconButton(
+                      icon: Icons.folder_outlined,
+                      tooltip: '文件夹',
+                      onPressed: () => _snapDrawer(open: !_drawerOpen),
+                    ),
+                    const Spacer(),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _roundIconButton(
+                        icon: Icons.filter_list,
+                        tooltip: '筛选',
+                        onPressed: _openFilterSheet,
+                        badgeChild: Badge(
+                          isLabelVisible: _query.toQueryString().isNotEmpty,
+                          child: _roundIconButton(
+                            icon: Icons.filter_list,
+                            onPressed: _openFilterSheet,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Badge.count(
+                        count: _inboxCount,
+                        isLabelVisible: _inboxCount > 0,
+                        child: _roundIconButton(
+                          icon: Icons.inbox_outlined,
+                          tooltip: '收件箱',
+                          onPressed: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const InboxScreen()),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: _roundIconButton(
+                        icon: Icons.search,
+                        tooltip: 'Search & Filter',
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const SearchScreen()),
+                          );
+                        },
+                      ),
+                    ),
+                    _roundIconButton(
+                      icon: Icons.wifi_off_outlined,
+                      tooltip: 'Disconnect',
+                      onPressed: _disconnect,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            ),
           ),
         ),
       ],
