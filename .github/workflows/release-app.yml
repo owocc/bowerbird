@@ -85,11 +85,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Plugins
-        run: node scripts/build-plugins.mjs
+        run: pnpm run build:plugins
 
       - name: Build and Package macOS (arm64 + x64)
         run: |
-          CGO_ENABLED=1 go tool mygo build -platform "darwin/arm64,darwin/amd64"
+          CGO_ENABLED=1 pnpm run build:app:macos
 
       - name: Collect macOS Artifacts
         run: |
@@ -179,12 +179,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Plugins
-        run: node scripts/build-plugins.mjs
+        run: pnpm run build:plugins
 
       - name: Build and Package Windows
         shell: pwsh
         run: |
-          go tool mygo build -platform "windows/amd64"
+          pnpm run build:app:windows
 
       - name: Collect Windows Artifacts
         shell: pwsh
@@ -266,11 +266,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Plugins
-        run: node scripts/build-plugins.mjs
+        run: pnpm run build:plugins
 
       - name: Build and Package Linux
         run: |
-          go tool mygo build -platform "linux/amd64"
+          pnpm run build:app:linux
 
       - name: Collect Linux Artifacts
         run: |

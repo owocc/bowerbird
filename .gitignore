@@ -26,5 +26,8 @@ extension/.wxt
 .gomodcache/
 .pnpm-store/
 /build/mygo/
+# mygo CLI dev cache and local dev binary produced by `pnpm dev`
+/.mygo/
+/bowerbird
 .tmp-*
 /tmp-*

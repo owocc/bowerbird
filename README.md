@@ -157,6 +157,56 @@ Bowerbird enforces a strict physical separation between **User Libraries** and *
 
 ## Development & Verification
 
+All dev/build commands live in the root `package.json` `scripts` block — run them with `pnpm run <script>`.
+
+### Development
+
+> **cgo is required.** The native macOS implementations in `core/`
+> (`sysicon_darwin.go`, `videothumb_darwin.go`, `drag_darwin.go`) contain
+> `import "C"`. With `CGO_ENABLED=0` Go silently drops them, and their
+> `!darwin || ios` fallbacks are also excluded on darwin — so symbols like
+> `StartDragItems` / `GetSystemFileIconPNG` vanish and the build fails with
+> `undefined: ...` errors. The `pnpm dev` / `pnpm build:app*` scripts route
+> through `scripts/mygo.mjs`, which forces `CGO_ENABLED=1` on every platform.
+
+```bash
+pnpm dev                 # mygo dev mode (Go backend + Vite HMR via mygo devCommand)
+pnpm dev:frontend        # Vite dev server only (frontend)
+pnpm dev:marketplace     # Marketplace (apps/marketplace) dev server
+pnpm dev:docs            # Docs site (apps/docs) dev server
+pnpm dev:extension       # Web extension dev (Chrome); :firefox variant available
+```
+
+### Build
+
+```bash
+pnpm build               # plugins + frontend bundle (what mygo build consumes)
+pnpm build:release       # plugins + frontend + mygo build
+pnpm build:app           # mygo build (current platform)
+pnpm build:app:macos     # macOS universal (arm64 + amd64)
+pnpm build:app:windows   # Windows amd64 (portable exe + NSIS installer)
+pnpm build:app:linux     # Linux amd64
+
+pnpm build:packages      # workspace packages (@bowerbird/plugin-sdk, @workspace/ui)
+pnpm build:plugins       # scripts/build-plugins.mjs -> dist/plugins/*.zip + index.min.json
+pnpm build:frontend      # typecheck + production frontend bundle
+pnpm build:extension     # web extension (Chrome); :firefox / :edge / :safari variants
+pnpm build:marketplace   # marketplace app
+pnpm build:docs          # docs site
+pnpm build:all           # every JS/TS workspace target
+```
+
+### Verify / Utility
+
+```bash
+pnpm test                # go test ./...
+pnpm test:watch          # go test -count=1 -v ./...
+pnpm typecheck           # tsc / astro check across every package that defines one
+pnpm clean               # remove build outputs (frontend/dist, dist, build/mygo, ...)
+```
+
+Equivalent raw commands, for reference:
+
 ```bash
 # Run Go backend unit & integration tests
 go test ./...
@@ -165,10 +215,10 @@ go test ./...
 pnpm --filter bowerbird build
 
 # Run in mygo development mode (Vite dev server + Go backend, hot reload)
-go tool mygo dev
+CGO_ENABLED=1 go tool mygo dev
 
 # Production build (per-platform app bundle / installer / disk image under build/mygo/)
-go tool mygo build
+CGO_ENABLED=1 go tool mygo build
 ```
 
 ### Workspace Package Resolution
@@ -188,7 +238,7 @@ Without the Vite option, dev fails with
 
 ### Windows Installer (NSIS)
 
-On Windows, `go tool mygo build` produces both the portable executable and an NSIS installer under `build/mygo/windows-amd64/`.
+On Windows, `go tool mygo build` (via `pnpm run build:app:windows`) produces both the portable executable and an NSIS installer under `build/mygo/windows-amd64/`.
 The installer registers the app under *Apps & features*, installs the WebView2
 runtime when it is missing, and asks the user whether to create shortcuts
 (Start Menu on by default, Desktop optional) plus whether to launch the app.

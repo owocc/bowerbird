@@ -213,23 +213,6 @@ export interface NetworkInterfaceInfo {
   selected: boolean;
 }
 
-/** ShortcutSettings maps action id -> accelerator (e.g. "Alt+A", "CmdOrCtrl+,"). */
-export interface ShortcutSettings {
-  bindings: Record<string, string>;
-}
-
-/** ScreenshotSettings controls how captures are encoded, named, tagged and filed. */
-export interface ScreenshotSettings {
-  format: string;
-  quality: number;
-  naming: string;
-  includeDate: boolean;
-  includeApp: boolean;
-  autoTag: boolean;
-  folderId: string;
-  customPattern?: string;
-}
-
 /** NetworkSettings stores user-configured proxy settings. */
 export interface NetworkSettings {
   /** "system" | "direct" | "custom" */
@@ -278,6 +261,23 @@ export interface QueryPage {
   totalSize: number;
   offset: number;
   limit: number;
+}
+
+/** ScreenshotSettings controls how captures are encoded, named, tagged and filed. */
+export interface ScreenshotSettings {
+  format: string;
+  quality: number;
+  naming: string;
+  includeDate: boolean;
+  includeApp: boolean;
+  autoTag: boolean;
+  folderId: string;
+  customPattern?: string;
+}
+
+/** ShortcutSettings maps action id -> accelerator (e.g. "Alt+A", "CmdOrCtrl+,"). */
+export interface ShortcutSettings {
+  bindings: Record<string, string>;
 }
 
 /** Tag represents a tag taxonomy entry with its item count. */
@@ -464,12 +464,6 @@ export const Service = {
   getNetworkSettings(): Promise<NetworkSettings> {
     return call("Service.GetNetworkSettings");
   },
-  getScreenshotSettings(): Promise<ScreenshotSettings> {
-    return call("Service.GetScreenshotSettings");
-  },
-  getShortcutSettings(): Promise<ShortcutSettings> {
-    return call("Service.GetShortcutSettings");
-  },
   /** GetPendingPluginInstall returns any pending plugin installation request. */
   getPendingPluginInstall(): Promise<PluginInstallRequest | null> {
     return call("Service.GetPendingPluginInstall");
@@ -480,6 +474,12 @@ export const Service = {
   },
   getRecentLibraries(): Promise<string[]> {
     return call("Service.GetRecentLibraries");
+  },
+  getScreenshotSettings(): Promise<ScreenshotSettings> {
+    return call("Service.GetScreenshotSettings");
+  },
+  getShortcutSettings(): Promise<ShortcutSettings> {
+    return call("Service.GetShortcutSettings");
   },
   getTags(): Promise<Tag[]> {
     return call("Service.GetTags");
@@ -715,15 +715,15 @@ export const Service = {
   setNetworkSettings(settings: NetworkSettings): Promise<void> {
     return call("Service.SetNetworkSettings", settings);
   },
+  /** SetPluginEnabled enables or disables the specified plugin. */
+  setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+    return call("Service.SetPluginEnabled", id, enabled);
+  },
   setScreenshotSettings(settings: ScreenshotSettings): Promise<void> {
     return call("Service.SetScreenshotSettings", settings);
   },
   setShortcutSettings(settings: ShortcutSettings): Promise<void> {
     return call("Service.SetShortcutSettings", settings);
-  },
-  /** SetPluginEnabled enables or disables the specified plugin. */
-  setPluginEnabled(id: string, enabled: boolean): Promise<void> {
-    return call("Service.SetPluginEnabled", id, enabled);
   },
   /**
    * SetTheme validates and persists the colour mode, then broadcasts the change
@@ -731,6 +731,9 @@ export const Service = {
    */
   setTheme(theme: string): Promise<void> {
     return call("Service.SetTheme", theme);
+  },
+  shortcutAccelerator(action: string): Promise<string> {
+    return call("Service.ShortcutAccelerator", action);
   },
   startDragItems(ids: string[]): Promise<void> {
     return call("Service.StartDragItems", ids);
