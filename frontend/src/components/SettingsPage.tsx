@@ -21,8 +21,6 @@ import {
   Bookmark,
   MousePointerClick,
   Keyboard,
-  Crop,
-  AppWindow,
   Trash2,
   Store,
   RefreshCw,
