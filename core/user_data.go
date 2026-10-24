@@ -1,7 +1,10 @@
 package core
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -220,10 +223,18 @@ type MobileSettings struct {
 	AllowedNetworks []string           `json:"allowedNetworks,omitempty"`
 }
 
-// MobileTokenEntry represents an authorized mobile client token.
+// Token source identifiers for MobileTokenEntry.Source.
+const (
+	MobileTokenSourcePairing = "pairing"
+	MobileTokenSourceAPI     = "api"
+)
+
+// MobileTokenEntry represents an authorized client token.
 type MobileTokenEntry struct {
+	ID         string `json:"id,omitempty"`
 	Token      string `json:"token"`
 	DeviceName string `json:"deviceName,omitempty"`
+	Source     string `json:"source,omitempty"`
 	CreatedAt  int64  `json:"createdAt"`
 	LastUsedAt int64  `json:"lastUsedAt,omitempty"`
 }
@@ -287,10 +298,51 @@ func (s *UserDataStore) AddMobileToken(entry MobileTokenEntry) error {
 		}
 	}
 	if !found {
+		if entry.ID == "" {
+			entry.ID = newMobileTokenID()
+		}
+		if entry.Source == "" {
+			entry.Source = MobileTokenSourcePairing
+		}
 		s.data.Mobile.Tokens = append(s.data.Mobile.Tokens, entry)
 	}
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
+}
+
+func newMobileTokenID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+// ListMobileTokens returns a copy of persisted tokens.
+func (s *UserDataStore) ListMobileTokens() []MobileTokenEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.Mobile == nil {
+		return []MobileTokenEntry{}
+	}
+	out := make([]MobileTokenEntry, len(s.data.Mobile.Tokens))
+	copy(out, s.data.Mobile.Tokens)
+	return out
+}
+
+// GetMobileTokenByID looks up a token by its public id.
+func (s *UserDataStore) GetMobileTokenByID(id string) (MobileTokenEntry, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.data.Mobile == nil || id == "" {
+		return MobileTokenEntry{}, false
+	}
+	for _, t := range s.data.Mobile.Tokens {
+		if t.ID == id {
+			return t, true
+		}
+	}
+	return MobileTokenEntry{}, false
 }
 
 // HasMobileToken checks if the given token is recognized.

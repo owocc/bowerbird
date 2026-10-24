@@ -11,6 +11,8 @@ export type {
   LibraryInfo,
   LibraryManager,
   LogEntry,
+  CreatedMobileToken,
+  MobileDeviceInfo,
   MobileServerStatus,
   NetworkInterfaceInfo,
   NetworkSettings,

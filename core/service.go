@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -810,5 +812,88 @@ func (s *Service) SetMobileAllowedNetworks(networks []string) error {
 	if server := s.mgr.GetMobileServer(); server != nil && server.IsRunning() {
 		server.RestartMDNS()
 	}
+	return nil
+}
+
+// ListMobileDevices returns persisted pairing/API tokens and live connection state.
+func (s *Service) ListMobileDevices() ([]MobileDeviceInfo, error) {
+	if s.mgr == nil || s.mgr.GetMobileServer() == nil {
+		return []MobileDeviceInfo{}, nil
+	}
+	return s.mgr.GetMobileServer().listDevices(), nil
+}
+
+// CreateMobileAPIToken creates a long-lived API token (same auth as pairing).
+func (s *Service) CreateMobileAPIToken(name string) (*CreatedMobileToken, error) {
+	if s.mgr == nil || s.mgr.userData == nil {
+		return nil, ErrCoreNotInitialized
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "API Token"
+	}
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, err
+	}
+	token := hex.EncodeToString(tokenBytes)
+	now := time.Now().Unix()
+	entry := MobileTokenEntry{
+		DeviceName: name,
+		Token:      token,
+		Source:     MobileTokenSourceAPI,
+		CreatedAt:  now,
+		LastUsedAt: now,
+	}
+	if err := s.mgr.userData.AddMobileToken(entry); err != nil {
+		return nil, err
+	}
+	stored := s.mgr.userData.ListMobileTokens()
+	id := ""
+	for _, t := range stored {
+		if t.Token == token {
+			id = t.ID
+			break
+		}
+	}
+	RecordLog("info", "mobile", fmt.Sprintf("Created API token %s", name), "", 0)
+	return &CreatedMobileToken{
+		ID:        id,
+		Name:      name,
+		Source:    MobileTokenSourceAPI,
+		Token:     token,
+		CreatedAt: now,
+	}, nil
+}
+
+// RevokeMobileDevice removes a pairing or API token and disconnects matching sockets.
+func (s *Service) RevokeMobileDevice(id string) error {
+	if s.mgr == nil || s.mgr.userData == nil {
+		return ErrCoreNotInitialized
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return fmt.Errorf("device id is required")
+	}
+	entry, ok := s.mgr.userData.GetMobileTokenByID(id)
+	if !ok {
+		for _, t := range s.mgr.userData.ListMobileTokens() {
+			if t.Token == id {
+				entry = t
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		return fmt.Errorf("device not found")
+	}
+	if err := s.mgr.userData.RemoveMobileToken(entry.Token); err != nil {
+		return err
+	}
+	if server := s.mgr.GetMobileServer(); server != nil {
+		server.closeClientsWithToken(entry.Token)
+	}
+	RecordLog("info", "mobile", fmt.Sprintf("Revoked token %s", entry.DeviceName), "", 0)
 	return nil
 }

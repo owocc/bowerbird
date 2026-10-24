@@ -144,6 +144,28 @@ func TestMobileAPIEndpoints(t *testing.T) {
 		t.Fatal("expected token to be persisted in UserDataStore")
 	}
 
+	// 4b. Legacy mobile: send pairing code as Bearer; desktop auto-issues a token
+	legacyReq, _ := http.NewRequest(http.MethodGet, baseURL+"/api/v1/items", nil)
+	legacyReq.Header.Set("Authorization", "Bearer "+activeCode)
+	legacyReq.Header.Set("X-Device-Name", "LegacyPhone")
+	resp, err = http.DefaultClient.Do(legacyReq)
+	if err != nil {
+		t.Fatalf("GET /api/v1/items with pairing code failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for pairing-code bearer, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+	legacyFound := false
+	for _, tkn := range mgr.GetUserDataStore().ListMobileTokens() {
+		if tkn.DeviceName == "LegacyPhone" && tkn.Source == MobileTokenSourcePairing {
+			legacyFound = true
+		}
+	}
+	if !legacyFound {
+		t.Fatal("expected desktop to auto-create API token from pairing code")
+	}
+
 	// 5. Import sample assets for testing list, detail, thumb, original
 	samplePNG := "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 	imported1, err := mgr.ImportFromBase64WithOptions("test_image.png", samplePNG, ImportItemOptions{
@@ -362,8 +384,53 @@ func TestMobileAPIEndpoints(t *testing.T) {
 	if !srvStatus.Running || !srvStatus.Enabled {
 		t.Errorf("expected mobile server to be running and enabled: %+v", srvStatus)
 	}
-	if srvStatus.PairedDevices != 1 {
-		t.Errorf("expected 1 paired device, got %d", srvStatus.PairedDevices)
+	if srvStatus.PairedDevices != 2 {
+		t.Errorf("expected 2 paired devices, got %d", srvStatus.PairedDevices)
+	}
+	if len(srvStatus.Devices) != 2 {
+		t.Fatalf("expected 2 devices in status, got %d", len(srvStatus.Devices))
+	}
+	names := map[string]bool{}
+	for _, d := range srvStatus.Devices {
+		names[d.Name] = true
+	}
+	if !names["TestPhone"] || !names["LegacyPhone"] {
+		t.Errorf("expected TestPhone and LegacyPhone, got %+v", names)
+	}
+
+	created, err := svc.CreateMobileAPIToken("CI Token")
+	if err != nil {
+		t.Fatalf("CreateMobileAPIToken failed: %v", err)
+	}
+	if created == nil || len(created.Token) != 64 {
+		t.Fatalf("expected 64-char API token, got %+v", created)
+	}
+	if !mgr.GetUserDataStore().HasMobileToken(created.Token) {
+		t.Fatal("expected API token to be persisted")
+	}
+	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/items", nil)
+	req.Header.Set("Authorization", "Bearer "+created.Token)
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /api/v1/items with API token failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 with API token, got %d", resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	devices, err := svc.ListMobileDevices()
+	if err != nil {
+		t.Fatalf("ListMobileDevices failed: %v", err)
+	}
+	if len(devices) != 3 {
+		t.Fatalf("expected 3 devices, got %d", len(devices))
+	}
+	if err := svc.RevokeMobileDevice(created.ID); err != nil {
+		t.Fatalf("RevokeMobileDevice failed: %v", err)
+	}
+	if mgr.GetUserDataStore().HasMobileToken(created.Token) {
+		t.Fatal("expected API token to be revoked")
 	}
 
 	// Test code regeneration

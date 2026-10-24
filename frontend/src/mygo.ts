@@ -33,6 +33,15 @@ export interface AppMenuItem {
   destructive?: boolean;
 }
 
+/** CreatedMobileToken is returned once when creating an API token. */
+export interface CreatedMobileToken {
+  id: string;
+  name: string;
+  source: string;
+  token: string;
+  createdAt: number;
+}
+
 /** Folder represents a virtual organizational directory in the library. */
 export interface Folder {
   id: string;
@@ -168,6 +177,17 @@ export interface LogEntry {
   durationMs?: number;
 }
 
+/** MobileDeviceInfo is a persisted token shown in desktop connection settings. */
+export interface MobileDeviceInfo {
+  id: string;
+  name: string;
+  source: string;
+  createdAt: number;
+  lastUsedAt?: number;
+  connected: boolean;
+  tokenHint?: string;
+}
+
 /** MobileServerStatus contains desktop-facing diagnostics and pairing details. */
 export interface MobileServerStatus {
   enabled: boolean;
@@ -180,6 +200,7 @@ export interface MobileServerStatus {
   pairingRequired: boolean;
   allowedNetworks: string[];
   availableNetworks: NetworkInterfaceInfo[];
+  devices: MobileDeviceInfo[];
 }
 
 /** NetworkInterfaceInfo describes an available network interface for mobile discovery. */
@@ -357,6 +378,10 @@ export const Service = {
   createLibrary(parentDir: string, libName: string): Promise<LibraryInfo | null> {
     return call("Service.CreateLibrary", parentDir, libName);
   },
+  /** CreateMobileAPIToken creates a long-lived API token (same auth as pairing). */
+  createMobileAPIToken(name: string): Promise<CreatedMobileToken | null> {
+    return call("Service.CreateMobileAPIToken", name);
+  },
   createTag(name: string): Promise<Tag | null> {
     return call("Service.CreateTag", name);
   },
@@ -371,6 +396,10 @@ export const Service = {
   },
   emptyTrash(): Promise<void> {
     return call("Service.EmptyTrash");
+  },
+  /** EnterLightweightMode immediately destroys webview windows. */
+  enterLightweightMode(): Promise<void> {
+    return call("Service.EnterLightweightMode");
   },
   getAPIServerPort(): Promise<number> {
     return call("Service.GetAPIServerPort");
@@ -529,6 +558,10 @@ export const Service = {
   listInstalledPlugins(): Promise<InstalledPlugin[]> {
     return call("Service.ListInstalledPlugins");
   },
+  /** ListMobileDevices returns persisted pairing/API tokens and live connection state. */
+  listMobileDevices(): Promise<MobileDeviceInfo[]> {
+    return call("Service.ListMobileDevices");
+  },
   /**
    * LogDragTrace forwards a frontend drag/drop trace event into the native drag
    * trace file. It is deliberately free of side effects so the frontend can fire
@@ -626,6 +659,10 @@ export const Service = {
   revealLogFile(): Promise<void> {
     return call("Service.RevealLogFile");
   },
+  /** RevokeMobileDevice removes a pairing or API token and disconnects matching sockets. */
+  revokeMobileDevice(id: string): Promise<void> {
+    return call("Service.RevokeMobileDevice", id);
+  },
   saveItemThumbnail(itemID: string, base64Data: string, videoWidth: number, videoHeight: number): Promise<Item | null> {
     return call("Service.SaveItemThumbnail", itemID, base64Data, videoWidth, videoHeight);
   },
@@ -656,13 +693,12 @@ export const Service = {
   setLanguage(language: string): Promise<void> {
     return call("Service.SetLanguage", language);
   },
-  /** SetLightweightModeEnabled persists the idle-webview teardown preference. */
+  /**
+   * SetLightweightModeEnabled persists the preference. Disabling it cancels any
+   * pending idle teardown.
+   */
   setLightweightModeEnabled(enabled: boolean): Promise<void> {
     return call("Service.SetLightweightModeEnabled", enabled);
-  },
-  /** EnterLightweightMode immediately destroys webview windows. */
-  enterLightweightMode(): Promise<void> {
-    return call("Service.EnterLightweightMode");
   },
   setManager(mgr: LibraryManager | null): Promise<void> {
     return call("Service.SetManager", mgr);
