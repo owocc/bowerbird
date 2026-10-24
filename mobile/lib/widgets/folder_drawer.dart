@@ -8,18 +8,20 @@ class FolderDrawer extends StatelessWidget {
     required this.selectedFolderId,
     required this.totalCount,
     required this.onSelect,
+    this.onSearch,
   });
 
   final List<MobileFolder> folders;
   final String? selectedFolderId;
   final int totalCount;
   final ValueChanged<String?> onSelect;
+  final VoidCallback? onSearch;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surfaceContainerLow,
+      color: theme.colorScheme.surface,
       child: SafeArea(
         top: true,
         bottom: true,
@@ -27,10 +29,21 @@ class FolderDrawer extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text(
-                '文件夹',
-                style: theme.textTheme.titleMedium,
+              padding: const EdgeInsets.fromLTRB(16, 8, 4, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '文件夹',
+                      style: theme.textTheme.titleMedium,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '搜索',
+                    onPressed: onSearch,
+                    icon: const Icon(Icons.search),
+                  ),
+                ],
               ),
             ),
             ListTile(

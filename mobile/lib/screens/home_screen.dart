@@ -28,7 +28,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+class _HomeScreenState extends State<HomeScreen>
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   final List<MobileItem> _items = [];
   final ScrollController _scrollController = ScrollController();
 
@@ -49,8 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   final RefreshGate _refreshGate = RefreshGate();
   DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
   int _inboxCount = InboxService.instance.count;
-  double _drawerX = 0;
-  bool _drawerDragging = false;
+  late final AnimationController _drawer;
   ItemQuery _query = const ItemQuery();
   List<MobileFolder> _folders = [];
   List<MobileTag> _tags = [];
@@ -72,6 +72,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _drawer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    );
+    _drawer.addListener(_onDrawerTick);
     _loadItems(refresh: true);
     _loadNavMetadata();
     _scrollController.addListener(_onScroll);
@@ -142,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     InboxService.instance.removeListener(_onInboxChanged);
     ShareTagService.instance.removeListener(_onShareTagsChanged);
     _scrollController.dispose();
+    _drawer.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _refreshGate.cancel();
     super.dispose();
@@ -277,26 +283,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   double get _drawerWidth => MediaQuery.sizeOf(context).width * 2 / 3;
 
-  bool get _drawerOpen => _drawerX > _drawerWidth * 0.5;
+  bool _drawerInteractable = false;
+
+  void _onDrawerTick() {
+    final next = _drawer.value > 0.001;
+    if (next != _drawerInteractable && mounted) {
+      setState(() => _drawerInteractable = next);
+    }
+  }
+
+  bool get _drawerOpen => _drawer.value > 0.5;
 
   void _snapDrawer({required bool open}) {
-    setState(() {
-      _drawerDragging = false;
-      _drawerX = open ? _drawerWidth : 0;
-    });
+    if (open) {
+      _drawer.fling(velocity: 2);
+    } else {
+      _drawer.fling(velocity: -2);
+    }
   }
 
   void _onDrawerHorizontalUpdate(DragUpdateDetails details) {
-    setState(() {
-      _drawerDragging = true;
-      _drawerX = (_drawerX + details.delta.dx).clamp(0.0, _drawerWidth);
-    });
+    final next = (_drawer.value + details.delta.dx / _drawerWidth).clamp(0.0, 1.0);
+    _drawer.value = next;
   }
 
   void _onDrawerHorizontalEnd(DragEndDetails details) {
     final v = details.primaryVelocity ?? 0;
-    final open = v > 500 || (v > -500 && _drawerX > _drawerWidth * 0.4);
-    _snapDrawer(open: open);
+    if (v.abs() > 500) {
+      _snapDrawer(open: v > 0);
+      return;
+    }
+    _snapDrawer(open: _drawer.value > 0.4);
   }
 
   Widget _roundIconButton({
@@ -327,8 +344,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _selectFolder(String? folderId) {
+    _snapDrawer(open: false);
     setState(() {
-      _drawerX = 0;
       _query = ItemQuery(
         text: _query.text,
         type: _query.type,
@@ -821,14 +838,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final grouped = _groupItemsByMonth(_items);
 
     final drawerWidth = _drawerWidth;
+    final topInset = MediaQuery.paddingOf(context).top;
+    final headerHeight = kToolbarHeight + topInset;
     return Material(
       color: theme.colorScheme.surface,
       child: Stack(
       children: [
-        AnimatedContainer(
-          duration: _drawerDragging ? Duration.zero : const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(_drawerX, 0, 0),
+        AnimatedBuilder(
+          animation: _drawer,
+          builder: (context, child) {
+            final t = Curves.easeOutCubic.transform(_drawer.value);
+            return Transform.translate(
+              offset: Offset(drawerWidth * t, 0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.horizontal(
+                  left: Radius.circular(40 * t),
+                ),
+                child: child,
+              ),
+            );
+          },
           child: Scaffold(
       appBar: AppBar(
         backgroundColor: theme.colorScheme.surface,
@@ -925,8 +954,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
       body: GestureDetector(
-              onHorizontalDragUpdate: _drawerOpen ? _onDrawerHorizontalUpdate : null,
-              onHorizontalDragEnd: _drawerOpen ? _onDrawerHorizontalEnd : null,
+              onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
+              onHorizontalDragEnd: _drawerInteractable ? _onDrawerHorizontalEnd : null,
               onScaleStart: (details) {
                 if (details.pointerCount >= 2) {
                   _pinchStartScale = _gridScale;
@@ -1241,39 +1270,64 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       ),
         ),
         ),
-        AnimatedPositioned(
-          duration: _drawerDragging ? Duration.zero : const Duration(milliseconds: 240),
-          curve: Curves.easeOutCubic,
-          left: _drawerX - drawerWidth,
+        Positioned(
+          left: 0,
           top: 0,
           bottom: 0,
           width: drawerWidth,
-          child: GestureDetector(
-            onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
-            onHorizontalDragEnd: _onDrawerHorizontalEnd,
-            child: FolderDrawer(
-              folders: _folders,
-              selectedFolderId: _query.folder,
-              totalCount: _totalCount,
-              onSelect: _selectFolder,
-            ),
-          ),
-        ),
-        if (_drawerX > 0)
-          Positioned(
-            left: _drawerX,
-            top: 0,
-            right: 0,
-            bottom: 0,
+          child: AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, child) {
+              final t = Curves.easeOutCubic.transform(_drawer.value);
+              return Transform.translate(
+                offset: Offset(drawerWidth * (t - 1), 0),
+                child: child,
+              );
+            },
             child: GestureDetector(
-              onTap: () => _snapDrawer(open: false),
               onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
               onHorizontalDragEnd: _onDrawerHorizontalEnd,
-              child: Container(
-                color: Colors.black.withValues(alpha: 0.28 * (_drawerX / drawerWidth).clamp(0.0, 1.0)),
+              child: FolderDrawer(
+                folders: _folders,
+                selectedFolderId: _query.folder,
+                totalCount: _totalCount,
+                onSelect: _selectFolder,
+                onSearch: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SearchScreen()),
+                  );
+                },
               ),
             ),
           ),
+        ),
+        Positioned(
+          left: 0,
+          top: headerHeight,
+          right: 0,
+          bottom: 0,
+          child: AnimatedBuilder(
+            animation: _drawer,
+            builder: (context, _) {
+              final t = Curves.easeOutCubic.transform(_drawer.value);
+              return IgnorePointer(
+                ignoring: t <= 0,
+                child: Padding(
+                  padding: EdgeInsets.only(left: drawerWidth * t),
+                  child: GestureDetector(
+                    onTap: () => _snapDrawer(open: false),
+                    onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
+                    onHorizontalDragEnd: _onDrawerHorizontalEnd,
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.28 * t),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ],
     ),
     );
