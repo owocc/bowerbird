@@ -289,7 +289,7 @@ class _DetailScreenState extends State<DetailScreen> {
       isScrollControlled: true,
       backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (sheetContext) {
         return DraggableScrollableSheet(
@@ -521,7 +521,7 @@ class _DetailScreenState extends State<DetailScreen> {
           child: Center(
             child: Material(
               color: Colors.black87,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(9999),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Text(message, style: const TextStyle(color: Colors.white, fontSize: 13)),

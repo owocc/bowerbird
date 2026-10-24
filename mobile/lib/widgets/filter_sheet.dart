@@ -56,7 +56,7 @@ class _FilterSheetState extends State<FilterSheet> {
       builder: (context, controller) {
         return Material(
           color: theme.colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           child: Column(
             children: [
               const SizedBox(height: 8),
@@ -72,7 +72,7 @@ class _FilterSheetState extends State<FilterSheet> {
                 padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
                 child: Row(
                   children: [
-                    Text('筛选', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                    Text('筛选', style: theme.textTheme.titleMedium),
                     const Spacer(),
                     TextButton(
                       onPressed: () {

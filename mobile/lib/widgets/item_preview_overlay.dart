@@ -254,7 +254,7 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
                           Hero(
                             tag: itemPreviewHeroTag(_item.id),
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(12),
                               child: ColoredBox(
                                 color: Colors.white.withValues(alpha: 0.04),
                                 child: Image.network(

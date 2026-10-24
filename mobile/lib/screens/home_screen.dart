@@ -19,6 +19,7 @@ import 'inbox_screen.dart';
 import '../widgets/item_preview_overlay.dart';
 import '../widgets/folder_drawer.dart';
 import '../widgets/filter_sheet.dart';
+import '../theme/app_theme.dart';
 import 'search_screen.dart';
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -514,8 +515,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     showModalBottomSheet(
       context: context,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (ctx) {
         return SafeArea(
@@ -785,7 +787,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           Flexible(
                             child: Text(
                               ApiService.instance.libraryName ?? 'Bowerbird',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                              style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -888,8 +890,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               )
             : _items.isEmpty && !_isLoading
-                ? const Center(
-                    child: Text('No media assets in library'),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Text(
+                        '资料库是空的',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: theme.colorScheme.outline,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ),
                   )
                 : CustomScrollView(
                     controller: _scrollController,
@@ -909,10 +920,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 children: [
                                   Text(
                                     monthName,
-                                    style: theme.textTheme.titleMedium?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.2,
-                                    ),
+                                    style: theme.textTheme.titleMedium,
                                   ),
                                   Text(
                                     '${monthItems.length}',
@@ -927,12 +935,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                           // 3-Column Square Grid
                           SliverPadding(
-                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
                             sliver: SliverGrid(
                               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: _crossAxisCount,
-                                crossAxisSpacing: 2,
-                                mainAxisSpacing: 2,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
                               ),
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) {
@@ -956,7 +964,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                         _openItemPreview(item, globalIndex);
                                       }
                                     },
-                                    child: Stack(
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(AppRadii.card),
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          border: Border.all(color: theme.dividerColor),
+                                          borderRadius: BorderRadius.circular(AppRadii.card),
+                                        ),
+                                        child: Stack(
                                       fit: StackFit.expand,
                                       children: [
                                         Hero(
@@ -1007,7 +1022,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                               padding: const EdgeInsets.all(2),
                                               decoration: BoxDecoration(
                                                 color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(4),
+                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
                                               ),
                                               child: const Icon(
                                                 Icons.play_arrow,
@@ -1027,14 +1042,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                               ),
                                               decoration: BoxDecoration(
                                                 color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(4),
+                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
                                               ),
                                               child: const Text(
                                                 'GIF',
                                                 style: TextStyle(
                                                   color: Colors.white,
                                                   fontSize: 9,
-                                                  fontWeight: FontWeight.bold,
+                                                  fontWeight: FontWeight.w500,
                                                 ),
                                               ),
                                             ),
@@ -1047,7 +1062,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                               padding: const EdgeInsets.all(2),
                                               decoration: BoxDecoration(
                                                 color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(4),
+                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
                                               ),
                                               child: const Icon(
                                                 Icons.audiotrack,
@@ -1067,9 +1082,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                             color: Colors.black38,
                                             alignment: Alignment.topRight,
                                             padding: const EdgeInsets.all(6),
-                                            child: const Icon(Icons.check_circle, color: Colors.white),
+                                            child: const Icon(Icons.check_circle, color: AppColors.accent),
                                           ),
                                       ],
+                                    ),
+                                      ),
                                     ),
                                   );
                                 },
@@ -1134,9 +1151,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ? null
           : SafeArea(
               child: Material(
-                elevation: 8,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                color: theme.colorScheme.surface,
+                elevation: 0,
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: theme.dividerColor)),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Row(
                     children: [
                       Text('已选 ${_selectedIds.length}'),

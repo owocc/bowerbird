@@ -7,6 +7,7 @@ import 'app_keys.dart';
 import 'screens/connect_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/api_service.dart';
+import 'theme/app_theme.dart';
 import 'services/inbox_service.dart';
 import 'services/share_tag_service.dart';
 import 'services/share_intent_handler.dart';
@@ -120,28 +121,14 @@ class _BowerbirdMobileAppState extends State<BowerbirdMobileApp>
 
   @override
   Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF1E88E5);
-
     return MaterialApp(
       navigatorKey: navigatorKey,
       scaffoldMessengerKey: scaffoldMessengerKey,
       title: 'Bowerbird',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primaryColor,
-          brightness: Brightness.light,
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: primaryColor,
-          brightness: Brightness.dark,
-        ),
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
       home: ApiService.instance.isConfigured
           ? const HomeScreen()
           : const ConnectScreen(),
