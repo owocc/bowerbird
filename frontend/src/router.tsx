@@ -174,7 +174,10 @@ function BrowsePage() {
   }
 
   return (
+    // `key`: a switched library gets a fresh workspace with no carried-over
+    // sidebar counts, folder expansion or scroll state.
     <LibraryWorkspace
+      key={library.id || library.path}
       library={library}
       onLibraryClosed={closeLibrary}
       onLibraryChanged={notifyLibraryChanged}

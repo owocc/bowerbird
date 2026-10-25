@@ -566,14 +566,28 @@ export function LibraryWorkspace({
     }
   }, [fetchWorkspacePages, workspaceQuery]);
 
-  const refreshWorkspaceStats = useCallback(async () => {
-    try {
-      const stats = await GetWorkspaceStats(sortOrder);
-      if (stats) setWorkspaceStats(stats);
-    } catch (err) {
-      console.error("Failed to load workspace stats:", err);
-    }
-  }, [sortOrder]);
+  // Right after a library switch the backend may still be repopulating its
+  // in-memory index, in which case the very first read legitimately reports an
+  // empty library. Retry a few times (cheap: one pass over the index) so the
+  // sidebar counts settle on the real numbers instead of staying at 0.
+  const refreshWorkspaceStats = useCallback(
+    async (attempt = 0): Promise<void> => {
+      try {
+        const stats = await GetWorkspaceStats(sortOrder);
+        if (!stats) return;
+        setWorkspaceStats(stats);
+        const looksEmpty = (stats.total ?? 0) === 0;
+        if (looksEmpty && attempt < 5) {
+          window.setTimeout(() => {
+            void refreshWorkspaceStats(attempt + 1);
+          }, 120 * (attempt + 1));
+        }
+      } catch (err) {
+        console.error("Failed to load workspace stats:", err);
+      }
+    },
+    [sortOrder]
+  );
 
   // Coalesce bursts of upsert/trash events into one window refresh instead of
   // re-running the query for every item.
@@ -1034,27 +1048,53 @@ export function LibraryWorkspace({
     loadMoreActive,
   ]);
 
+  // Switching libraries must not leave anything behind: every per-library slice
+  // is cleared and re-primed from the newly opened library's index.
   const previousLibraryPathRef = useRef(library.path);
   useEffect(() => {
     if (previousLibraryPathRef.current === library.path) return;
     previousLibraryPathRef.current = library.path;
+
+    // Invalidate in-flight work so a late response from the old library cannot
+    // write into the new library's state.
+    queryVersionRef.current++;
+    querySignatureRef.current = "";
+    itemsVersionRef.current = 0;
+    loadingMoreRef.current = false;
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+
     setSelectedOrder([]);
     setActiveItemId(null);
     setTrashItems([]);
     setItems([]);
+    setHistoryItems([]);
+    setFolders([]);
+    setTags([]);
+    setTrashCount(0);
     setQueryTotal(0);
     setQueryTotalSize(0);
     setWorkspaceStats(null);
     setFolderPreviewMap(new Map());
+    setSearchQuery("");
     loadedPagesRef.current = 1;
     setLoading(true);
     previewPushedRef.current = false;
     ws.reset();
+
+    // Sidebar/filter aggregates. This used to be missing here, so a freshly
+    // switched library showed 0/0/0 until some other event happened to refresh
+    // them. Prime them together with the rest of the first paint.
+    void refreshWorkspaceStats();
     void refreshActiveItems();
     void refreshFolders();
     void refreshTags();
     void refreshTrashCount();
-  }, [library.path]);
+    // `ws` is stable across renders (workspace-search state machine).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [library.path, refreshWorkspaceStats, refreshActiveItems, refreshFolders, refreshTags, refreshTrashCount]);
 
   const isRealFolderId = (id: string | null): id is string =>
     Boolean(id) &&
