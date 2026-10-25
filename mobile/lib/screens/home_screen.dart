@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+
 import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
@@ -21,6 +23,7 @@ import '../widgets/folder_drawer.dart';
 import '../widgets/filter_sheet.dart';
 import '../theme/app_theme.dart';
 import 'search_screen.dart';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -58,6 +61,14 @@ class _HomeScreenState extends State<HomeScreen>
   final Set<String> _selectedIds = {};
   double _gridScale = 3;
   double _pinchStartScale = 3;
+  // 长按手势状态：长按抬起时再依据是否上滑决定「多选」还是「快速操作」
+  bool _isLongPressActive = false;
+  bool _quickActionSwipedUp = false;
+  Offset? _quickActionOrigin;
+  // 正在被长按的条目 id，用于在格子上覆盖半透明高亮
+  String? _pressedItemId;
+  // 手指抬起判定为「上滑」所需的最小位移（逻辑像素）
+  static const double _quickActionSwipeThreshold = 16;
   bool _previewOpening = false;
 
   void _onInboxChanged() {
@@ -72,10 +83,7 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _drawer = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 240),
-    );
+    _drawer = AnimationController(vsync: this, duration: const Duration(milliseconds: 240));
     _drawer.addListener(_onDrawerTick);
     _loadItems(refresh: true);
     _loadNavMetadata();
@@ -152,6 +160,7 @@ class _HomeScreenState extends State<HomeScreen>
     _refreshGate.cancel();
     super.dispose();
   }
+
   void _onScroll() {
     if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
       if (!_isLoading && _hasMore) {
@@ -229,11 +238,7 @@ class _HomeScreenState extends State<HomeScreen>
       _errorMessage = null;
     });
     try {
-      final result = await ApiService.instance.queryItems(
-        query: _query,
-        limit: target,
-        offset: 0,
-      );
+      final result = await ApiService.instance.queryItems(query: _query, limit: target, offset: 0);
       if (mounted) {
         setState(() {
           _items
@@ -316,6 +321,7 @@ class _HomeScreenState extends State<HomeScreen>
     _snapDrawer(open: _drawer.value > 0.4);
   }
 
+  /// 无边框、带 10% 大阴影的圆形图标按钮（header 内使用）。
   Widget _roundIconButton({
     required IconData icon,
     required VoidCallback onPressed,
@@ -323,26 +329,48 @@ class _HomeScreenState extends State<HomeScreen>
     Widget? badgeChild,
   }) {
     final theme = Theme.of(context);
-    final button = Material(
-      color: theme.colorScheme.surface,
-      elevation: 0,
-      shadowColor: Colors.transparent,
-      shape: CircleBorder(
-        side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
+    // 用圆形 ShapeDecoration（自带 fill + 阴影），避免默认正方形背景露出直角。
+    final button = DecoratedBox(
+      decoration: ShapeDecoration(
+        color: theme.colorScheme.surface,
+        shape: const CircleBorder(),
+        shadows: _headerShadows,
       ),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(icon, size: 24, color: theme.colorScheme.onSurface),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Icon(icon, size: 24, color: theme.colorScheme.onSurface),
+          ),
         ),
       ),
     );
     final wrapped = badgeChild ?? button;
     if (tooltip == null) return wrapped;
     return Tooltip(message: tooltip, child: wrapped);
+  }
+
+  /// header 按钮/胶囊共用的投影：黑色、透明度 10%、大范围模糊。
+  List<BoxShadow> get _headerShadows => [
+    BoxShadow(
+      color: Colors.black.withValues(alpha: 0.10),
+      blurRadius: 24,
+      spreadRadius: 2,
+      offset: const Offset(0, 6),
+    ),
+  ];
+
+  /// 胶囊（全圆角矩形）背景：填充色 + 共用投影。
+  ShapeDecoration _headerPillDecoration(ThemeData theme, Radius radius) {
+    return ShapeDecoration(
+      color: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(radius)),
+      shadows: _headerShadows,
+    );
   }
 
   void _selectFolder(String? folderId) {
@@ -402,14 +430,11 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() => _selectedIds.clear());
       _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已添加到「${folder.name}」')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已添加到「${folder.name}」')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('添加失败: $e'), backgroundColor: Colors.red.shade700),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('添加失败: $e'), backgroundColor: Colors.red.shade700));
     }
   }
 
@@ -422,14 +447,12 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() => _selectedIds.clear());
       _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已添加标签「$tag」')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已添加标签「$tag」')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('添加标签失败: $e'), backgroundColor: Colors.red.shade700),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('添加标签失败: $e'), backgroundColor: Colors.red.shade700));
     }
   }
 
@@ -494,7 +517,10 @@ class _HomeScreenState extends State<HomeScreen>
           content: TextField(controller: controller, autofocus: true),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('添加')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+              child: const Text('添加'),
+            ),
           ],
         ),
       );
@@ -516,16 +542,11 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _openDetail(int globalIndex) async {
     final deleted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => DetailScreen(
-          items: _items,
-          initialIndex: globalIndex,
-        ),
+        builder: (_) => DetailScreen(items: _items, initialIndex: globalIndex),
       ),
     );
     if (deleted == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已移入废纸篓')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
       _markLocalMutation();
       unawaited(_reloadWindow());
     }
@@ -549,9 +570,7 @@ class _HomeScreenState extends State<HomeScreen>
       case ItemPreviewAction.share:
         await _shareItem(item);
       case ItemPreviewAction.delete:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已移入废纸篓')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
         _markLocalMutation();
         await _reloadWindow();
     }
@@ -566,7 +585,10 @@ class _HomeScreenState extends State<HomeScreen>
           content: const Text('Disconnect from current Bowerbird desktop server?'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect')),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Disconnect'),
+            ),
           ],
         ),
       );
@@ -576,9 +598,8 @@ class _HomeScreenState extends State<HomeScreen>
     WebSocketService.instance.disconnect();
     await ApiService.instance.disconnect();
     if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const ConnectScreen()),
-      );
+      Navigator.of(context)
+          .pushReplacement(MaterialPageRoute(builder: (_) => const ConnectScreen()));
     }
   }
 
@@ -653,7 +674,10 @@ class _HomeScreenState extends State<HomeScreen>
                           ),
                           subtitle: Text('${lib.itemCount} 个素材 • ${lib.path}'),
                           trailing: lib.isActive
-                              ? Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary)
+                              ? Icon(
+                                  Icons.check_circle,
+                                  color: Theme.of(context).colorScheme.primary,
+                                )
                               : null,
                           onTap: () async {
                             Navigator.pop(ctx);
@@ -662,16 +686,19 @@ class _HomeScreenState extends State<HomeScreen>
                                 await ApiService.instance.switchLibrary(lib.path);
                                 if (mounted) {
                                   setState(() => ApiService.instance.libraryName = lib.name);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('已切换至资源库: ${lib.name}')),
-                                  );
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).showSnackBar(SnackBar(content: Text('已切换至资源库: ${lib.name}')));
                                   unawaited(_loadNavMetadata());
                                   _loadItems(refresh: true);
                                 }
                               } catch (e) {
                                 if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('切库失败: $e'), backgroundColor: Colors.red.shade700),
+                                    SnackBar(
+                                      content: Text('切库失败: $e'),
+                                      backgroundColor: Colors.red.shade700,
+                                    ),
                                   );
                                 }
                               }
@@ -706,9 +733,7 @@ class _HomeScreenState extends State<HomeScreen>
             children: [
               const CircularProgressIndicator(),
               const SizedBox(width: 20),
-              Expanded(
-                child: Text('正在上传 ${paths.length} 个素材到当前资源库...'),
-              ),
+              Expanded(child: Text('正在上传 ${paths.length} 个素材到当前资源库...')),
             ],
           ),
         ),
@@ -720,9 +745,8 @@ class _HomeScreenState extends State<HomeScreen>
       final count = result.count;
       if (mounted) {
         Navigator.pop(context); // Close dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('成功上传 $count 个素材到当前资源库')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('成功上传 $count 个素材到当前资源库')));
         _markLocalMutation();
         await _reloadWindow();
       }
@@ -744,10 +768,9 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _downloadItem(MobileItem item) async {
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
-      final response = await http.get(
-        Uri.parse(originalUrl),
-        headers: ApiService.instance.authHeaders,
-      ).timeout(const Duration(seconds: 30));
+      final response = await http
+          .get(Uri.parse(originalUrl), headers: ApiService.instance.authHeaders)
+          .timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
@@ -757,9 +780,8 @@ class _HomeScreenState extends State<HomeScreen>
       await ApiService.instance.saveMediaToGallery(response.bodyBytes, filename, item.mimeType);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已保存至手机相册/下载目录: $filename')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('已保存至手机相册/下载目录: $filename')));
       }
     } catch (e) {
       if (mounted) {
@@ -772,7 +794,6 @@ class _HomeScreenState extends State<HomeScreen>
       }
     }
   }
-
 
   Future<void> _copyItemContent(MobileItem item) async {
     if (item.size > ApiService.maxClipboardFileBytes) {
@@ -789,9 +810,8 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       await ApiService.instance.copyItemContent(item);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已复制素材内容，可粘贴到微信等应用')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已复制素材内容，可粘贴到微信等应用')));
       }
     } catch (e) {
       if (mounted) {
@@ -808,10 +828,9 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _shareItem(MobileItem item) async {
     try {
       final originalUrl = ApiService.instance.getOriginalUrl(item.id);
-      final response = await http.get(
-        Uri.parse(originalUrl),
-        headers: ApiService.instance.authHeaders,
-      ).timeout(const Duration(seconds: 30));
+      final response = await http
+          .get(Uri.parse(originalUrl), headers: ApiService.instance.authHeaders)
+          .timeout(const Duration(seconds: 30));
 
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}');
@@ -828,12 +847,13 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('分享失败: $e'), backgroundColor: Colors.red.shade700),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('分享失败: $e'), backgroundColor: Colors.red.shade700));
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -844,454 +864,327 @@ class _HomeScreenState extends State<HomeScreen>
     return Material(
       color: theme.colorScheme.surface,
       child: Stack(
-      children: [
-        AnimatedBuilder(
-          animation: _drawer,
-          builder: (context, child) {
-            final t = Curves.easeOutCubic.transform(_drawer.value);
-            return Transform.translate(
-              offset: Offset(drawerWidth * t, 0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.horizontal(
-                  left: Radius.circular(40 * t),
-                ),
-                child: child,
-              ),
-            );
-          },
-          child: Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        toolbarHeight: kToolbarHeight + 8,
-        flexibleSpace: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                theme.colorScheme.surface,
-                theme.colorScheme.surface,
-                theme.colorScheme.surface.withValues(alpha: 0),
-              ],
-              stops: const [0, 0.45, 1],
-            ),
-          ),
-        ),
-        title: Text(
-          libraryTitle,
-          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-      body: GestureDetector(
-              onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
-              onHorizontalDragEnd: _drawerInteractable ? _onDrawerHorizontalEnd : null,
-              onScaleStart: (details) {
-                if (details.pointerCount >= 2) {
-                  _pinchStartScale = _gridScale;
-                }
-              },
-              onScaleUpdate: (details) {
-                if (details.pointerCount < 2) return;
-                final next = (_pinchStartScale / details.scale).clamp(2.0, 5.0);
-                if ((next - _gridScale).abs() >= 0.15) {
-                  setState(() => _gridScale = next);
-                }
-              },
-              child: RefreshIndicator(
-        onRefresh: () => _loadItems(refresh: true),
-        child: _errorMessage != null && _items.isEmpty
-            ? Center(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(24, MediaQuery.paddingOf(context).top + kToolbarHeight, 24, 24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_off, size: 64, color: theme.colorScheme.error),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () => _loadItems(refresh: true),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            : _items.isEmpty && !_isLoading
-                ? Center(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(32, MediaQuery.paddingOf(context).top + kToolbarHeight, 32, 32),
-                      child: Text(
-                        '资料库是空的',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: theme.colorScheme.outline,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                  )
-                : CustomScrollView(
-                    controller: _scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: MediaQuery.paddingOf(context).top + kToolbarHeight),
-                      ),
-                      ...grouped.entries.expand((entry) {
-                        final monthName = entry.key;
-                        final monthItems = entry.value;
-
-                        return [
-                          // Month Section Header
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    monthName,
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                  Text(
-                                    '${monthItems.length}',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.outline,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          // 3-Column Square Grid
-                          SliverPadding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            sliver: SliverGrid(
-                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: _crossAxisCount,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, index) {
-                                  final item = monthItems[index];
-                                  final globalIndex = _items.indexOf(item);
-                                  final useAnimatedGif = item.isGif && item.size <= _gifAnimationMaxBytes;
-
-                                  final selected = _selectedIds.contains(item.id);
-                                  return GestureDetector(
-                                    onTap: () {
-                                      if (_selectedIds.isNotEmpty) {
-                                        _toggleSelected(item);
-                                      } else {
-                                        _openDetail(globalIndex);
-                                      }
-                                    },
-                                    onLongPress: () {
-                                      if (_selectedIds.isEmpty) {
-                                        _toggleSelected(item);
-                                      }
-                                    },
-                                    onVerticalDragStart: _selectedIds.isNotEmpty
-                                        ? null
-                                        : (_) {},
-                                    onVerticalDragUpdate: _selectedIds.isNotEmpty
-                                        ? null
-                                        : (details) {
-                                            if (details.delta.dy < -6) {
-                                              _openItemPreview(item, globalIndex);
-                                            }
-                                          },
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(AppRadii.card),
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(color: theme.dividerColor),
-                                          borderRadius: BorderRadius.circular(AppRadii.card),
-                                        ),
-                                        child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        Hero(
-                                          tag: itemPreviewHeroTag(item.id),
-                                          child: Image.network(
-                                            useAnimatedGif
-                                                ? ApiService.instance.getOriginalUrl(item.id)
-                                                : ApiService.instance.getThumbnailUrl(item.id),
-                                            fit: BoxFit.cover,
-                                            headers: ApiService.instance.authHeaders,
-                                            cacheWidth: useAnimatedGif ? 400 : null,
-                                            loadingBuilder: (context, child, progress) {
-                                              if (progress == null) return child;
-                                              return Container(
-                                                color: theme.colorScheme.surfaceContainerHighest,
-                                                child: Center(
-                                                  child: SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      value: progress.expectedTotalBytes != null
-                                                          ? progress.cumulativeBytesLoaded /
-                                                              progress.expectedTotalBytes!
-                                                          : null,
-                                                    ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            errorBuilder: (context, error, stackTrace) {
-                                              return Container(
-                                                color: theme.colorScheme.surfaceContainerHighest,
-                                                child: Icon(
-                                                  Icons.broken_image_outlined,
-                                                  color: theme.colorScheme.outline,
-                                                  size: 28,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                        if (item.isVideo)
-                                          Positioned(
-                                            top: 4,
-                                            right: 4,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                                              ),
-                                              child: const Icon(
-                                                Icons.play_arrow,
-                                                color: Colors.white,
-                                                size: 14,
-                                              ),
-                                            ),
-                                          ),
-                                        if (item.isGif)
-                                          Positioned(
-                                            top: 4,
-                                            left: 4,
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 4,
-                                                vertical: 1,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                                              ),
-                                              child: const Text(
-                                                'GIF',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        if (item.isAudio)
-                                          Positioned(
-                                            top: 4,
-                                            right: 4,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                                              ),
-                                              child: const Icon(
-                                                Icons.audiotrack,
-                                                color: Colors.white,
-                                                size: 14,
-                                              ),
-                                            ),
-                                          ),
-                                        if (ShareTagService.instance.isMarked(item.id))
-                                          const Positioned(
-                                            left: 4,
-                                            bottom: 4,
-                                            child: ShareTagBadge(),
-                                          ),
-                                        if (selected)
-                                          Container(
-                                            color: Colors.black38,
-                                            alignment: Alignment.topRight,
-                                            padding: const EdgeInsets.all(6),
-                                            child: const Icon(Icons.check_circle, color: AppColors.accent),
-                                          ),
-                                      ],
-                                    ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                childCount: monthItems.length,
-                              ),
-                            ),
-                          ),
-                        ];
-                      }),
-
-                      // Loading More Indicator
-                      if (_isLoading && _items.isNotEmpty)
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Center(
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 32),
-                      ),
-                    ],
-                  ),
-      ),
-            ),
-      bottomNavigationBar: _selectedIds.isEmpty
-          ? null
-          : SafeArea(
-              child: Material(
-                color: theme.colorScheme.surface,
-                elevation: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: theme.dividerColor)),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Text('已选 ${_selectedIds.length}'),
-                      const Spacer(),
-                      TextButton(onPressed: () => setState(() => _selectedIds.clear()), child: const Text('取消')),
-                      FilledButton.tonal(
-                        onPressed: _pickTagForSelection,
-                        child: const Text('加标签'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: _pickFolderForSelection,
-                        child: const Text('添加到…'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'upload_fab',
-        tooltip: '上传素材到电脑',
-        onPressed: _isUploading ? null : _handleUpload,
-        child: const Icon(Icons.add_photo_alternate_rounded),
-      ),
-        ),
-        ),
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: drawerWidth,
-          child: AnimatedBuilder(
-            animation: _drawer,
-            builder: (context, child) {
-              final t = Curves.easeOutCubic.transform(_drawer.value);
-              return Transform.translate(
-                offset: Offset(drawerWidth * (t - 1), 0),
-                child: child,
-              );
-            },
-            child: GestureDetector(
-              onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
-              onHorizontalDragEnd: _onDrawerHorizontalEnd,
-              child: FolderDrawer(
-                folders: _folders,
-                selectedFolderId: _query.folder,
-                totalCount: _totalCount,
-                onSelect: _selectFolder,
-                libraryName: libraryTitle,
-                onSwitchLibrary: _showLibraryPicker,
-                onSearch: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SearchScreen()),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _drawer,
-            builder: (context, _) {
-              final t = Curves.easeOutCubic.transform(_drawer.value);
-              return IgnorePointer(
-                ignoring: t <= 0,
-                child: Padding(
-                  padding: EdgeInsets.only(left: drawerWidth * t),
-                  child: GestureDetector(
-                    onTap: () => _snapDrawer(open: false),
-                    onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
-                    onHorizontalDragEnd: _onDrawerHorizontalEnd,
-                    child: ColoredBox(
-                      color: Colors.black.withValues(alpha: 0.28 * t),
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: AnimatedBuilder(
+        children: [
+          AnimatedBuilder(
             animation: _drawer,
             builder: (context, child) {
               final t = Curves.easeOutCubic.transform(_drawer.value);
               return Transform.translate(
                 offset: Offset(drawerWidth * t, 0),
-                child: child,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.horizontal(left: Radius.circular(40 * t)),
+                  child: child,
+                ),
               );
             },
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    theme.colorScheme.surface,
-                    theme.colorScheme.surface,
-                    theme.colorScheme.surface.withValues(alpha: 0),
-                  ],
-                  stops: const [0, 0.55, 1],
+            child: Scaffold(
+              extendBodyBehindAppBar: true,
+              appBar: AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                surfaceTintColor: Colors.transparent,
+                centerTitle: true,
+                automaticallyImplyLeading: false,
+                toolbarHeight: kToolbarHeight + 8,
+                // 标题与按钮由 body 内的 _buildHeader 浮层绘制（位于渐变与模糊之上），
+                // 这里保持完全透明，只负责撑出安全区高度。
+                flexibleSpace: const SizedBox.shrink(),
+                title: const SizedBox.shrink(),
+              ),
+              body: GestureDetector(
+                onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
+                onHorizontalDragEnd: _drawerInteractable ? _onDrawerHorizontalEnd : null,
+                onScaleStart: (details) {
+                  if (details.pointerCount >= 2) {
+                    _pinchStartScale = _gridScale;
+                  }
+                },
+                onScaleUpdate: (details) {
+                  if (details.pointerCount < 2) return;
+                  final next = (_pinchStartScale / details.scale).clamp(2.0, 5.0);
+                  if ((next - _gridScale).abs() >= 0.15) {
+                    setState(() => _gridScale = next);
+                  }
+                },
+                child: _errorMessage != null && _items.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            24,
+                            MediaQuery.paddingOf(context).top + kToolbarHeight,
+                            24,
+                            24,
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.cloud_off, size: 64, color: theme.colorScheme.error),
+                              const SizedBox(height: 16),
+                              Text(
+                                _errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                onPressed: () => _loadItems(refresh: true),
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : _items.isEmpty && !_isLoading
+                    ? Center(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            32,
+                            MediaQuery.paddingOf(context).top + kToolbarHeight,
+                            32,
+                            32,
+                          ),
+                          child: Text(
+                            '资料库是空的',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: theme.colorScheme.outline,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                      )
+                    : CustomScrollView(
+                        controller: _scrollController,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        slivers: [
+                          // 顶部留白：安全区 + 工具栏，留出空间给 _buildHeader 浮层。
+                          SliverToBoxAdapter(
+                            child: SizedBox(
+                              height: MediaQuery.paddingOf(context).top + kToolbarHeight + 8,
+                            ),
+                          ),
+                          ...grouped.entries.expand((entry) {
+                            final monthName = entry.key;
+                            final monthItems = entry.value;
+
+                            return [
+                              // Month Section Header
+                              SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(monthName, style: theme.textTheme.titleMedium),
+                                      Text(
+                                        '${monthItems.length}',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: theme.colorScheme.outline,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+
+                              // 3-Column Square Grid
+                              SliverPadding(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
+                                sliver: SliverGrid(
+                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: _crossAxisCount,
+                                    crossAxisSpacing: 8,
+                                    mainAxisSpacing: 8,
+                                  ),
+                                  delegate: SliverChildBuilderDelegate((context, index) {
+                                    final item = monthItems[index];
+                                    final globalIndex = _items.indexOf(item);
+                                    final useAnimatedGif =
+                                        item.isGif && item.size <= _gifAnimationMaxBytes;
+                                    final selected = _selectedIds.contains(item.id);
+                                    return _buildGridTile(
+                                      item: item,
+                                      globalIndex: globalIndex,
+                                      useAnimatedGif: useAnimatedGif,
+                                      selected: selected,
+                                      theme: theme,
+                                    );
+                                  }, childCount: monthItems.length),
+                                ),
+                              ),
+                            ];
+                          }),
+
+                          // Loading More Indicator
+                          if (_isLoading && _items.isNotEmpty)
+                            const SliverToBoxAdapter(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(vertical: 24),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                          const SliverToBoxAdapter(child: SizedBox(height: 32)),
+                        ],
+                      ),
+              ),
+              bottomNavigationBar: _selectedIds.isEmpty
+                  ? null
+                  : SafeArea(
+                      child: Material(
+                        color: theme.colorScheme.surface,
+                        elevation: 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border(top: BorderSide(color: theme.dividerColor)),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Row(
+                            children: [
+                              Text('已选 ${_selectedIds.length}'),
+                              const Spacer(),
+                              TextButton(
+                                onPressed: () => setState(() => _selectedIds.clear()),
+                                child: const Text('取消'),
+                              ),
+                              FilledButton.tonal(
+                                onPressed: _pickTagForSelection,
+                                child: const Text('加标签'),
+                              ),
+                              const SizedBox(width: 8),
+                              FilledButton(
+                                onPressed: _pickFolderForSelection,
+                                child: const Text('添加到…'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+              floatingActionButton: FloatingActionButton(
+                heroTag: 'upload_fab',
+                tooltip: '上传素材到电脑',
+                onPressed: _isUploading ? null : _handleUpload,
+                child: const Icon(Icons.add_photo_alternate_rounded),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: drawerWidth,
+            child: AnimatedBuilder(
+              animation: _drawer,
+              builder: (context, child) {
+                final t = Curves.easeOutCubic.transform(_drawer.value);
+                return Transform.translate(offset: Offset(drawerWidth * (t - 1), 0), child: child);
+              },
+              child: GestureDetector(
+                onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
+                onHorizontalDragEnd: _onDrawerHorizontalEnd,
+                child: FolderDrawer(
+                  folders: _folders,
+                  selectedFolderId: _query.folder,
+                  totalCount: _totalCount,
+                  onSelect: _selectFolder,
+                  libraryName: libraryTitle,
+                  onSwitchLibrary: _showLibraryPicker,
+                  onSearch: () {
+                    Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+                  },
                 ),
               ),
-              child: SafeArea(
+            ),
+          ),
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _drawer,
+              builder: (context, _) {
+                final t = Curves.easeOutCubic.transform(_drawer.value);
+                return IgnorePointer(
+                  ignoring: t <= 0,
+                  child: Padding(
+                    padding: EdgeInsets.only(left: drawerWidth * t),
+                    child: GestureDetector(
+                      onTap: () => _snapDrawer(open: false),
+                      onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
+                      onHorizontalDragEnd: _onDrawerHorizontalEnd,
+                      child: ColoredBox(
+                        color: Colors.black.withValues(alpha: 0.28 * t),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          // Header 浮层：渐变背景（从屏幕最上沿 / 安全区之上开始）+ 轻微背景模糊 + 最上层内容。
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: AnimatedBuilder(
+              animation: _drawer,
+              builder: (context, child) {
+                final t = Curves.easeOutCubic.transform(_drawer.value);
+                return Transform.translate(offset: Offset(drawerWidth * t, 0), child: child);
+              },
+              child: _buildHeader(context, theme),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Header 浮层：背景（渐变 + 轻微模糊）在所有内容之下，标题与按钮在最上层。
+  Widget _buildHeader(BuildContext context, ThemeData theme) {
+    final topPadding = MediaQuery.paddingOf(context).top;
+    final headerHeight = topPadding + kToolbarHeight + 8;
+    final backgroundHeight = headerHeight + 24;
+    const pillRadius = Radius.circular(24);
+
+    return SizedBox(
+      height: headerHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // 背景层保持不变
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: backgroundHeight,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      theme.colorScheme.surface.withValues(alpha: 0.92),
+                      theme.colorScheme.surface.withValues(alpha: 0.80),
+                      theme.colorScheme.surface.withValues(alpha: 0.45),
+                      theme.colorScheme.surface.withValues(alpha: 0),
+                    ],
+                    stops: const [0, 0.45, 0.75, 1],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // 内容层
+          SafeArea(
             bottom: false,
             child: SizedBox(
               height: kToolbarHeight + 8,
@@ -1300,103 +1193,310 @@ class _HomeScreenState extends State<HomeScreen>
                 child: Row(
                   children: [
                     _roundIconButton(
-                      icon: Icons.folder_outlined,
+                      icon: Icons.menu,
                       tooltip: '文件夹',
                       onPressed: () => _snapDrawer(open: !_drawerOpen),
                     ),
+                    // 不再显示当前资料库名称，仅作为左右两组按钮之间的弹性留白
                     const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: _roundIconButton(
-                        icon: Icons.search,
-                        tooltip: '搜索',
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const SearchScreen()),
-                          );
-                        },
-                      ),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: '更多',
-                      offset: const Offset(0, 48),
-                      padding: EdgeInsets.zero,
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'filter':
-                            _openFilterSheet();
-                          case 'inbox':
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const InboxScreen()),
-                            );
-                          case 'disconnect':
-                            _disconnect();
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'filter',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.filter_list, size: 20),
-                              const SizedBox(width: 12),
-                              const Text('筛选'),
-                              if (_query.toQueryString().isNotEmpty) ...[
-                                const Spacer(),
-                                Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
-                              ],
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'inbox',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.inbox_outlined, size: 20),
-                              const SizedBox(width: 12),
-                              const Text('收件箱'),
-                              if (_inboxCount > 0) ...[
-                                const Spacer(),
-                                Text('$_inboxCount'),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'disconnect',
-                          child: Row(
-                            children: [
-                              Icon(Icons.wifi_off_outlined, size: 20),
-                              SizedBox(width: 12),
-                              Text('断开连接'),
-                            ],
-                          ),
-                        ),
-                      ],
-                      child: Material(
-                        color: theme.colorScheme.surface,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: CircleBorder(
-                          side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
-                        ),
-                        child: const SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Icon(Icons.more_horiz, size: 24),
-                        ),
-                      ),
-                    ),
+                    const SizedBox(width: 10),
+                    _buildActionPill(context, theme, pillRadius),
                   ],
                 ),
               ),
             ),
-            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 右侧搜索与更多二枚按钮共用一个胶囊背景，每个按钮自身状态独立
+  /// （透明背景，仅共享背景 + 阴影；按下时各自显示高亮水波纹）。
+  Widget _buildActionPill(BuildContext context, ThemeData theme, Radius pillRadius) {
+    // 注意：Material 必须在 ClipRRect 内部，否则 InkWell 的水波纹会被裁剪/绘制在上层
+    // 之外而看不到；同时文字与图标都要在 Material 内部，否则会被材质背景遮住。
+    return DecoratedBox(
+      decoration: _headerPillDecoration(theme, pillRadius),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 搜索按钮（独立的按下高亮）
+          ClipRRect(
+            borderRadius: const BorderRadius.horizontal(left: Radius.circular(24)),
+            child: Material(
+              type: MaterialType.transparency,
+              child: InkWell(
+                onTap: () {
+                  Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+                },
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Icon(Icons.search, size: 24, color: theme.colorScheme.onSurface),
+                ),
+              ),
             ),
           ),
+          // 更多按钮
+          ClipRRect(
+            borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
+            child: Material(
+              type: MaterialType.transparency,
+              child: PopupMenuButton<String>(
+                tooltip: '更多',
+                offset: const Offset(0, 48),
+                padding: EdgeInsets.zero,
+                onSelected: (value) {
+                  switch (value) {
+                    case 'refresh':
+                      _loadItems(refresh: true);
+                    case 'filter':
+                      _openFilterSheet();
+                    case 'inbox':
+                      Navigator.of(context)
+                          .push(MaterialPageRoute(builder: (_) => const InboxScreen()));
+                    case 'disconnect':
+                      _disconnect();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'refresh',
+                    child: Row(
+                      children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('刷新')],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'filter',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.filter_list, size: 20),
+                        const SizedBox(width: 12),
+                        const Text('筛选'),
+                        if (_query.toQueryString().isNotEmpty) ...[
+                          const Spacer(),
+                          Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
+                        ],
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'inbox',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.inbox_outlined, size: 20),
+                        const SizedBox(width: 12),
+                        const Text('收件箱'),
+                        if (_inboxCount > 0) ...[const Spacer(), Text('$_inboxCount')],
+                      ],
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'disconnect',
+                    child: Row(
+                      children: [
+                        Icon(Icons.wifi_off_outlined, size: 20),
+                        SizedBox(width: 12),
+                        Text('断开连接'),
+                      ],
+                    ),
+                  ),
+                ],
+                child: SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Icon(Icons.more_horiz, size: 24, color: theme.colorScheme.onSurface),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _resetQuickActionGesture() {
+    _isLongPressActive = false;
+    _quickActionSwipedUp = false;
+    _quickActionOrigin = null;
+    _pressedItemId = null;
+  }
+
+  Widget _buildGridTile({
+    required MobileItem item,
+    required int globalIndex,
+    required bool useAnimatedGif,
+    required bool selected,
+    required ThemeData theme,
+  }) {
+    return GestureDetector(
+      onTap: () {
+        if (_selectedIds.isNotEmpty) {
+          _toggleSelected(item);
+        } else {
+          _openDetail(globalIndex);
+        }
+      },
+      // 长按（500ms，Flutter 默认长按识别阈值）后手指抬起时才判定动作：
+      //   · 长按期间基本未移动 -> 进入多选
+      //   · 长按期间上滑超过阈值 -> 打开快速操作
+      // 未满 500ms 的滑动只由滚动列表消费，浏览内容时不会误触。
+      onLongPressStart: _selectedIds.isNotEmpty
+          ? null
+          : (details) {
+              setState(() {
+                _isLongPressActive = true;
+                _pressedItemId = item.id;
+                _quickActionOrigin = details.localPosition;
+                _quickActionSwipedUp = false;
+              });
+            },
+      onLongPressMoveUpdate: _selectedIds.isNotEmpty
+          ? null
+          : (details) {
+              if (!_isLongPressActive) return;
+              final origin = _quickActionOrigin;
+              if (origin == null) return;
+              // 只做记录，不在此触发任何动作（但高亮要实时反映是否已上滑）。
+              final swipedUp = details.localPosition.dy - origin.dy < -_quickActionSwipeThreshold;
+              if (swipedUp != _quickActionSwipedUp) {
+                setState(() => _quickActionSwipedUp = swipedUp);
+              }
+            },
+      onLongPressEnd: _selectedIds.isNotEmpty
+          ? null
+          : (_) {
+              if (!_isLongPressActive) return;
+              final swipedUp = _quickActionSwipedUp;
+              setState(() => _resetQuickActionGesture());
+              if (swipedUp) {
+                _openItemPreview(item, globalIndex);
+              } else {
+                _toggleSelected(item);
+              }
+            },
+      onLongPressCancel: _selectedIds.isNotEmpty
+          ? null
+          : () => setState(() => _resetQuickActionGesture()),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: theme.dividerColor),
+            borderRadius: BorderRadius.circular(AppRadii.card),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Hero(
+                tag: itemPreviewHeroTag(item.id),
+                child: Image.network(
+                  useAnimatedGif
+                      ? ApiService.instance.getOriginalUrl(item.id)
+                      : ApiService.instance.getThumbnailUrl(item.id),
+                  fit: BoxFit.cover,
+                  headers: ApiService.instance.authHeaders,
+                  cacheWidth: useAnimatedGif ? 400 : null,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            value: progress.expectedTotalBytes != null
+                                ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                : null,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: theme.colorScheme.outline,
+                        size: 28,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (item.isVideo)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 14),
+                  ),
+                ),
+              if (item.isGif)
+                Positioned(
+                  top: 4,
+                  left: 4,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Text(
+                      'GIF',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              if (item.isAudio)
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.audiotrack, color: Colors.white, size: 14),
+                  ),
+                ),
+              if (ShareTagService.instance.isMarked(item.id))
+                const Positioned(left: 4, bottom: 4, child: ShareTagBadge()),
+              if (selected)
+                Container(
+                  color: Colors.black38,
+                  alignment: Alignment.topRight,
+                  padding: const EdgeInsets.all(4),
+                  child: const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                ),
+              // 长按高亮：告诉用户当前触摸的是哪个 item，样式与多选态一致。
+              if (_pressedItemId == item.id)
+                IgnorePointer(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOut,
+                    color: Colors.black38,
+                  ),
+                ),
+            ],
+          ),
         ),
-      ],
-    ),
+      ),
     );
   }
 }
