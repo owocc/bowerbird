@@ -22,12 +22,23 @@ class AppColors {
   static const accentHover = Color(0xFF0D8A6D);
 
   static const error = Color(0xFFB42318);
+
+  /// 深色模式下 header 按钮/胶囊的底色，比页面背景（纯黑）略亮，
+  /// 让按钮与背景明确区分开。
+  static const darkButtonSurface = Color(0xFF353638);
 }
+
+/// header 内按钮/胶囊的底色：浅色模式用页面 surface，深色模式用专用灰。
+Color headerButtonColor(ThemeData theme) =>
+    theme.brightness == Brightness.dark ? AppColors.darkButtonSurface : theme.colorScheme.surface;
 
 class AppRadii {
   static const pill = 9999.0;
   static const card = 12.0;
   static const cardLarge = 16.0;
+
+  /// 弹出菜单（dropdown）的圆角：比卡片更大，贴近系统浮层的观感。
+  static const menu = 26.0;
   static const chipSmall = 4.0;
   static const code = 8.0;
 }
@@ -251,6 +262,21 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.card)),
       ),
       dividerTheme: DividerThemeData(color: divider, space: 1, thickness: 1),
+      // 展开的菜单与 header 按钮同一套视觉：同色背景、大圆角、无描边、
+      // 10% 黑色大阴影（elevation 只决定阴影扩散范围，颜色由 shadowColor 决定）。
+      popupMenuTheme: PopupMenuThemeData(
+        color: brightness == Brightness.dark ? AppColors.darkButtonSurface : scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 8,
+        shadowColor: Colors.black.withValues(alpha: 0.10),
+        position: PopupMenuPosition.under,
+        // 收紧菜单外留白（默认 8，这里只留 4，配合更紧凑的行高）
+        menuPadding: const EdgeInsets.symmetric(vertical: 4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.menu),
+        ),
+        labelTextStyle: WidgetStatePropertyAll(textTheme.bodyMedium),
+      ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(color: AppColors.accent),
       listTileTheme: ListTileThemeData(
         selectedColor: AppColors.accent,

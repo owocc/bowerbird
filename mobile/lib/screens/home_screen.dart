@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -405,7 +406,7 @@ class _HomeScreenState extends State<HomeScreen>
     // 用圆形 ShapeDecoration（自带 fill + 阴影），避免默认正方形背景露出直角。
     final button = DecoratedBox(
       decoration: ShapeDecoration(
-        color: theme.colorScheme.surface,
+        color: headerButtonColor(theme),
         shape: const CircleBorder(),
         shadows: _headerShadows,
       ),
@@ -440,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// 胶囊（全圆角矩形）背景：填充色 + 共用投影。
   ShapeDecoration _headerPillDecoration(ThemeData theme, Radius radius) {
     return ShapeDecoration(
-      color: theme.colorScheme.surface,
+      color: headerButtonColor(theme),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(radius)),
       shadows: _headerShadows,
     );
@@ -1345,20 +1346,23 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildHeader(BuildContext context, ThemeData theme) {
     final topPadding = MediaQuery.paddingOf(context).top;
     final headerHeight = topPadding + kToolbarHeight + 8;
-    final backgroundHeight = headerHeight + 24;
     const pillRadius = Radius.circular(24);
+    // 状态栏图标亮度跟随主题：浅色背景用深色图标，深色背景用浅色图标，
+    // 避免系统分配到与背景同色的图标。
+    final overlayStyle = theme.brightness == Brightness.light
+        ? SystemUiOverlayStyle.dark
+        : SystemUiOverlayStyle.light;
 
-    return SizedBox(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: overlayStyle,
+      child: SizedBox(
       height: headerHeight,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 背景层保持不变
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: backgroundHeight,
+          // 背景层：从屏幕顶端（含状态栏）一路线性渐变到 header 下沿的完全透明，
+          // 不做纯色段，简单可预期。
+          Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -1366,12 +1370,9 @@ class _HomeScreenState extends State<HomeScreen>
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      theme.colorScheme.surface.withValues(alpha: 0.92),
-                      theme.colorScheme.surface.withValues(alpha: 0.80),
-                      theme.colorScheme.surface.withValues(alpha: 0.45),
+                      theme.colorScheme.surface,
                       theme.colorScheme.surface.withValues(alpha: 0),
                     ],
-                    stops: const [0, 0.45, 0.75, 1],
                   ),
                 ),
               ),
@@ -1401,6 +1402,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -1440,8 +1442,23 @@ class _HomeScreenState extends State<HomeScreen>
               type: MaterialType.transparency,
               child: PopupMenuButton<String>(
                 tooltip: '更多',
-                offset: const Offset(0, 48),
+                // PopupMenuPosition.under 会把「按钮高度 48」再加到 offset 上，
+                // 因此这里改用 .over 并直接给出想要的间距（按钮下沿再下移 6）。
+                position: PopupMenuPosition.over,
+                offset: const Offset(0, 54),
+                // 菜单最小宽度：200dp（Android dp == Flutter 逻辑像素）
+                constraints: const BoxConstraints(minWidth: 200),
                 padding: EdgeInsets.zero,
+                // 与 header 按钮同色、大圆角、10% 大阴影
+                color: headerButtonColor(theme),
+                surfaceTintColor: Colors.transparent,
+                elevation: 8,
+                shadowColor: Colors.black.withValues(alpha: 0.10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadii.menu),
+                ),
+                // 去掉展开时的高度/缩放过渡，菜单直接以最终尺寸出现
+                popUpAnimationStyle: AnimationStyle.noAnimation,
                 onSelected: (value) {
                   switch (value) {
                     case 'refresh':
@@ -1458,58 +1475,43 @@ class _HomeScreenState extends State<HomeScreen>
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(
+                  _menuRow(
+                    theme,
+                    icon: Icons.refresh_rounded,
+                    label: '刷新',
                     value: 'refresh',
-                    child: Row(
-                      children: [Icon(Icons.refresh, size: 20), SizedBox(width: 12), Text('刷新')],
-                    ),
                   ),
-                  PopupMenuItem(
+                  _menuRow(
+                    theme,
+                    icon: Icons.filter_list_rounded,
+                    label: '筛选',
                     value: 'filter',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.filter_list, size: 20),
-                        const SizedBox(width: 12),
-                        const Text('筛选'),
-                        if (_query.toQueryString().isNotEmpty) ...[
-                          const Spacer(),
-                          Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
-                        ],
-                      ],
-                    ),
+                    active: _query.toQueryString().isNotEmpty,
                   ),
-                  PopupMenuItem(
+                  _menuRow(
+                    theme,
+                    icon: Icons.inbox_rounded,
+                    label: '收件箱',
                     value: 'inbox',
-                    child: Row(
-                      children: [
-                        const Icon(Icons.inbox_outlined, size: 20),
-                        const SizedBox(width: 12),
-                        const Text('收件箱'),
-                        if (_inboxCount > 0) ...[const Spacer(), Text('$_inboxCount')],
-                      ],
-                    ),
+                    badge: _inboxCount > 0 ? '$_inboxCount' : null,
                   ),
                   // 仅在废纸篓视图下提供「清空废纸篓」，与桌面端右键菜单一致
                   if (_isTrashView && _stats.trashCount > 0)
-                    const PopupMenuItem(
+                    _menuRow(
+                      theme,
+                      icon: Icons.delete_forever_rounded,
+                      label: '清空废纸篓',
                       value: 'emptyTrash',
-                      child: Row(
-                        children: [
-                          Icon(Icons.delete_forever_outlined, size: 20),
-                          SizedBox(width: 12),
-                          Text('清空废纸篓'),
-                        ],
-                      ),
+                      destructive: true,
                     ),
-                  const PopupMenuItem(
+                  // 断开连接是危险操作，用一条分隔线隔开
+                  const PopupMenuDivider(height: 9),
+                  _menuRow(
+                    theme,
+                    icon: Icons.wifi_off_rounded,
+                    label: '断开连接',
                     value: 'disconnect',
-                    child: Row(
-                      children: [
-                        Icon(Icons.wifi_off_outlined, size: 20),
-                        SizedBox(width: 12),
-                        Text('断开连接'),
-                      ],
-                    ),
+                    destructive: true,
                   ),
                 ],
                 child: SizedBox(
@@ -1520,6 +1522,53 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// 统一的菜单项：图标 + 文字 + 可选徽标，危险项用 error 色。
+  PopupMenuItem<String> _menuRow(
+    ThemeData theme, {
+    required IconData icon,
+    required String label,
+    required String value,
+    String? badge,
+    bool active = false,
+    bool destructive = false,
+  }) {
+    final tint = destructive
+        ? theme.colorScheme.error
+        : (active ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant);
+    return PopupMenuItem<String>(
+      value: value,
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: tint),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: destructive ? theme.colorScheme.error : null,
+              ),
+            ),
+          ),
+          if (active) ...[
+            Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
+            const SizedBox(width: 4),
+          ],
+          if (badge != null)
+            Text(
+              badge,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
         ],
       ),
     );
