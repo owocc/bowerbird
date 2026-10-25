@@ -135,6 +135,12 @@ import { cn } from "@/lib/utils";
 
 const WORKSPACE_PAGE_SIZE = 200;
 
+// The sidebar owns its width (instead of being a resizable panel) so that it
+// cannot drift when the panel layout changes between views.
+const SIDEBAR_WIDTH_KEY = "bowerbird.workspace.sidebarWidth";
+const SIDEBAR_DEFAULT_WIDTH = 220;
+const SIDEBAR_MIN_WIDTH = 220;
+
 function isRealFolderIdValue(id: string | null): id is string {
   return Boolean(id) &&
     id !== TRASH_FOLDER_ID &&
@@ -187,6 +193,56 @@ export function LibraryWorkspace({
     [setDisplayPrefs]
   );
   const inspectorOpen = displayPrefs.showInspector;
+
+  // The sidebar used to share a ResizablePanelGroup with the inspector. The tag
+  // manager hides the inspector, which changes the set of panels and makes the
+  // group re-split the remaining space proportionally — so the sidebar silently
+  // changed width when switching views. Owning the width here makes that
+  // impossible: it only ever changes when the user drags the divider.
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    return Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH
+      ? stored
+      : SIDEBAR_DEFAULT_WIDTH;
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
+  }, [sidebarWidth]);
+
+  const handleSidebarDividerPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const target = event.currentTarget;
+      const startX = event.clientX;
+      const startWidth = sidebarWidth;
+      target.setPointerCapture(event.pointerId);
+      const onMove = (moveEvent: PointerEvent) => {
+        const max = Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth * 0.4);
+        const next = Math.min(
+          max,
+          Math.max(SIDEBAR_MIN_WIDTH, startWidth + moveEvent.clientX - startX)
+        );
+        setSidebarWidth(next);
+      };
+      const onUp = () => {
+        target.removeEventListener("pointermove", onMove);
+        target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointercancel", onUp);
+        document.body.style.cursor = "";
+      };
+      document.body.style.cursor = "col-resize";
+      target.addEventListener("pointermove", onMove);
+      target.addEventListener("pointerup", onUp);
+      target.addEventListener("pointercancel", onUp);
+    },
+    [sidebarWidth]
+  );
+
   const setInspectorOpen = useCallback(
     (open: boolean | ((value: boolean) => boolean)) => {
       setDisplayPrefs((prev) => ({
@@ -2324,28 +2380,23 @@ export function LibraryWorkspace({
           }}
         />
 
-        <ResizablePanelGroup
-          orientation="horizontal"
-          className="h-full w-full select-none overflow-hidden"
-        >
-          {sidebarOpen && (
-            <>
-              <ResizablePanel
-                id="sidebar-panel"
-                defaultSize={220}
-                minSize={220}
-                maxSize="40%"
-                className="min-w-[220px]"
-                data-panel="sidebar"
-              >
-                <SidebarDirectoryTree
+        <div className="flex h-full w-full min-w-0 select-none overflow-hidden">
+        {sidebarOpen && (
+          <>
+            {/* Fixed-pixel sidebar: its width never depends on how many panels
+                the rest of the layout has. */}
+            <div
+              data-panel="sidebar"
+              style={{ width: sidebarWidth }}
+              className="h-full shrink-0 overflow-hidden"
+            >
+              <SidebarDirectoryTree
                   library={library}
                   folders={folders}
                   activeFolderId={activeFolderId}
                   totalItemCount={workspaceStats?.total ?? 0}
                   untaggedCount={workspaceStats?.untaggedCount ?? 0}
                   uncategorizedCount={workspaceStats?.uncategorizedCount ?? 0}
-                  historyCount={historyItems.length}
                   trashCount={trashCount}
                   tagsCount={tags.length}
                   tagsSidebarOpen={tagsManagerOpen}
@@ -2379,15 +2430,22 @@ export function LibraryWorkspace({
                   onLibraryChanged={onLibraryChanged}
                   onToggleCollapse={() => setSidebarOpen(false)}
                 />
-              </ResizablePanel>
-              {/* The divider *is* the drag handle: one 1px line, so the seam never
-                  reads as 2px. `border-l` rather than `bg-*` because Tailwind has
-                  no `bg-sidebar-border` utility, and shrink-0 keeps the 1px from
-                  collapsing in a tight flex row. */}
-              <ResizableHandle className="w-px shrink-0 border-l border-sidebar-border bg-transparent hover:border-transparent hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
-            </>
-          )}
+            </div>
+            {/* The divider *is* the drag handle: one 1px line, so the seam never
+                reads as 2px. Dragging updates the sidebar width directly. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={handleSidebarDividerPointerDown}
+              className="w-px shrink-0 border-l border-sidebar-border bg-transparent hover:border-transparent hover:bg-primary/50 transition-colors cursor-col-resize z-20"
+            />
+          </>
+        )}
 
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="h-full w-full min-w-0 select-none overflow-hidden"
+        >
           {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery) */}
           <ResizablePanel id="gallery-main-panel" minSize={380}>
             <main
@@ -3134,6 +3192,7 @@ export function LibraryWorkspace({
             </>
           )}
         </ResizablePanelGroup>
+        </div>
 
         {/* FULL-WINDOW POPUP PREVIEW (Space key) */}
         {fullWindowPreviewOpen && (
