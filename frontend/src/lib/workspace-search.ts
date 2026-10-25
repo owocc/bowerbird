@@ -6,7 +6,13 @@ import type { SearchSchemaInput } from "@tanstack/react-router";
  * Typed query-parameter model for the `/browse` route.
  */
 
-export type WorkspaceView = "all" | "trash" | "untagged" | "uncategorized" | "history";
+export type WorkspaceView =
+  | "all"
+  | "trash"
+  | "untagged"
+  | "uncategorized"
+  | "history"
+  | "tags";
 export type WorkspaceCategory =
   | "all"
   | "image"
@@ -22,18 +28,20 @@ export type WorkspaceOrientation = "all" | "landscape" | "portrait" | "square";
 export type WorkspaceSizeFilter = "all" | "small" | "medium" | "large";
 export type WorkspacePresenceFilter = "all" | "has" | "empty";
 export interface WorkspaceSearch {
-  /** `all` = every asset, `trash` = the recycle bin. */
+  /**
+   * `all` = every asset, `trash` = the recycle bin, `tags` = the tag manager
+   * that fills the content area (see TagsManager).
+   */
   view: WorkspaceView;
   /** Folder id, when a virtual folder is selected from the sidebar. */
   folder?: string;
-  /** Tag name, when a tag is selected from the tags sidebar. */
+  /** Tag filter applied from the tag manager: the gallery then lists only its assets. */
   tag?: string;
   type: WorkspaceCategory;
   sort: WorkspaceSort;
   /** Gallery display layout mode (default: justified) */
   layout: GalleryLayoutMode;
-  /** Whether the secondary tags sidebar is open. */
-  tags: boolean;
+
   /** Active color filter hex (e.g. "#EF4444") */
   color?: string;
   /** Active folder filter from the top filter bar ("__uncategorized__" or folder ID) */
@@ -62,7 +70,6 @@ export const WORKSPACE_SEARCH_DEFAULTS = {
   type: "all",
   sort: "desc",
   layout: "justified",
-  tags: false,
   orientation: "all",
   size: "all",
   hasUrl: "all",
@@ -121,10 +128,6 @@ function asNonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
-function asBool(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
 function asRating(value: unknown): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const num = Number(value);
@@ -142,7 +145,8 @@ export function validateWorkspaceSearch(
       raw.view === "trash" ||
       raw.view === "untagged" ||
       raw.view === "uncategorized" ||
-      raw.view === "history"
+      raw.view === "history" ||
+      raw.view === "tags"
         ? raw.view
         : "all",
     type: CATEGORIES.includes(raw.type as WorkspaceCategory)
@@ -152,7 +156,6 @@ export function validateWorkspaceSearch(
     layout: GALLERY_LAYOUTS.includes(raw.layout as GalleryLayoutMode)
       ? (raw.layout as GalleryLayoutMode)
       : getInitialGalleryLayout(),
-    tags: asBool(raw.tags),
     folder: asNonEmptyString(raw.folder),
     tag: asNonEmptyString(raw.tag),
     color: asNonEmptyString(raw.color),
@@ -191,12 +194,16 @@ export interface WorkspaceSearchApi extends WorkspaceSearch {
   isUntagged: boolean;
   isUncategorized: boolean;
   isHistory: boolean;
+  isTags: boolean;
   selectAll: () => void;
   selectTrash: () => void;
   selectUntagged: () => void;
   selectUncategorized: () => void;
   selectHistory: () => void;
   selectFolder: (folderId: string) => void;
+  /** Opens the tag manager view, where tags are browsed, created and deleted. */
+  selectTags: () => void;
+  /** Shows every asset (view "all") narrowed to one tag. */
   selectTag: (tag: string | null) => void;
   setCategory: (type: WorkspaceCategory) => void;
   setSort: (sort: WorkspaceSort) => void;
@@ -209,9 +216,6 @@ export interface WorkspaceSearchApi extends WorkspaceSearch {
   setHasNoteFilter: (hasNote: WorkspacePresenceFilter) => void;
   setRatingFilter: (rating: number | null) => void;
   clearAllFilters: () => void;
-  setTagsPanel: (open: boolean) => void;
-  toggleTagsPanel: () => void;
-  closeTagsPanel: () => void;
 
   openPreview: (mode: PreviewMode, itemId: string) => void;
   setPreviewItem: (itemId: string) => void;
@@ -250,6 +254,7 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
   const isUntagged = search.view === "untagged";
   const isUncategorized = search.view === "uncategorized";
   const isHistory = search.view === "history";
+  const isTags = search.view === "tags";
   const activeFolderId = isTrash
     ? TRASH_FOLDER_ID
     : isUntagged
@@ -258,9 +263,16 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
     ? UNCATEGORIZED_FOLDER_ID
     : isHistory
     ? HISTORY_FOLDER_ID
+    : isTags
+    ? null
     : search.folder ?? null;
   const activeTag =
-    isTrash || isUntagged || isUncategorized || isHistory || search.folder
+    isTrash ||
+    isUntagged ||
+    isUncategorized ||
+    isHistory ||
+    isTags ||
+    search.folder
       ? null
       : search.tag ?? null;
   const previewOpen = Boolean(search.preview);
@@ -273,13 +285,13 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
     isUntagged,
     isUncategorized,
     isHistory,
+    isTags,
 
     selectAll: () =>
       patch({
         view: "all",
         folder: undefined,
         tag: undefined,
-        tags: false,
         preview: undefined,
         item: undefined,
       }),
@@ -288,7 +300,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         view: "trash",
         folder: undefined,
         tag: undefined,
-        tags: false,
         preview: undefined,
         item: undefined,
       }),
@@ -297,7 +308,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         view: "untagged",
         folder: undefined,
         tag: undefined,
-        tags: false,
         preview: undefined,
         item: undefined,
       }),
@@ -306,7 +316,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         view: "uncategorized",
         folder: undefined,
         tag: undefined,
-        tags: false,
         preview: undefined,
         item: undefined,
       }),
@@ -315,7 +324,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         view: "history",
         folder: undefined,
         tag: undefined,
-        tags: false,
         preview: undefined,
         item: undefined,
       }),
@@ -324,15 +332,24 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         view: "all",
         folder: folderId,
         tag: undefined,
-        tags: false,
         preview: undefined,
         item: undefined,
       }),
+    selectTags: () =>
+      patch({
+        view: "tags",
+        folder: undefined,
+        tag: undefined,
+        filterTag: undefined,
+        preview: undefined,
+        item: undefined,
+      }),
+    // Picking a tag leaves the manager and narrows the "all" view to it.
     selectTag: (tag) =>
       patch({
         view: "all",
-        tags: true,
-        tag: tag ?? undefined,
+        tag: undefined,
+        filterTag: tag ?? undefined,
         folder: undefined,
         preview: undefined,
         item: undefined,
@@ -366,32 +383,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
         hasNote: "all",
         rating: undefined,
       }),
-    setTagsPanel: (open) =>
-      patch({
-        view: "all",
-        tags: open,
-        folder: undefined,
-        tag: open ? search.tag : undefined,
-        preview: undefined,
-        item: undefined,
-      }),
-    toggleTagsPanel: () =>
-      patch({
-        view: "all",
-        tags: !search.tags,
-        folder: undefined,
-        tag: !search.tags ? search.tag : undefined,
-        preview: undefined,
-        item: undefined,
-      }),
-    closeTagsPanel: () =>
-      patch({
-        tags: false,
-        tag: undefined,
-        folder: undefined,
-        preview: undefined,
-        item: undefined,
-      }),
     openPreview: (mode, itemId) =>
       patch({ preview: mode, item: itemId }, { replace: previewOpen }),
     setPreviewItem: (itemId) => patch({ item: itemId }, { replace: true }),
@@ -405,7 +396,6 @@ export function useWorkspaceSearch(): WorkspaceSearchApi {
           tag: undefined,
           type: undefined,
           sort: undefined,
-          tags: false,
           color: undefined,
           filterFolder: undefined,
           filterTag: undefined,

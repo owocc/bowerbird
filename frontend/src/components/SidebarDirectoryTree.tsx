@@ -483,13 +483,16 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
     <>
       <aside
         ref={asideRef}
+        data-slot="sidebar"
         data-file-drop-target="sidebar"
         data-folder-id=""
         onDragEnter={handleSidebarDragOver}
         onDragOver={handleSidebarDragOver}
         onDragLeave={handleSidebarDragLeave}
         onDrop={handleSidebarRootDrop}
-        className="flex flex-col w-full h-full min-w-0 bg-sidebar text-sidebar-foreground select-none overflow-hidden relative"
+        // No fill of its own: the column shows the background layer, whatever
+        // that is (theme colour, solid, gradient, or a see-through window).
+        className="flex flex-col w-full h-full min-w-0 text-sidebar-foreground select-none overflow-hidden relative"
       >
         {/* Pure 10% opacity mask + dashed border for whole sidebar panel (NO inner content/text) */}
         {isRootDragActive && (
@@ -799,7 +802,7 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
             <SidebarGroupContent>
               <SidebarMenu className="space-y-0.5">
                 {folders.length === 0 ? (
-                  <div className="py-5 px-3 text-center border border-dashed border-sidebar-border/80 rounded-xl my-1 bg-muted/5">
+                  <div className="py-5 px-3 text-center border border-dashed border-sidebar-border rounded-xl my-1 bg-muted/5">
                     <p className="text-[11px] text-muted-foreground">
                       {t("sidebar.noFolders")}
                     </p>
@@ -1160,7 +1163,7 @@ const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
       </div>
 
       {hasChildren && expanded && (
-        <SidebarMenuSub className="ml-7.5 border-l border-sidebar-border/80 pl-2 my-0.5 space-y-0.5">
+        <SidebarMenuSub className="ml-7.5 border-l border-sidebar-border pl-2 my-0.5 space-y-0.5">
           {folder.children!.map((child) => (
             <FolderTreeItemNode
               key={child.id}

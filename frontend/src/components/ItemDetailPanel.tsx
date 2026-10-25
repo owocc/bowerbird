@@ -102,13 +102,7 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
   usePreviewPlugins();
-  const { theme } = useTheme();
-  const isDark =
-    theme === "dark" ||
-    (theme === "system" &&
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const resolvedTheme = isDark ? "dark" : "light";
+  const { resolvedTheme } = useTheme();
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -170,7 +164,10 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   // Empty state: clean accordion summary without heavy cards
   if (!item) {
     return (
-      <aside className="w-full h-full border-l-0 bg-sidebar/30 flex flex-col select-none overflow-y-auto">
+      <aside
+        data-slot="content-surface"
+        className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-y-auto"
+      >
         <div className="p-4 space-y-4 flex-1 text-xs">
           <div className="flex items-center gap-2.5 py-2">
             <div className="size-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
@@ -317,7 +314,10 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   );
 
   return (
-    <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
+    <aside
+      data-slot="content-surface"
+      className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden"
+    >
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}
         <div className="w-full flex items-center justify-center">

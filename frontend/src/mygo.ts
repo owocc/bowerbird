@@ -501,6 +501,13 @@ export const Service = {
   getUserDataDir(): Promise<string> {
     return call("Service.GetUserDataDir");
   },
+  /**
+   * GetVibrancyEnabled reports whether windows show a blurred material behind a
+   * transparent page.
+   */
+  getVibrancyEnabled(): Promise<boolean> {
+    return call("Service.GetVibrancyEnabled");
+  },
   getWorkspaceStats(sortOrder: string): Promise<WorkspaceStats | null> {
     return call("Service.GetWorkspaceStats", sortOrder);
   },
@@ -731,6 +738,13 @@ export const Service = {
    */
   setTheme(theme: string): Promise<void> {
     return call("Service.SetTheme", theme);
+  },
+  /**
+   * SetVibrancyEnabled persists the preference, hands it to the native windows
+   * and broadcasts the change to every open window.
+   */
+  setVibrancyEnabled(enabled: boolean): Promise<void> {
+    return call("Service.SetVibrancyEnabled", enabled);
   },
   shortcutAccelerator(action: string): Promise<string> {
     return call("Service.ShortcutAccelerator", action);

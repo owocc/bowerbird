@@ -296,14 +296,22 @@
   },
   "settings": {
     "appearance": {
-      "auto": "跟随系统",
-      "autoDescription": "自动匹配系统外观",
-      "dark": "深色",
-      "darkDescription": "常驻深色模式",
-      "description": "自定义 Bowerbird 的外观主题，修改将实时应用于所有窗口。",
+      "title": "外观",
+      "description": "自定义 Bowerbird 的界面外观，修改将实时应用于所有窗口。",
+      "themeTitle": "外观模式",
+      "themeDescription": "选择浅色、深色，或跟随系统自动切换。",
       "light": "浅色",
       "lightDescription": "常驻浅色模式",
-      "title": "外观模式"
+      "dark": "深色",
+      "darkDescription": "常驻深色模式",
+      "auto": "跟随系统",
+      "autoDescription": "自动匹配系统外观"
+    },
+    "vibrancy": {
+      "title": "窗口模糊 (Vibrancy)",
+      "description": "让窗口背后使用系统半透明模糊材质。是否看得见取决于「背景」设置：只有把背景设为「透明」时，模糊才会透出来。",
+      "enable": "启用窗口模糊",
+      "enableDescription": "关闭后窗口使用不透明底色，「透明」背景一并恢复为「默认」。"
     },
     "lightweight": {
       "title": "轻量模式",
@@ -383,6 +391,7 @@
     },
     "nav": {
       "general": "通用设置",
+      "appearance": "外观",
       "shortcuts": "快捷键",
       "screenshot": "截图",
       "plugins": "插件管理",
@@ -546,7 +555,40 @@
       "noNetworksFound": "未检测到可用网络接口"
     },
     "subtitle": "偏好设置与个性化配置",
-    "title": "偏好设置"
+    "title": "偏好设置",
+    "backdrop": {
+      "title": "背景",
+      "description": "决定内容之下那一层的样子：默认使用主题固有色，也可换成纯色、渐变或透明。内容与侧边栏各自绘制底色，文字始终清晰。",
+      "modes": {
+        "default": "默认",
+        "transparent": "透明",
+        "solid": "纯色",
+        "gradient": "渐变",
+        "image": "图片"
+      },
+      "presets": {
+        "aurora": "极光",
+        "sunset": "日落",
+        "ocean": "海洋",
+        "mono": "灰阶"
+      },
+      "solidLabel": "背景颜色",
+      "invalidColor": "请输入有效的颜色值，例如 #f3f1ec",
+      "customLabel": "自定义渐变",
+      "customHint": "支持 linear-gradient / radial-gradient / conic-gradient，例如 linear-gradient(160deg, #a18cd1, #fbc2eb)。",
+      "applyCustom": "应用",
+      "clearCustom": "清除",
+      "customActive": "当前使用自定义渐变",
+      "modesHint": "侧边栏始终使用背景层的颜色。「透明」以 50% 的背景色叠在窗口之上，既能透出窗口模糊，也保证文字清晰。",
+      "opacityLabel": "背景透明度",
+      "opacityHint": "纯色、渐变与图片的不透明度，默认 20%。调低可让窗口与模糊材质透出；「默认」与「透明」不受此项影响。",
+      "imageLabel": "背景图片",
+      "imageHint": "支持本地 file:// 路径或 https:// 网址。图片会铺满窗口。",
+      "applyImage": "应用",
+      "clearImage": "清除",
+      "imageActive": "当前使用自定义图片",
+      "invalidImage": "请输入有效的 file:// 或 https:// 图片地址"
+    }
   },
   "setup": {
     "back": "返回",
@@ -627,12 +669,13 @@
   },
   "tags": {
     "clearFilter": "清除筛选",
-    "closeSidebar": "关闭标签侧边栏",
     "customTags": "自定义标签 ({{count}})",
     "deleteTag": "删除标签",
     "empty": "暂无自定义标签",
+    "managerHint": "双击标签可在全部素材中查看该标签的内容。",
     "newTag": "新建标签",
     "noMatches": "无匹配标签",
+    "openHint": "双击查看该标签下的素材",
     "searchPlaceholder": "搜索标签…",
     "tagName": "标签名称",
     "title": "所有标签"

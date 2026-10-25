@@ -103,19 +103,7 @@ func (h *appHost) window(name string) *mygo.Window {
 // newWindow builds a mygo window from a core.WindowSpec. Callers must hold no
 // host lock.
 func (h *appHost) newWindow(spec core.WindowSpec) *mygo.Window {
-	opts := mygo.WindowOptions{
-		Title:           spec.Title,
-		URL:             spec.URL,
-		Width:           spec.Width,
-		Height:          spec.Height,
-		MinWidth:        spec.MinWidth,
-		MinHeight:       spec.MinHeight,
-		BackgroundColor: windowBackgroundColor,
-	}
-	if spec.TitleBarHidden {
-		opts.TitleBarStyle = mygo.TitleBarHiddenInset
-	}
-	w := mygo.NewWindow(opts)
+	w := mygo.NewWindow(h.windowOptions(spec))
 	keepWindowTitle(w)
 	h.attachDrop(w)
 	return w
@@ -253,16 +241,15 @@ func (h *appHost) OpenMainWindow() {
 // createMainWindow builds the main window with the same options used at
 // launch. Callers publish it through setMain or OpenMainWindow.
 func (h *appHost) createMainWindow() *mygo.Window {
-	w := mygo.NewWindow(mygo.WindowOptions{
-		Title:           "Bowerbird",
-		URL:             "/",
-		Width:           1280,
-		Height:          800,
-		MinWidth:        900,
-		MinHeight:       600,
-		TitleBarStyle:   mygo.TitleBarHiddenInset,
-		BackgroundColor: windowBackgroundColor,
-	})
+	w := mygo.NewWindow(h.windowOptions(core.WindowSpec{
+		Title:          "Bowerbird",
+		URL:            "/",
+		Width:          1280,
+		Height:         800,
+		MinWidth:       900,
+		MinHeight:      600,
+		TitleBarHidden: true,
+	}))
 	keepWindowTitle(w)
 	h.attachDrop(w)
 	w.OnClose(func(e *mygo.CloseEvent) {
@@ -375,6 +362,36 @@ func (h *appHost) WriteTextToClipboard(text string) error {
 // first paint stay in sync with the page theme.
 const windowBackgroundColor = "light-dark(#ffffff, #06070f)"
 
+// windowVibrancyMaterial is the translucent material shown behind the page
+// when the user turns on window blur. macOS shows the sidebar material; Windows
+// 11 falls back to Acrylic for it. Windows keeps the material in the window it
+// was created with, so slim windows are always created with one.
+const windowVibrancyMaterial = mygo.VibrancySidebar
+
+// windowOptions returns the options for one of the app's windows, following the
+// current theme and vibrancy preference.
+func (h *appHost) windowOptions(spec core.WindowSpec) mygo.WindowOptions {
+	svc := h.svc
+	vibrant := svc != nil && svc.GetVibrancyEnabled()
+	opts := mygo.WindowOptions{
+		Title:           spec.Title,
+		URL:             spec.URL,
+		Width:           spec.Width,
+		Height:          spec.Height,
+		MinWidth:        spec.MinWidth,
+		MinHeight:       spec.MinHeight,
+		Transparent:     vibrant,
+		BackgroundColor: windowBackgroundColor,
+	}
+	if spec.TitleBarHidden {
+		opts.TitleBarStyle = mygo.TitleBarHiddenInset
+	}
+	if vibrant {
+		opts.Vibrancy = windowVibrancyMaterial
+	}
+	return opts
+}
+
 func nativeThemeSource(theme string) mygo.ThemeSource {
 	switch theme {
 	case core.ThemeDark:
@@ -383,6 +400,36 @@ func nativeThemeSource(theme string) mygo.ThemeSource {
 		return mygo.ThemeLight
 	default:
 		return mygo.ThemeSystem
+	}
+}
+
+// ApplyVibrancy turns the blurred material behind every window on or off. The
+// page is what has to become transparent, so this only touches the native side;
+// the frontend does the same over the vibrancy-changed event.
+func (h *appHost) ApplyVibrancy(enabled bool) {
+	material := mygo.VibrancyNone
+	if enabled {
+		material = windowVibrancyMaterial
+	}
+	h.mu.RLock()
+	windows := make([]*mygo.Window, 0, len(h.windows)+1)
+	for _, w := range h.windows {
+		windows = append(windows, w)
+	}
+	if h.main != nil {
+		windows = append(windows, h.main)
+	}
+	h.mu.RUnlock()
+	seen := make(map[*mygo.Window]struct{}, len(windows))
+	for _, w := range windows {
+		if w == nil {
+			continue
+		}
+		if _, ok := seen[w]; ok {
+			continue
+		}
+		seen[w] = struct{}{}
+		w.SetVibrancy(material)
 	}
 }
 
@@ -697,6 +744,7 @@ func main() {
 		coreMgr.SetHost(host)
 		core.AttachManager(coreService, coreMgr)
 		host.ApplyTheme(coreService.GetTheme())
+		host.ApplyVibrancy(coreService.GetVibrancyEnabled())
 		// The manager restores the last library before it has a host, so tell
 		// the pages once more now that events can reach them.
 		if lib := coreMgr.GetActiveLibrary(); lib != nil {

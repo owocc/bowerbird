@@ -215,7 +215,10 @@ export function LogsPage() {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden flex flex-col bg-background text-foreground antialiased select-none">
+    <div
+      data-slot="page-root"
+      className="h-screen w-screen overflow-hidden flex flex-col text-foreground antialiased select-none"
+    >
       {/* Top Window Titlebar */}
       <header className="h-(--titlebar-height) px-3 border-b border-border/60 bg-sidebar flex items-center justify-between gap-2 shrink-0 wails-no-drag">
         <div className="flex items-center gap-2 min-w-0 header-interactive-container wails-no-drag">

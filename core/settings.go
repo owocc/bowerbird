@@ -107,6 +107,34 @@ func (s *Service) SetLanguage(language string) error {
 // LightweightModeChangedEvent is broadcast when the user toggles lightweight mode.
 const LightweightModeChangedEvent = "lightweight-mode-changed"
 
+// VibrancyChangedEvent is broadcast when the window blur is turned on or off,
+// so every open window can restyle itself immediately.
+const VibrancyChangedEvent = "vibrancy-changed"
+
+// GetVibrancyEnabled reports whether windows show a blurred material behind a
+// transparent page.
+func (s *Service) GetVibrancyEnabled() bool {
+	if s.mgr == nil || s.mgr.userData == nil {
+		return false
+	}
+	return s.mgr.userData.GetVibrancyEnabled()
+}
+
+// SetVibrancyEnabled persists the preference, hands it to the native windows
+// and broadcasts the change to every open window.
+func (s *Service) SetVibrancyEnabled(enabled bool) error {
+	if s.mgr != nil && s.mgr.userData != nil {
+		if err := s.mgr.userData.SetVibrancyEnabled(enabled); err != nil {
+			return err
+		}
+	}
+	if h := s.getHost(); h != nil {
+		h.ApplyVibrancy(enabled)
+	}
+	s.emit(VibrancyChangedEvent, enabled)
+	return nil
+}
+
 // GetLightweightModeEnabled reports whether idle webviews should be torn down.
 func (s *Service) GetLightweightModeEnabled() bool {
 	if s.mgr == nil || s.mgr.userData == nil {

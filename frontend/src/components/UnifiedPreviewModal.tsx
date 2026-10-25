@@ -52,13 +52,7 @@ export function UnifiedPreviewModal({
   const items = Array.isArray(rawItemsProp) ? rawItemsProp : rawItemsProp.items;
   const { t } = useTranslation();
   usePreviewPlugins();
-  const { theme } = useTheme();
-  const isDark =
-    theme === "dark" ||
-    (theme === "system" &&
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const resolvedTheme = isDark ? "dark" : "light";
+  const { resolvedTheme } = useTheme();
   const controllerRef = useRef<PreviewZoomController | null>(null);
   const [scale, setScale] = useState<number>(1);
 

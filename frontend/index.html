@@ -5,6 +5,97 @@
     <link rel="icon" type="image/png" href="/wails.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Bowerbird</title>
+    <script>
+      // Applies window vibrancy before the first paint so a translucent window
+      // never flashes an opaque background while the app boots. Mirrors the
+      // persisted preference into localStorage (storageKey in theme-provider);
+      // index.css keys the transparent body/sidebar fills off this attribute.
+      (function () {
+        var STORAGE_KEY = "bowerbird-ui-vibrancy";
+        function apply(enabled) {
+          document.documentElement.setAttribute("data-vibrancy", enabled ? "on" : "off");
+        }
+        var stored = null;
+        try {
+          stored = localStorage.getItem(STORAGE_KEY);
+        } catch (err) {
+          stored = null;
+        }
+        apply(stored === "true");
+        // Reconcile with the value shared by every window.
+        try {
+          if (window.mygo && window.mygo.call) {
+            window.mygo.call("Service.GetVibrancyEnabled").then(function (enabled) {
+              localStorage.setItem(STORAGE_KEY, enabled ? "true" : "false");
+              apply(!!enabled);
+            });
+          }
+        } catch (err) {
+          /* plain browser tab: keep the local value */
+        }
+      })();
+
+      // Primes the background layer before React runs, so the first paint
+      // already uses the saved colour instead of flashing the default.
+      //
+      // This duplicates a little of lib/backdrop.ts on purpose: it must run
+      // before any module loads. Keep it to the saved value only — the rules
+      // (which mode applies, light vs dark, the vibrancy fallback) live in
+      // lib/backdrop.ts and lib/appearance.ts, which take over on mount.
+      (function () {
+        var root = document.documentElement;
+        var prefs = null;
+        try {
+          prefs = JSON.parse(localStorage.getItem("bowerbird-ui-backdrop") || "null");
+        } catch (err) {
+          prefs = null;
+        }
+        // Older shapes: a bare preset id meant a gradient, "none" meant the
+        // theme's own colour (now spelled "default").
+        var mode = prefs
+          ? prefs.mode || (prefs.preset ? "gradient" : "default")
+          : "default";
+        if (mode === "none") mode = "default";
+        if (mode === "transparent" && root.getAttribute("data-vibrancy") !== "on") {
+          // A transparent background without the material shows the window fill,
+          // which is what "default" says; the provider settles this on mount.
+          mode = "default";
+        }
+        var background = "var(--sidebar)";
+        if (mode === "transparent") {
+          // Not fully clear: a light theme-background wash keeps text readable.
+          background = "var(--background)";
+        } else if (mode === "solid" && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test((prefs.solid || "").trim())) {
+          background = prefs.solid.trim();
+        } else if (mode === "gradient") {
+          var PRESETS = {
+            aurora: "linear-gradient(160deg, oklch(0.94 0.06 300) 0%, oklch(0.96 0.05 200) 55%, oklch(0.95 0.06 160) 100%)",
+            sunset: "linear-gradient(160deg, oklch(0.95 0.07 60) 0%, oklch(0.94 0.08 20) 55%, oklch(0.93 0.06 350) 100%)",
+            ocean: "linear-gradient(160deg, oklch(0.95 0.05 220) 0%, oklch(0.96 0.05 240) 55%, oklch(0.95 0.05 265) 100%)",
+            mono: "linear-gradient(160deg, oklch(0.97 0 0) 0%, oklch(0.93 0 0) 100%)"
+          };
+          background = prefs.custom || PRESETS[prefs.preset] || PRESETS.aurora;
+        } else if (mode === "image") {
+          var src = (prefs.image || "").trim();
+          var ok = /^(https?:\/\/|file:\/\/)/i.test(src) && !/["'\\();,<>\s]/.test(src);
+          background = ok
+            ? 'url("' + src + '") center / cover no-repeat, var(--background)'
+            : "var(--sidebar)";
+        }
+        root.style.setProperty("--app-backdrop", background);
+        // Solid and gradient fills fade through the layer's opacity (20% by
+        // default); "transparent" has its own fixed 20%. A gradient cannot go
+        // through color-mix, which needs a colour.
+        var faded = mode === "solid" || mode === "gradient" || mode === "image";
+        var pct = typeof prefs.opacity === "number" ? Math.round(prefs.opacity) : 20;
+        var layerOpacity = mode === "transparent"
+          ? 0.5
+          : faded
+          ? Math.min(100, Math.max(0, pct)) / 100
+          : 1;
+        root.style.setProperty("--app-backdrop-opacity", String(layerOpacity));
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

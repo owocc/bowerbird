@@ -107,7 +107,10 @@ export const MultiItemInspector = React.memo(function MultiItemInspector({
         )
       : [];
   return (
-    <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
+    <aside
+      data-slot="content-surface"
+      className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden"
+    >
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Stacked preview of the last 6 selected items in selection order */}
         <div className="relative w-full h-44 flex items-center justify-center my-1 select-none">

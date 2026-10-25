@@ -47,7 +47,7 @@ import {
 } from "@/components/ui/command";
 import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
 import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
-import { TagsSidebar } from "@/components/TagsSidebar";
+import { TagsManager } from "@/components/TagsManager";
 import { JustifiedGallery } from "@/components/JustifiedGallery";
 import { ItemDetailPanel } from "@/components/ItemDetailPanel";
 import { MultiItemInspector } from "@/components/MultiItemInspector";
@@ -160,7 +160,7 @@ export function LibraryWorkspace({
   const { canGoBack, goBack } = useHistoryNavigation();
   const activeFolderId = ws.activeFolderId;
   const activeTag = ws.activeTag;
-  const tagsSidebarOpen = ws.tags;
+  const tagsManagerOpen = ws.isTags;
   const categoryFilter = ws.type;
   const sortOrder = ws.sort;
   const layoutMode = ws.layout;
@@ -402,7 +402,6 @@ export function LibraryWorkspace({
         activeFolderId,
         includeSubfolders,
         activeFolderMatchSet,
-        tagsSidebarOpen,
         activeTag,
         category: categoryFilter,
         folderFilter,
@@ -418,7 +417,6 @@ export function LibraryWorkspace({
       activeFolderId,
       includeSubfolders,
       activeFolderMatchSet,
-      tagsSidebarOpen,
       activeTag,
       categoryFilter,
       folderFilter,
@@ -1368,7 +1366,7 @@ export function LibraryWorkspace({
         : historyItems;
     const hasExtraFilters =
       Boolean(normalizedQuery) ||
-      tagsSidebarOpen ||
+      Boolean(activeTag) ||
       categoryFilter !== "all" ||
       Boolean(folderFilter) ||
       orientationFilter !== "all" ||
@@ -1403,14 +1401,9 @@ export function LibraryWorkspace({
         }
       }
 
-      if (activeFolderId !== TRASH_FOLDER_ID && tagsSidebarOpen) {
-        // Standalone All Tags mode: only filter by the selected tag in TagsSidebar
-        const itemTags = item.tags || [];
-        if (activeTag !== null) {
-          if (!itemTags.includes(activeTag)) {
-            return false;
-          }
-        } else if (itemTags.length === 0) {
+      // A tag picked in the tag manager narrows the "all" view to it.
+      if (activeFolderId !== TRASH_FOLDER_ID && activeTag !== null) {
+        if (!(item.tags || []).includes(activeTag)) {
           return false;
         }
       }
@@ -1494,7 +1487,6 @@ export function LibraryWorkspace({
     sortOrder,
     normalizedQuery,
     activeFolderId,
-    tagsSidebarOpen,
     activeTag,
     categoryFilter,
     folderFilter,
@@ -2315,7 +2307,10 @@ export function LibraryWorkspace({
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-      <div className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag">
+      <div
+        data-slot="page-root"
+        className="flex h-screen w-screen text-foreground antialiased select-none overflow-hidden wails-no-drag"
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -2341,6 +2336,7 @@ export function LibraryWorkspace({
                 minSize={220}
                 maxSize="40%"
                 className="min-w-[220px]"
+                data-panel="sidebar"
               >
                 <SidebarDirectoryTree
                   library={library}
@@ -2352,9 +2348,9 @@ export function LibraryWorkspace({
                   historyCount={historyItems.length}
                   trashCount={trashCount}
                   tagsCount={tags.length}
-                  tagsSidebarOpen={tagsSidebarOpen}
+                  tagsSidebarOpen={tagsManagerOpen}
                   onToggleTagsSidebar={() => {
-                    ws.toggleTagsPanel();
+                    ws.selectTags();
                   }}
                   onSelectFolder={(id) => {
                     navigateToFolder(id);
@@ -2384,35 +2380,11 @@ export function LibraryWorkspace({
                   onToggleCollapse={() => setSidebarOpen(false)}
                 />
               </ResizablePanel>
-              <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
-
-              {tagsSidebarOpen && (
-                <>
-                  <ResizablePanel
-                    id="tags-sidebar-panel"
-                    defaultSize={190}
-                    minSize={160}
-                    maxSize={300}
-                    className="min-w-[160px] max-w-[300px]"
-                  >
-                    <TagsSidebar
-                      tags={tags}
-                      activeTag={activeTag}
-                      onSelectTag={(tg) => {
-                        ws.selectTag(tg);
-                        setSelectedOrder([]);
-                        setActiveItemId(null);
-                      }}
-                      onCreateTag={handleCreateTag}
-                      onDeleteTag={handleDeleteTag}
-                      onClose={() => {
-                        ws.closeTagsPanel();
-                      }}
-                    />
-                  </ResizablePanel>
-                  <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
-                </>
-              )}
+              {/* The divider *is* the drag handle: one 1px line, so the seam never
+                  reads as 2px. `border-l` rather than `bg-*` because Tailwind has
+                  no `bg-sidebar-border` utility, and shrink-0 keeps the 1px from
+                  collapsing in a tight flex row. */}
+              <ResizableHandle className="w-px shrink-0 border-l border-sidebar-border bg-transparent hover:border-transparent hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
             </>
           )}
 
@@ -2420,6 +2392,7 @@ export function LibraryWorkspace({
           <ResizablePanel id="gallery-main-panel" minSize={380}>
             <main
               data-file-drop-target={isInternalDragging ? undefined : "main"}
+              data-slot="content-surface"
               className="group/main relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background"
               {...(isInternalDragging
                 ? {
@@ -2433,15 +2406,54 @@ export function LibraryWorkspace({
                   }
                 : dragHandlers)}
             >
+              {tagsManagerOpen ? (
+                /* Tag manager: browsing tags gets the whole content width, so
+                   long names stay readable in narrow windows. */
+                <header className="w-full bg-background shrink-0 select-none header-interactive-container wails-no-drag">
+                  <div className="h-(--titlebar-height) px-3 flex items-center wails-no-drag">
+                    <MainHeaderSafePrefix
+                      sidebarOpen={sidebarOpen}
+                      onToggleSidebar={() => setSidebarOpen(true)}
+                    >
+                      <HistoryNavButtons className="mr-1" />
+                      <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
+                        {t("tags.title")}
+                      </span>
+                    </MainHeaderSafePrefix>
+                    <div className="flex-1 h-full min-w-4 wails-drag" />
+                  </div>
+                </header>
+              ) : null}
+
+              {tagsManagerOpen && (
+                <TagsManager
+                  tags={tags}
+                  activeTag={activeTag}
+                  onSelectTag={(tagName) => {
+                    ws.selectTag(tagName);
+                    setSelectedOrder([]);
+                    setActiveItemId(null);
+                  }}
+                  onCreateTag={handleCreateTag}
+                  onDeleteTag={handleDeleteTag}
+                />
+              )}
+
               {/* Pure 10% opacity mask + dashed border for main area dropzone (NO inner text/icons) */}
-              {dropState.status === "dragging-over" &&
+              {!tagsManagerOpen &&
+                dropState.status === "dragging-over" &&
                 !isInternalDragging &&
                 !dragHoverSubfolderId && (
                   <div className="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-primary/80 bg-foreground/10 rounded-[inherit]" />
                 )}
 
 
-              <header className="w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag">
+              <header
+                className={cn(
+                  "w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag",
+                  tagsManagerOpen && "hidden"
+                )}
+              >
                 {/* Row 1: Titlebar height row — parent is strictly wails-no-drag; ONLY the middle spacer is wails-drag */}
                 <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-no-drag">
                   {/* Left operable container: full height, strictly header-interactive-container + wails-no-drag */}
@@ -2454,10 +2466,10 @@ export function LibraryWorkspace({
                     <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
                       {activeFolderId === TRASH_FOLDER_ID
                         ? t("workspace.trash")
-                        : tagsSidebarOpen
-                        ? activeTag
-                          ? t("workspace.tagWithValue", { tag: activeTagLabel })
-                          : t("sidebar.allTags")
+                        : tagsManagerOpen
+                        ? t("tags.title")
+                        : activeTag
+                        ? t("workspace.tagWithValue", { tag: activeTagLabel })
                         : activeFolderId === UNTAGGED_FOLDER_ID
                         ? t("sidebar.untagged")
                         : activeFolderId === UNCATEGORIZED_FOLDER_ID
@@ -2657,7 +2669,10 @@ export function LibraryWorkspace({
                     targetType: "general",
                   });
                 }}
-                className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag"
+                className={cn(
+                  "flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag",
+                  tagsManagerOpen && "hidden"
+                )}
               >
                 {loading ? (
                   <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">
@@ -2921,17 +2936,15 @@ export function LibraryWorkspace({
                                 {t("workspace.trashEmptyDesc")}
                               </p>
                             </>
-                          ) : tagsSidebarOpen ? (
+                          ) : activeTag ? (
                             <>
                               <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
                                 <TagIcon className="size-6 text-muted-foreground" />
                               </div>
                               <h3 className="font-semibold text-sm mb-1">
-                                {activeTag
-                                  ? t("workspace.tagEmptyTitle", {
-                                      tag: activeTagLabel,
-                                    })
-                                  : t("tags.empty")}
+                                {t("workspace.tagEmptyTitle", {
+                                  tag: activeTagLabel,
+                                })}
                               </h3>
                               <p className="text-xs text-muted-foreground">
                                 {t("workspace.tagEmptyDesc")}
@@ -3052,9 +3065,13 @@ export function LibraryWorkspace({
           </ResizablePanel>
 
           {/* COLUMN 3: RIGHT INSPECTOR PANEL (Single Item or Multi-Item) */}
-          {inspectorOpen && (
+          {/* Hidden in the tag manager: there is no selection to inspect there. */}
+          {inspectorOpen && !tagsManagerOpen && (
             <>
-              <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
+              {/* The inspector edge: an opaque line, not the translucent --border,
+                  because it sits between two filled surfaces and must read as a
+                  real edge. Also independent of the sidebar hairline opacity. */}
+              <ResizableHandle className="w-px shrink-0 border-l border-border-solid bg-transparent hover:border-transparent hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
               <ResizablePanel
                 id="inspector-panel"
                 defaultSize={260}

@@ -38,10 +38,12 @@ import {
   Smartphone,
   QrCode,
   Wifi,
+  Palette,
 } from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
 import { useTheme, type Theme } from "@/components/theme-provider";
+import { BackdropSettings } from "@/components/BackdropSettings";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -117,6 +119,7 @@ import { cn } from "@/lib/utils";
 
 type SettingsSectionId =
   | "general"
+  | "appearance"
   | "shortcuts"
   | "screenshot"
   | "plugins"
@@ -387,7 +390,16 @@ function PluginCard({
  */
 export function SettingsPage() {
   const { t } = useTranslation();
-  const { theme, setTheme } = useTheme();
+  const {
+    theme,
+    setTheme,
+    resolvedTheme,
+    vibrancy,
+    setVibrancy,
+    backdrop,
+    setBackdrop,
+    backdropModes,
+  } = useTheme();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("general");
   const [languagePref, setLanguagePref] = useState<LanguagePreference>(getLanguagePreference());
   const [serverPort, setServerPort] = useState<number>(41595);
@@ -832,6 +844,11 @@ export function SettingsPage() {
       icon: Settings2,
     },
     {
+      id: "appearance",
+      label: t("settings.nav.appearance"),
+      icon: Palette,
+    },
+    {
       id: "shortcuts",
       label: t("settings.nav.shortcuts"),
       icon: Keyboard,
@@ -869,9 +886,15 @@ export function SettingsPage() {
     },
   ];
   return (
-    <div className="h-screen w-screen overflow-hidden flex bg-background text-foreground antialiased select-none">
+    <div
+      data-slot="page-root"
+      className="h-screen w-screen overflow-hidden flex text-foreground antialiased select-none"
+    >
       {/* Left Navigation Sidebar */}
-      <aside className="w-56 shrink-0 border-r border-sidebar-border bg-sidebar text-sidebar-foreground flex flex-col select-none">
+      <aside
+        data-slot="settings-sidebar"
+        className="w-56 shrink-0 border-r border-sidebar-border text-sidebar-foreground flex flex-col select-none"
+      >
         <div className="h-(--titlebar-height) px-3 flex items-center gap-2 shrink-0 wails-drag">
           <MacTrafficLightSpacer className="w-[72px] h-(--titlebar-height) shrink-0" />
           <span className="text-xs font-semibold tracking-tight text-sidebar-foreground truncate">
@@ -929,6 +952,8 @@ export function SettingsPage() {
           <h1 className="text-xs font-semibold tracking-tight text-foreground">
             {activeSection === "general"
               ? t("settings.nav.general")
+              : activeSection === "appearance"
+              ? t("settings.nav.appearance")
               : activeSection === "shortcuts"
               ? t("settings.nav.shortcuts")
               : activeSection === "screenshot"
@@ -946,15 +971,22 @@ export function SettingsPage() {
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 wails-no-drag">
-          {activeSection === "general" && (
+          {activeSection === "appearance" && (
             <div className="max-w-xl space-y-6">
+              <div className="space-y-0.5">
+                <h2 className="text-xs font-semibold">{t("settings.appearance.title")}</h2>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {t("settings.appearance.description")}
+                </p>
+              </div>
+
               <section className="space-y-3">
                 <div className="space-y-0.5">
-                  <h2 className="text-xs font-semibold">
-                    {t("settings.appearance.title")}
-                  </h2>
+                  <h3 className="text-xs font-semibold">
+                    {t("settings.appearance.themeTitle")}
+                  </h3>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    {t("settings.appearance.description")}
+                    {t("settings.appearance.themeDescription")}
                   </p>
                 </div>
 
@@ -997,29 +1029,9 @@ export function SettingsPage() {
 
               <section className="space-y-3">
                 <div className="space-y-0.5">
-                  <h2 className="text-xs font-semibold">
-                    {t("settings.lightweight.title")}
-                  </h2>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    {t("settings.lightweight.description")}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 px-3.5 py-3">
-                  <span className="text-xs font-medium">
-                    {t("settings.lightweight.enable")}
-                  </span>
-                  <Switch
-                    checked={lightweightEnabled}
-                    onCheckedChange={handleToggleLightweight}
-                  />
-                </div>
-              </section>
-
-              <section className="space-y-3">
-                <div className="space-y-0.5">
-                  <h2 className="text-xs font-semibold">
+                  <h3 className="text-xs font-semibold">
                     {t("settings.language.title")}
-                  </h2>
+                  </h3>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
                     {t("settings.language.description")}
                   </p>
@@ -1063,6 +1075,60 @@ export function SettingsPage() {
                       );
                     }
                   )}
+                </div>
+              </section>
+
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h3 className="text-xs font-semibold">
+                    {t("settings.vibrancy.title")}
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.vibrancy.description")}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 px-3.5 py-3">
+                  <div className="space-y-0.5 pr-4">
+                    <span className="text-xs font-medium">
+                      {t("settings.vibrancy.enable")}
+                    </span>
+                    <p className="text-[10px] leading-tight text-muted-foreground">
+                      {t("settings.vibrancy.enableDescription")}
+                    </p>
+                  </div>
+                  <Switch checked={vibrancy} onCheckedChange={setVibrancy} />
+                </div>
+              </section>
+
+              <BackdropSettings
+                backdrop={backdrop}
+                setBackdrop={setBackdrop}
+                modes={backdropModes}
+                resolvedTheme={resolvedTheme}
+                vibrancy={vibrancy}
+              />
+            </div>
+          )}
+
+          {activeSection === "general" && (
+            <div className="max-w-xl space-y-6">
+              <section className="space-y-3">
+                <div className="space-y-0.5">
+                  <h2 className="text-xs font-semibold">
+                    {t("settings.lightweight.title")}
+                  </h2>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    {t("settings.lightweight.description")}
+                  </p>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 px-3.5 py-3">
+                  <span className="text-xs font-medium">
+                    {t("settings.lightweight.enable")}
+                  </span>
+                  <Switch
+                    checked={lightweightEnabled}
+                    onCheckedChange={handleToggleLightweight}
+                  />
                 </div>
               </section>
             </div>
