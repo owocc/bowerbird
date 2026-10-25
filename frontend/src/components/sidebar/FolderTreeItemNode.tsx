@@ -1,10 +1,8 @@
-import React from "react";
-import {
-  ChevronDown,
-  ChevronRight,
-  Folder as FolderIcon,
-  FolderOpen,
-} from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { default as ChevronDown } from "~icons/ri/arrow-down-s-line";
+import { default as ChevronRight } from "~icons/ri/arrow-right-s-line";
+import { default as FolderIcon } from "~icons/lucide/folder";
+import { default as FolderOpen } from "~icons/lucide/folder-open";
 
 import {
   SidebarMenuItem,
@@ -43,6 +41,10 @@ export interface FolderTreeItemNodeProps {
   ) => Promise<void>;
   onClearDragTarget: () => void;
   onOpenContextMenu: (e: React.MouseEvent, folder: Folder) => void;
+  /** Id of the folder whose name is being edited inline (just-created folders). */
+  inlineEditId?: string | null;
+  /** Called when inline editing finishes — on commit, cancel or unmount. */
+  onInlineEditEnd?: () => void;
   depth?: number;
 }
 
@@ -61,12 +63,38 @@ export const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
   onDropFolderImport,
   onClearDragTarget,
   onOpenContextMenu,
+  inlineEditId,
+  onInlineEditEnd,
   depth = 0,
 }: FolderTreeItemNodeProps) {
   const hasChildren = Boolean(folder.children && folder.children.length > 0);
   const expanded = Boolean(expandedMap[folder.id]);
   const isSelected = activeFolderId === folder.id;
   const isDragOver = dragHoverFolderId === folder.id;
+
+  // Inline rename: identical row skeleton to the tree, only the name becomes an
+  // input. The folder already exists (id first), so the name is just a label.
+  const isEditing = inlineEditId === folder.id;
+  const [draftName, setDraftName] = useState(folder.name);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    setDraftName(folder.name);
+    const frame = requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isEditing, folder.name]);
+
+  const commitName = async () => {
+    const next = draftName.trim();
+    onInlineEditEnd?.();
+    if (next && next !== folder.name) {
+      await onRenameFolder({ ...folder, name: next });
+    }
+  };
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -94,6 +122,8 @@ export const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          // While renaming, keep the native input menu instead of the folder one.
+          if (isEditing) return;
           onOpenContextMenu(e, folder);
         }}
         className="relative flex items-center w-full rounded-lg overflow-hidden"
@@ -137,9 +167,31 @@ export const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
               )}
             />
           )}
-          <span className="truncate flex-1 pointer-events-none">
-            {folder.name}
-          </span>
+          {isEditing ? (
+            <input
+              ref={nameInputRef}
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void commitName();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraftName(folder.name);
+                  onInlineEditEnd?.();
+                }
+              }}
+              onBlur={() => void commitName()}
+              onClick={(e) => e.stopPropagation()}
+              className="min-w-0 flex-1 bg-transparent p-0 text-xs font-inherit text-sidebar-foreground outline-none"
+            />
+          ) : (
+            <span className="truncate flex-1 pointer-events-none">
+              {folder.name}
+            </span>
+          )}
           <span
             className={cn(
               SIDEBAR_COUNT_CLASS,
@@ -149,8 +201,10 @@ export const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
             {folder.itemCount ?? 0}
           </span>
 
-          {isDragOver && <div className={SIDEBAR_DROP_MASK_PRIMARY} />}
-          <div className={SIDEBAR_DROP_MASK_PASSIVE} />
+          {!isEditing && isDragOver && (
+            <div className={SIDEBAR_DROP_MASK_PRIMARY} />
+          )}
+          {!isEditing && <div className={SIDEBAR_DROP_MASK_PASSIVE} />}
         </button>
       </div>
 
@@ -172,6 +226,8 @@ export const FolderTreeItemNode = React.memo(function FolderTreeItemNode({
               onDropFolderImport={onDropFolderImport}
               onClearDragTarget={onClearDragTarget}
               onOpenContextMenu={onOpenContextMenu}
+              inlineEditId={inlineEditId}
+              onInlineEditEnd={onInlineEditEnd}
               depth={depth + 1}
             />
           ))}

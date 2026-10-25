@@ -1,24 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { default as Search } from "~icons/ri/search-line";
+import { default as ArrowUpDown } from "~icons/ri/arrow-up-down-line";
+import { default as Upload } from "~icons/ri/upload-line";
+import { default as X } from "~icons/ri/close-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
+import { default as Minus } from "~icons/ri/subtract-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as RotateCcw } from "~icons/ri/arrow-go-back-line";
+import { default as Settings } from "~icons/ri/settings-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as FolderX } from "~icons/ri/folder-forbid-line";
+import { default as History } from "~icons/ri/history-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as ChevronDown } from "~icons/ri/arrow-down-s-line";
+import { default as ChevronRight } from "~icons/ri/arrow-right-s-line";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
-import {
-  Search,
-  ArrowUpDown,
-  Upload,
-  X,
-  Trash2,
-  Minus,
-  Plus,
-  RotateCcw,
-  Settings,
-  Tag as TagIcon,
-  Folder as FolderIcon,
-  FolderX,
-  History,
-  Check,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -75,7 +73,6 @@ import {
   BatchRestoreFromTrash,
   PermanentDeleteItem,
   EmptyTrash,
-  CloseLibrary,
   GetFolders,
   CreateFolder,
   RenameFolder,
@@ -252,6 +249,20 @@ export function LibraryWorkspace({
     },
     [setDisplayPrefs]
   );
+
+  // The two side panels are treated as one layout unit: the sidebar's collapse
+  // button hides *both* the sidebar and the inspector, and brings both back when
+  // the layout is already collapsed. They remain independently toggleable from
+  // the context menu / display settings — this is only the combined shortcut.
+  const layoutCollapsed = !sidebarOpen && !inspectorOpen;
+  const toggleLayoutPanels = useCallback(() => {
+    const next = layoutCollapsed;
+    setDisplayPrefs((prev) => ({
+      ...prev,
+      showSidebar: next,
+      showInspector: next,
+    }));
+  }, [layoutCollapsed, setDisplayPrefs]);
   const [items, setItems] = useState<Item[]>([]);
   const [trashItems, setTrashItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -2007,10 +2018,16 @@ export function LibraryWorkspace({
     }
   };
 
-  const handleCreateFolder = async (name: string, parentId?: string) => {
+  const handleCreateFolder = async (
+    name: string,
+    parentId?: string,
+    onCreated?: (folder: Folder) => void
+  ) => {
     try {
-      await CreateFolder(name, parentId || "");
+      const created = await CreateFolder(name, parentId || "");
       await refreshFolders();
+      // Hand the new folder back so the caller can start renaming it inline.
+      if (created) onCreated?.(created);
     } catch (err) {
       console.error("Failed to create folder:", err);
     }
@@ -2420,15 +2437,8 @@ export function LibraryWorkspace({
                     notifySuccess(SuccessCodes.MOVED_TO_TRASH);
                   }}
                   onEmptyTrash={handleRequestEmptyTrash}
-                  onCloseLibrary={async () => {
-                    // CloseLibrary closes the main window and leaves only the
-                    // setup window. The main window is created again once a
-                    // library is chosen there.
-                    await CloseLibrary();
-                    onLibraryClosed();
-                  }}
                   onLibraryChanged={onLibraryChanged}
-                  onToggleCollapse={() => setSidebarOpen(false)}
+                  onToggleCollapse={toggleLayoutPanels}
                 />
             </div>
             {/* The divider *is* the drag handle: one 1px line, so the seam never
@@ -2471,7 +2481,7 @@ export function LibraryWorkspace({
                   <div className="h-(--titlebar-height) px-3 flex items-center wails-no-drag">
                     <MainHeaderSafePrefix
                       sidebarOpen={sidebarOpen}
-                      onToggleSidebar={() => setSidebarOpen(true)}
+                      onToggleSidebar={toggleLayoutPanels}
                     >
                       <HistoryNavButtons className="mr-1" />
                       <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
@@ -2517,7 +2527,7 @@ export function LibraryWorkspace({
                   {/* Left operable container: full height, strictly header-interactive-container + wails-no-drag */}
                   <MainHeaderSafePrefix
                     sidebarOpen={sidebarOpen}
-                    onToggleSidebar={() => setSidebarOpen(true)}
+                    onToggleSidebar={toggleLayoutPanels}
                   >
                     <HistoryNavButtons className="mr-1" />
 
@@ -2979,12 +2989,14 @@ export function LibraryWorkspace({
                       </section>
                     )}
 
+                    {/* No "no folders" placeholder: an empty folder just shows the
+                        normal file empty state (import CTA), never a nested one. */}
                     {filteredItems.length === 0 ? (
                       currentSubfolders.length === 0 ? (
-                        <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
+                        <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
                           {activeFolderId === "__trash__" ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <Trash2 className="size-6 text-muted-foreground" />
                               </div>
                               <h3 className="font-semibold text-sm mb-1">
@@ -2996,9 +3008,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeTag ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <TagIcon className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.tagEmptyTitle", {
                                   tag: activeTagLabel,
@@ -3010,9 +3022,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeFolderId === UNTAGGED_FOLDER_ID ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <TagIcon className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.untaggedEmptyTitle")}
                               </h3>
@@ -3022,9 +3034,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeFolderId === UNCATEGORIZED_FOLDER_ID ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <FolderX className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.uncategorizedEmptyTitle")}
                               </h3>
@@ -3034,9 +3046,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeFolderId === HISTORY_FOLDER_ID ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <History className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.historyEmptyTitle")}
                               </h3>
@@ -3046,9 +3058,9 @@ export function LibraryWorkspace({
                             </>
                           ) : (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <Upload className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.noFilesTitle")}
                               </h3>
@@ -3115,7 +3127,7 @@ export function LibraryWorkspace({
                     ws.setPreviewItem(newItem.id);
                   }}
                   sidebarOpen={sidebarOpen}
-                  onToggleSidebar={() => setSidebarOpen(true)}
+                  onToggleSidebar={toggleLayoutPanels}
                   onItemUpdated={handleItemUpdatedInPlace}
                 />
               )}
@@ -3207,7 +3219,7 @@ export function LibraryWorkspace({
               ws.setPreviewItem(newItem.id);
             }}
             sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(true)}
+            onToggleSidebar={toggleLayoutPanels}
             onItemUpdated={handleItemUpdatedInPlace}
           />
         )}

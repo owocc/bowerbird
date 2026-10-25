@@ -1,6 +1,6 @@
 import { useState } from "react";
+import { default as Check } from "~icons/ri/check-line";
 import { useTranslation } from "react-i18next";
-import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

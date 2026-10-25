@@ -1,4 +1,5 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { default as ChevronLeft } from "~icons/ri/arrow-left-s-line";
+import { default as ChevronRight } from "~icons/ri/arrow-right-s-line";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useHistoryNavigation } from "@/hooks/useHistoryNavigation";

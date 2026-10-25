@@ -1,5 +1,5 @@
 import React from "react";
-import { PanelLeftClose } from "lucide-react";
+import { default as LayoutSidebar } from "~icons/tabler/layout-sidebar";
 import { useTranslation } from "react-i18next";
 
 import { AppMenuButton } from "@/components/AppMenuButton";
@@ -30,15 +30,17 @@ export function SidebarTitlebar({
 }: SidebarTitlebarProps) {
   const { t } = useTranslation();
 
+  // One icon in both states on purpose: the button is an on/off control for the
+  // side panels, not a "this direction only" affordance.
   const collapseButton = onToggleCollapse ? (
     <Button
       variant="ghost"
       size="icon-xs"
       onClick={onToggleCollapse}
-      title={t("sidebar.collapseSidebar", { shortcut: collapseShortcutLabel })}
+      title={t("sidebar.togglePanels", { shortcut: collapseShortcutLabel })}
       className={COLLAPSE_BUTTON_CLASS}
     >
-      <PanelLeftClose className="size-4" />
+      <LayoutSidebar className="size-4" />
     </Button>
   ) : null;
 

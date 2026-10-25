@@ -1,6 +1,8 @@
 import { Component } from "react";
+import { default as AlertTriangle } from "~icons/ri/alert-line";
+import { default as RefreshCw } from "~icons/ri/refresh-line";
+import { default as EyeOff } from "~icons/ri/eye-close-line";
 import type { ErrorInfo, ReactNode } from "react";
-import { AlertTriangle, RefreshCw, EyeOff } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import { previewRegistry } from "../plugins/preview/registry";
 

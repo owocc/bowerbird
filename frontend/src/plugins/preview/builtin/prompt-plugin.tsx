@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
+import { default as Sparkles } from "~icons/ri/sparkling-line";
+import { default as Copy } from "~icons/ri/file-copy-line";
+import { default as Check } from "~icons/ri/check-line";
 import { useTranslation } from "react-i18next";
-import { Sparkles, Copy, Check } from "lucide-react";
 import {
   AccordionItem,
   AccordionTrigger,

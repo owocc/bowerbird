@@ -1,9 +1,8 @@
 import React from "react";
-import { PanelLeftOpen } from "lucide-react";
+import { default as LayoutSidebar } from "~icons/tabler/layout-sidebar";
 import { Button } from "@/components/ui/button";
 import { AppMenuButton } from "@/components/AppMenuButton";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
-import { useIsMacOS } from "@/lib/macos";
 
 export interface MainHeaderSafePrefixProps {
   sidebarOpen?: boolean;
@@ -18,15 +17,13 @@ export interface MainHeaderSafePrefixProps {
  * 2. Double-click inline preview modal header
  *
  * When the sidebar is collapsed, it provides the 80px macOS traffic lights safe padding
- * and renders the persistent sidebar expand button (⌘B).
+ * and renders the persistent sidebar toggle button.
  */
 export function MainHeaderSafePrefix({
   sidebarOpen = true,
   onToggleSidebar,
   children,
 }: MainHeaderSafePrefixProps) {
-  const isMac = useIsMacOS();
-
   return (
     <div className="h-full flex items-center gap-2 min-w-0 header-interactive-container wails-no-drag">
       {!sidebarOpen && (
@@ -42,10 +39,10 @@ export function MainHeaderSafePrefix({
                 variant="ghost"
                 size="icon-xs"
                 onClick={onToggleSidebar}
-                title={`Expand Sidebar (${isMac ? "⌘B" : "Ctrl+B"})`}
+                title="Toggle Sidebar"
                 className="size-7 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg shrink-0"
               >
-                <PanelLeftOpen className="size-4" />
+                <LayoutSidebar className="size-4" />
               </Button>
             </>
           )}

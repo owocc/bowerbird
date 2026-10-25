@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { default as X } from "~icons/ri/close-line";
+import { default as Copy } from "~icons/ri/file-copy-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as HardDrive } from "~icons/ri/hard-drive-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as ExternalLink } from "~icons/ri/external-link-line";
+import { default as LinkIcon } from "~icons/ri/link";
+import { default as FileText } from "~icons/ri/file-text-line";
 import { useTranslation } from "react-i18next";
-import {
-  X,
-  Copy,
-  Check,
-  Folder as FolderIcon,
-  Plus,
-  HardDrive,
-  Star,
-  Tag as TagIcon,
-  ExternalLink,
-  Link as LinkIcon,
-  FileText,
-} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";

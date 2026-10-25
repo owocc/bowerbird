@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
+import { default as FolderPlus } from "~icons/ri/folder-add-line";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Folder } from "~icons/ri/folder-line";
+import { default as AlertCircle } from "~icons/ri/error-warning-line";
+import { default as ArrowLeft } from "~icons/ri/arrow-left-line";
+import { default as ArrowRight } from "~icons/ri/arrow-right-line";
+import { default as Settings } from "~icons/ri/settings-line";
+import { default as Layers3 } from "~icons/ri/apps-2-line";
 import { useTranslation } from "react-i18next";
-import {
-  FolderPlus,
-  FolderOpen,
-  Folder,
-  AlertCircle,
-  ArrowLeft,
-  ArrowRight,
-  Settings,
-  Layers3,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppMenuButton } from "@/components/AppMenuButton";

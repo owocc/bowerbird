@@ -1,45 +1,43 @@
 import { useState, useEffect, type MouseEvent } from "react";
+import { default as Check } from "~icons/ri/check-line";
+import { default as Monitor } from "~icons/ri/computer-line";
+import { default as Moon } from "~icons/ri/moon-line";
+import { default as Sun } from "~icons/ri/sun-line";
+import { default as Settings2 } from "~icons/ri/settings-3-line";
+import { default as Blocks } from "~icons/ri/function-line";
+import { default as FileImage } from "~icons/ri/file-image-line";
+import { default as FileVideo } from "~icons/ri/file-video-line";
+import { default as Puzzle } from "~icons/ri/puzzle-line";
+import { default as Sparkles } from "~icons/ri/sparkling-line";
+import { default as Globe } from "~icons/ri/global-line";
+import { default as Info } from "~icons/ri/information-line";
+import { default as MoreHorizontal } from "~icons/ri/more-line";
+import { default as Copy } from "~icons/ri/file-copy-line";
+import { default as CheckCheck } from "~icons/ri/check-double-line";
+import { default as Layers } from "~icons/ri/stack-line";
+import { default as Camera } from "~icons/ri/camera-line";
+import { default as Bookmark } from "~icons/ri/bookmark-line";
+import { default as MousePointerClick } from "~icons/ri/cursor-line";
+import { default as Keyboard } from "~icons/ri/keyboard-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
+import { default as Store } from "~icons/ri/store-line";
+import { default as RefreshCw } from "~icons/ri/refresh-line";
+import { default as Download } from "~icons/ri/download-line";
+import { default as ArrowUpCircle } from "~icons/ri/arrow-up-circle-line";
+import { default as Loader2 } from "~icons/ri/loader-4-line";
+import { default as HardDrive } from "~icons/ri/hard-drive-line";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Network } from "~icons/ri/network-line";
+import { default as WifiOff } from "~icons/ri/signal-wifi-off-line";
+import { default as CheckCircle2 } from "~icons/ri/checkbox-circle-line";
+import { default as XCircle } from "~icons/ri/close-circle-line";
+import { default as Activity } from "~icons/ri/pulse-line";
+import { default as Radio } from "~icons/ri/broadcast-line";
+import { default as Smartphone } from "~icons/ri/smartphone-line";
+import { default as QrCode } from "~icons/ri/qr-scan-line";
+import { default as Wifi } from "~icons/ri/signal-wifi-line";
+import { default as Palette } from "~icons/ri/palette-line";
 import { useTranslation } from "react-i18next";
-import {
-  Check,
-  Monitor,
-  Moon,
-  Sun,
-  Settings2,
-  Blocks,
-  FileImage,
-  FileVideo,
-  Puzzle,
-  Sparkles,
-  Globe,
-  Info,
-  MoreHorizontal,
-  Copy,
-  CheckCheck,
-  Layers,
-  Camera,
-  Bookmark,
-  MousePointerClick,
-  Keyboard,
-  Trash2,
-  Store,
-  RefreshCw,
-  Download,
-  ArrowUpCircle,
-  Loader2,
-  HardDrive,
-  FolderOpen,
-  Network,
-  WifiOff,
-  CheckCircle2,
-  XCircle,
-  Activity,
-  Radio,
-  Smartphone,
-  QrCode,
-  Wifi,
-  Palette,
-} from "lucide-react";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
 import { isMacOS } from "@/lib/macos";
 import { useTheme, type Theme } from "@/components/theme-provider";

@@ -1,25 +1,23 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { default as Play } from "~icons/ri/play-line";
+import { default as Pause } from "~icons/ri/pause-line";
+import { default as RotateCcw } from "~icons/ri/arrow-go-back-line";
+import { default as RotateCw } from "~icons/ri/arrow-go-forward-line";
+import { default as Volume2 } from "~icons/ri/volume-up-line";
+import { default as Volume1 } from "~icons/ri/volume-down-line";
+import { default as VolumeX } from "~icons/ri/volume-mute-line";
+import { default as Gauge } from "~icons/ri/speed-line";
+import { default as Repeat } from "~icons/ri/repeat-line";
+import { default as Maximize2 } from "~icons/ri/expand-diagonal-line";
+import { default as Minimize2 } from "~icons/ri/collapse-diagonal-line";
+import { default as ExternalLink } from "~icons/ri/external-link-line";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as AlertTriangle } from "~icons/ri/alert-line";
+import { default as Check } from "~icons/ri/check-line";
 import { useTranslation } from "react-i18next";
 import Hls from "hls.js";
 import mpegts from "mpegts.js";
 import * as dashjs from "dashjs";
-import {
-  Play,
-  Pause,
-  RotateCcw,
-  RotateCw,
-  Volume2,
-  Volume1,
-  VolumeX,
-  Gauge,
-  Repeat,
-  Maximize2,
-  Minimize2,
-  ExternalLink,
-  FolderOpen,
-  AlertTriangle,
-  Check,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import {

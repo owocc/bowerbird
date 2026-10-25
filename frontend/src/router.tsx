@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Settings } from "~icons/ri/settings-line";
 import { useTranslation } from "react-i18next";
 import {
   createRootRoute,
@@ -25,7 +27,6 @@ import { useAppShortcuts } from "@/hooks/useAppShortcuts";
 import { useHistoryShortcuts } from "@/hooks/useHistoryShortcuts";
 import { isMacOS } from "@/lib/macos";
 import { OpenSetupWindow, OpenSettingsWindow } from "../bindings/bowerbird/core/service";
-import { FolderOpen, Settings } from "lucide-react";
 
 /**
  * Paints the appearance gradient behind the whole app.

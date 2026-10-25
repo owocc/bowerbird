@@ -1,22 +1,20 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { default as Terminal } from "~icons/ri/terminal-line";
+import { default as Search } from "~icons/ri/search-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
+import { default as Copy } from "~icons/ri/file-copy-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Pause } from "~icons/ri/pause-line";
+import { default as Play } from "~icons/ri/play-line";
+import { default as RefreshCw } from "~icons/ri/refresh-line";
+import { default as X } from "~icons/ri/close-line";
+import { default as AlertTriangle } from "~icons/ri/alert-line";
+import { default as AlertCircle } from "~icons/ri/error-warning-line";
+import { default as Info } from "~icons/ri/information-line";
+import { default as Gauge } from "~icons/ri/speed-line";
 import { useTranslation } from "react-i18next";
 import { Events } from "@/lib/host-runtime";
-import {
-  Terminal,
-  Search,
-  Trash2,
-  Copy,
-  Check,
-  FolderOpen,
-  Pause,
-  Play,
-  RefreshCw,
-  X,
-  AlertTriangle,
-  AlertCircle,
-  Info,
-  Gauge,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";

@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { default as ArrowLeft } from "~icons/ri/arrow-left-line";
+import { default as X } from "~icons/ri/close-line";
+import { default as ChevronLeft } from "~icons/ri/arrow-left-s-line";
+import { default as ChevronRight } from "~icons/ri/arrow-right-s-line";
 import { useTranslation } from "react-i18next";
-import {
-  ArrowLeft,
-  X,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ZoomControls } from "@/components/ZoomControls";
 import type { Item } from "../../bindings/bowerbird/core/models";

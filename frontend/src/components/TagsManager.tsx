@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
+import { default as Check } from "~icons/ri/check-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as Search } from "~icons/ri/search-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
+import { default as X } from "~icons/ri/close-line";
 import { useTranslation } from "react-i18next";
-import { Check, Plus, Search, Star, Tag as TagIcon, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";

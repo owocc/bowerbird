@@ -1,13 +1,11 @@
 import React, { useState, useMemo } from "react";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as X } from "~icons/ri/close-line";
 import { useTranslation } from "react-i18next";
-import {
-  Folder as FolderIcon,
-  Plus,
-  Tag as TagIcon,
-  Star,
-  Check,
-  X,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {

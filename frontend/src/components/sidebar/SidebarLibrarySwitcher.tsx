@@ -1,4 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { default as Check } from "~icons/ri/check-line";
+import { default as ChevronsUpDown } from "~icons/lucide/chevrons-up-down";
+import { default as FolderIcon } from "~icons/lucide/folder";
+import { default as FolderOpen } from "~icons/lucide/folder-open";
+import { default as FolderPlus } from "~icons/ri/folder-add-line";
+import { default as GripVertical } from "~icons/tabler/grip-vertical";
+import { default as Layers3 } from "~icons/ri/apps-2-line";
 import {
   DndContext,
   PointerSensor,
@@ -15,16 +22,6 @@ import {
 } from "@dnd-kit/sortable";
 import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  Check,
-  ChevronsUpDown,
-  Folder as FolderIcon,
-  FolderOpen,
-  FolderPlus,
-  GripVertical,
-  Layers3,
-  LogOut,
-} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -95,7 +92,6 @@ export interface SidebarLibrarySwitcherProps {
   onSelectLibrary: (value: string) => void;
   onOpenDialog: () => void;
   onCreateLibrary: () => void;
-  onCloseLibrary: () => void;
 }
 
 interface SortableLibraryRowProps {
@@ -212,7 +208,6 @@ export function SidebarLibrarySwitcher({
   onSelectLibrary,
   onOpenDialog,
   onCreateLibrary,
-  onCloseLibrary,
 }: SidebarLibrarySwitcherProps) {
   const { t } = useTranslation();
 
@@ -451,17 +446,6 @@ export function SidebarLibrarySwitcher({
             >
               <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
               <span>{t("sidebar.openLibrary")}</span>
-            </CommandItem>
-            <CommandItem
-              value="__action_close__ Close Library"
-              onSelect={() => {
-                onOpenChange(false);
-                onCloseLibrary();
-              }}
-              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            >
-              <LogOut className="size-3.5 shrink-0" />
-              <span>{t("sidebar.closeLibrary")}</span>
             </CommandItem>
           </CommandGroup>
         </Command>

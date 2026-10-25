@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
-import { Edit2, FolderPlus, Puzzle, Trash2 } from "lucide-react";
+import { default as Edit2 } from "~icons/ri/edit-line";
+import { default as FolderPlus } from "~icons/ri/folder-add-line";
+import { default as Puzzle } from "~icons/ri/puzzle-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
 import { useTranslation } from "react-i18next";
 
 import {

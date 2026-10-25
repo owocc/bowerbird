@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  Plus,
-  Library,
-  Tag,
-  Tags,
-  FolderX,
-  History,
-  Trash2,
-} from "lucide-react";
+import { default as Plus } from "~icons/tabler/plus";
+import { default as Library } from "~icons/tabler/inbox";
+import { default as Tag } from "~icons/tabler/bookmark-question";
+import { default as Tags } from "~icons/tabler/bookmark";
+import { default as FolderX } from "~icons/tabler/folder-question";
+import { default as History } from "~icons/tabler/clock";
+import { default as Trash2 } from "~icons/tabler/trash";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -17,7 +15,6 @@ import {
   SidebarGroupLabel,
   SidebarMenu,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
 import { isInternalDragActive } from "@/lib/drag-state";
 import { useIsMacOS } from "@/lib/macos";
 import {
@@ -56,7 +53,11 @@ export interface SidebarDirectoryTreeProps {
   tagsSidebarOpen?: boolean;
   onToggleTagsSidebar?: () => void;
   onSelectFolder: (folderId: string | null) => void;
-  onCreateFolder: (name: string, parentId?: string) => Promise<void>;
+  onCreateFolder: (
+    name: string,
+    parentId?: string,
+    onCreated?: (folder: Folder) => void
+  ) => Promise<void>;
   onRenameFolder: (folderId: string, name: string) => Promise<void>;
   onDeleteFolder: (folderId: string) => Promise<void>;
   onDropItemOnFolder?: (itemId: string, folderId: string) => Promise<void>;
@@ -75,7 +76,6 @@ export interface SidebarDirectoryTreeProps {
   ) => Promise<void>;
   onDropItemOnTrash?: (itemIds: string[]) => Promise<void>;
   onEmptyTrash?: () => void;
-  onCloseLibrary: () => void;
   onLibraryChanged?: (newLib: LibraryInfo) => void;
   onToggleCollapse?: () => void;
 }
@@ -108,7 +108,6 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
   onDropFolderImport,
   onDropItemOnTrash,
   onEmptyTrash,
-  onCloseLibrary,
   onLibraryChanged,
   onToggleCollapse,
 }: SidebarDirectoryTreeProps) {
@@ -158,10 +157,12 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
     string | undefined
   >(undefined);
 
-  const [renameDialog, setRenameDialog] = useState<{
-    folderId: string;
-    folderName: string;
-  } | null>(null);
+  // The `+` in the Folders label creates a folder immediately (default name) and
+  // hands the new id to the tree, which renders that row in rename mode.
+  const [inlineEditFolderId, setInlineEditFolderId] = useState<string | null>(
+    null
+  );
+  const [inlineCreateBusy, setInlineCreateBusy] = useState(false);
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>(
     {}
@@ -313,6 +314,25 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
     setCreateDialogOpen(true);
   }, []);
 
+  /**
+   * Creates a folder right away with the default name and opens its name in edit
+   * mode. The folder identity is the generated id — the name is just a label, so
+   * there is never an "empty name" state to validate.
+   */
+  const handleCreateInline = useCallback(async () => {
+    if (inlineCreateBusy) return;
+    setInlineCreateBusy(true);
+    try {
+      let createdId: string | undefined;
+      await onCreateFolder(t("sidebar.defaultFolderName"), undefined, (folder) => {
+        createdId = folder.id;
+      });
+      if (createdId) setInlineEditFolderId(createdId);
+    } finally {
+      setInlineCreateBusy(false);
+    }
+  }, [inlineCreateBusy, onCreateFolder, t]);
+
   const handleOpenCreateSub = useCallback(
     (parentId: string, e?: React.MouseEvent) => {
       e?.stopPropagation();
@@ -322,10 +342,39 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
     []
   );
 
-  const handleOpenRename = useCallback((folder: Folder, e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    setRenameDialog({ folderId: folder.id, folderName: folder.name });
-  }, []);
+  /**
+   * Renaming happens in place: the folder row turns its name into an input.
+   * No modal — the tree already owns the row, so editing it there is the
+   * shortest path and keeps the target visible.
+   */
+  const handleOpenRename = useCallback(
+    (folder: Folder, e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      // A nested row only exists while its ancestors are expanded, so open the
+      // whole path first — otherwise the edit state would land on an unmounted
+      // node and silently do nothing.
+      const path: string[] = [];
+      const byId = new Map<string, Folder>();
+      const walk = (nodes: Folder[], trail: string[]) => {
+        for (const node of nodes) {
+          byId.set(node.id, node);
+          const nextTrail = [...trail, node.id];
+          if (node.children?.length) walk(node.children, nextTrail);
+          if (node.id === folder.id) path.push(...trail);
+        }
+      };
+      walk(folders, []);
+      if (path.length > 0) {
+        setExpandedFolders((prev) => {
+          const next = { ...prev };
+          for (const id of path) next[id] = true;
+          return next;
+        });
+      }
+      setInlineEditFolderId(folder.id);
+    },
+    [folders]
+  );
 
   const handleClearDragTarget = useCallback(() => {
     setDragTarget(null);
@@ -344,12 +393,6 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
       setExpandedFolders((prev) => ({ ...prev, [newFolderParentId]: true }));
     }
     setCreateDialogOpen(false);
-  };
-
-  const handleConfirmRename = async (name: string) => {
-    if (!renameDialog) return;
-    await onRenameFolder(renameDialog.folderId, name);
-    setRenameDialog(null);
   };
 
   /** Moves every dragged item from the current folder into `targetFolderId`. */
@@ -401,7 +444,6 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
               onSelectLibrary={handleSelectLibrary}
               onOpenDialog={handleOpenLibraryDialog}
               onCreateLibrary={() => setCreateLibraryOpen(true)}
-              onCloseLibrary={() => onCloseLibrary()}
             />
           }
         />
@@ -504,7 +546,7 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
               });
             }}
           >
-            <SidebarGroupLabel className="flex items-center justify-between text-[10px] tracking-wider text-muted-foreground/80 font-semibold pl-4 pr-2 h-6 select-none cursor-default">
+            <SidebarGroupLabel className="group/folders flex items-center justify-between text-[10px] tracking-wider text-muted-foreground/80 font-semibold pl-4 pr-2 h-6 select-none cursor-default">
               <span className="flex items-center gap-1.5">
                 <span>{t("sidebar.folders")}</span>
                 {folders.length > 0 && (
@@ -513,49 +555,43 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
                   </span>
                 )}
               </span>
+              {/* Revealed on label hover: creates a folder and opens its name for
+                  editing right in the tree. */}
+              <button
+                type="button"
+                onClick={() => void handleCreateInline()}
+                disabled={inlineCreateBusy}
+                title={t("sidebar.newFolder")}
+                aria-label={t("sidebar.newFolder")}
+                className="size-4.5 flex items-center justify-center rounded text-muted-foreground/70 transition-colors cursor-pointer hover:bg-foreground/10 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none opacity-0 group-hover/folders:opacity-100"
+              >
+                <Plus className="size-3" />
+              </button>
             </SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu className="space-y-0.5">
-                {folders.length === 0 ? (
-                  <div className="py-5 px-3 text-center border border-dashed border-sidebar-border rounded-xl my-1 bg-muted/5">
-                    <p className="text-[11px] text-muted-foreground">
-                      {t("sidebar.noFolders")}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                      {t("sidebar.noFoldersHint")}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="xs"
-                      onClick={handleOpenCreateRoot}
-                      className="mt-2.5 text-[11px] h-6.5 gap-1 shadow-2xs"
-                    >
-                      <Plus className="size-3" />
-                      <span>{t("sidebar.newFolder")}</span>
-                    </Button>
-                  </div>
-                ) : (
-                  folders.map((folder) => (
-                    <FolderTreeItemNode
-                      key={folder.id}
-                      folder={folder}
-                      activeFolderId={activeFolderId}
-                      dragHoverFolderId={
-                        dragTarget?.kind === "folder" ? dragTarget.id : null
-                      }
-                      expandedMap={expandedFolders}
-                      onToggleExpand={toggleFolderExpand}
-                      onSelectFolder={stableSelectFolder}
-                      onCreateSubfolder={handleOpenCreateSub}
-                      onRenameFolder={handleOpenRename}
-                      onDeleteFolder={stableDeleteFolder}
-                      onMoveItemToFolder={stableMoveItemToFolder}
-                      onDropFolderImport={stableDropFolderImport}
-                      onClearDragTarget={handleClearDragTarget}
-                      onOpenContextMenu={handleOpenFolderContextMenu}
-                    />
-                  ))
-                )}
+                {folders.map((folder) => (
+                  <FolderTreeItemNode
+                    key={folder.id}
+                    folder={folder}
+                    inlineEditId={inlineEditFolderId}
+                    onInlineEditEnd={() => setInlineEditFolderId(null)}
+                    activeFolderId={activeFolderId}
+                    dragHoverFolderId={
+                      dragTarget?.kind === "folder" ? dragTarget.id : null
+                    }
+                    expandedMap={expandedFolders}
+                    onToggleExpand={toggleFolderExpand}
+                    onSelectFolder={stableSelectFolder}
+                    onCreateSubfolder={handleOpenCreateSub}
+                    onRenameFolder={handleOpenRename}
+                    onDeleteFolder={stableDeleteFolder}
+                    onMoveItemToFolder={stableMoveItemToFolder}
+                    onDropFolderImport={stableDropFolderImport}
+                    onClearDragTarget={handleClearDragTarget}
+                    onOpenContextMenu={handleOpenFolderContextMenu}
+                  />
+                ))}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
@@ -586,17 +622,6 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
         submitLabel={t("common.create")}
         placeholder={t("sidebar.folderNamePlaceholder")}
         onSubmit={handleConfirmCreate}
-      />
-
-      <SidebarFormDialog
-        open={Boolean(renameDialog)}
-        onOpenChange={(open) => !open && setRenameDialog(null)}
-        title={t("sidebar.renameFolder")}
-        label={t("sidebar.newName")}
-        submitLabel={t("common.save")}
-        placeholder={t("sidebar.newNamePlaceholder")}
-        initialValue={renameDialog?.folderName ?? ""}
-        onSubmit={handleConfirmRename}
       />
 
       <FolderContextMenu

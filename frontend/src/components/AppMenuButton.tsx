@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
+import { default as AlignJustify } from "~icons/ri/menu-line";
+import { default as AppWindow } from "~icons/ri/window-line";
+import { default as Bug } from "~icons/ri/bug-line";
+import { default as Crop } from "~icons/ri/crop-line";
+import { default as Info } from "~icons/ri/information-line";
+import { default as LogOut } from "~icons/ri/logout-circle-r-line";
+import { default as Maximize } from "~icons/ri/fullscreen-line";
+import { default as Monitor } from "~icons/ri/computer-line";
+import { default as RotateCw } from "~icons/ri/arrow-go-forward-line";
+import { default as Settings } from "~icons/ri/settings-line";
+import { default as Terminal } from "~icons/ri/terminal-line";
 import { useTranslation } from "react-i18next";
-import { AlignJustify, AppWindow, Bug, Crop, Info, LogOut, Maximize, Monitor, RotateCw, Settings, Terminal } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import type { AppMenuItem } from "../../bindings/bowerbird/core/models";
 import { invalidateAppMenuCache, loadAppMenu, runAppMenuAction } from "@/lib/app-menu";

@@ -1,24 +1,22 @@
 import { useEffect, useRef, useState, useMemo, type ReactNode } from "react";
+import { default as Eye } from "~icons/ri/eye-line";
+import { default as Delete } from "~icons/ri/delete-back-line";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Copy } from "~icons/ri/file-copy-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
+import { default as FolderPlus } from "~icons/ri/folder-add-line";
+import { default as Upload } from "~icons/ri/upload-line";
+import { default as FolderMinus } from "~icons/ri/folder-reduce-line";
+import { default as Edit2 } from "~icons/ri/edit-line";
+import { default as ExternalLink } from "~icons/ri/external-link-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as RotateCcw } from "~icons/ri/arrow-go-back-line";
+import { default as LayoutGrid } from "~icons/ri/layout-grid-line";
+import { default as LayoutList } from "~icons/ri/list-view";
+import { default as Columns3 } from "~icons/ri/layout-column-line";
+import { default as Rows3 } from "~icons/ri/layout-row-line";
+import { default as Puzzle } from "~icons/ri/puzzle-line";
 import { useTranslation } from "react-i18next";
-import {
-  Eye,
-  Delete,
-  FolderOpen,
-  Copy,
-  Trash2,
-  FolderPlus,
-  Upload,
-  FolderMinus,
-  Edit2,
-  ExternalLink,
-  Star,
-  RotateCcw,
-  LayoutGrid,
-  LayoutList,
-  Columns3,
-  Rows3,
-  Puzzle,
-} from "lucide-react";
 import {
   Command,
   CommandInput,

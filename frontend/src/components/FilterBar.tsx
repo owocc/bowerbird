@@ -1,20 +1,18 @@
 import React, { useState, useMemo } from "react";
+import { default as ChevronDown } from "~icons/ri/arrow-down-s-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as Palette } from "~icons/ri/palette-line";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as Layers } from "~icons/ri/stack-line";
+import { default as Ratio } from "~icons/ri/aspect-ratio-line";
+import { default as HardDrive } from "~icons/ri/hard-drive-line";
+import { default as LinkIcon } from "~icons/ri/link";
+import { default as FileText } from "~icons/ri/file-text-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as Pin } from "~icons/ri/pushpin-line";
+import { default as X } from "~icons/ri/close-line";
 import { useTranslation } from "react-i18next";
-import {
-  ChevronDown,
-  Check,
-  Palette,
-  Folder as FolderIcon,
-  Layers,
-  Ratio,
-  HardDrive,
-  Link as LinkIcon,
-  FileText,
-  Star,
-  Plus,
-  Pin,
-  X,
-} from "lucide-react";
 import {
   Popover,
   PopoverTrigger,

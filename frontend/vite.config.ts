@@ -2,6 +2,7 @@ import path from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import Icons from "unplugin-icons/vite";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -20,5 +21,11 @@ export default defineConfig({
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    // Icons: `import Icon from "~icons/ri/play-line"` compiles to an inline
+    // React SVG component (tree-shakeable, no icon font / sprite payload).
+    Icons({ compiler: "jsx", jsx: "react" }),
+  ],
 });
