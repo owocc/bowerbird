@@ -11,6 +11,7 @@ import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/websocket_service.dart';
 import '../services/item_query.dart';
+import '../services/usage_history_service.dart';
 import '../services/refresh_gate.dart';
 import 'connect_screen.dart';
 import '../services/inbox_service.dart';
@@ -49,7 +50,12 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription? _wsItemsSub;
   StreamSubscription? _wsRevokedSub;
   bool _pendingRefresh = false;
-  int _totalCount = 0;
+  // 侧边栏当前视图（与桌面端一致：通用集合 or 某个文件夹）
+  SidebarView _view = SidebarView.all;
+  String? _activeFolderId;
+  LibraryStats _stats = const LibraryStats();
+  // 使用历史：本地记录的「最近使用」素材 id（对应桌面端 drag-history）
+  List<String> _historyIds = [];
   final RefreshGate _refreshGate = RefreshGate();
   DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
   int _inboxCount = InboxService.instance.count;
@@ -87,6 +93,8 @@ class _HomeScreenState extends State<HomeScreen>
     _drawer.addListener(_onDrawerTick);
     _loadItems(refresh: true);
     _loadNavMetadata();
+    _loadStats();
+    _loadHistory();
     _scrollController.addListener(_onScroll);
     _initWebSocket();
     WidgetsBinding.instance.addObserver(this);
@@ -101,6 +109,8 @@ class _HomeScreenState extends State<HomeScreen>
         WebSocketService.instance.connect();
       }
       _loadItems(refresh: true);
+      _loadStats();
+      _loadHistory();
     }
   }
 
@@ -114,6 +124,7 @@ class _HomeScreenState extends State<HomeScreen>
           setState(() => ApiService.instance.libraryName = newName);
         }
         unawaited(_loadNavMetadata());
+        unawaited(_loadStats());
         _refreshGate.schedule(() => _loadItems(refresh: true));
       }
     });
@@ -192,12 +203,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     final requestOffset = refresh ? 0 : _offset;
     try {
-      final result = await ApiService.instance.queryItems(
-        query: _query,
-        limit: _pageSize,
-        offset: requestOffset,
-      );
-
+      final result = await _fetchPage(requestOffset);
       if (mounted) {
         setState(() {
           if (refresh) {
@@ -205,11 +211,12 @@ class _HomeScreenState extends State<HomeScreen>
           }
           _items.addAll(result.items);
           _offset = requestOffset + result.items.length;
-          _totalCount = result.total;
           _hasMore = _items.length < result.total && result.items.isNotEmpty;
           _isLoading = false;
         });
       }
+      // 统计数字（未打标签/未分类/废纸篓）随时保持最新
+      unawaited(_loadStats());
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -225,6 +232,73 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  /// 按当前侧边栏视图抓取一页：废纸篓走专用接口，使用历史是本地列表，
+  /// 其余（全部 / 未打标签 / 未分类 / 文件夹）走查询接口。
+  Future<({int total, List<MobileItem> items})> _fetchPage(int offset) async {
+    if (_isTrashView) {
+      return ApiService.instance.getCollectionItems(
+        collection: LibraryCollection.trash,
+        limit: _pageSize,
+        offset: offset,
+      );
+    }
+    if (_isHistoryView) {
+      final ordered = _historyIds;
+      final slice = ordered.skip(offset).take(_pageSize).toList();
+      final items = <MobileItem>[];
+      for (final id in slice) {
+        final cached = _items.where((it) => it.id == id).firstOrNull;
+        if (cached != null) {
+          items.add(cached);
+          continue;
+        }
+        try {
+          items.add(MobileItem.fromDetail(await ApiService.instance.getItemDetail(id)));
+        } catch (_) {
+          // 条目可能已被删除，跳过
+        }
+      }
+      return (total: ordered.length, items: items);
+    }
+    return ApiService.instance.queryItems(query: _query, limit: _pageSize, offset: offset);
+  }
+
+  /// 与 [_fetchPage] 一致，但按需要一次性取回更大的窗口（用于 ws 刷新）。
+  Future<({int total, List<MobileItem> items})> _fetchPageSized(int limit) async {
+    if (_isTrashView) {
+      return ApiService.instance.getCollectionItems(
+        collection: LibraryCollection.trash,
+        limit: limit,
+        offset: 0,
+      );
+    }
+    if (_isHistoryView) {
+      final ordered = _historyIds.take(limit).toList();
+      final items = <MobileItem>[];
+      for (final id in ordered) {
+        try {
+          items.add(MobileItem.fromDetail(await ApiService.instance.getItemDetail(id)));
+        } catch (_) {}
+      }
+      return (total: _historyIds.length, items: items);
+    }
+    return ApiService.instance.queryItems(query: _query, limit: limit, offset: 0);
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final stats = await ApiService.instance.getStats();
+      if (!mounted) return;
+      setState(() => _stats = stats);
+    } catch (_) {}
+  }
+
+  Future<void> _loadHistory() async {
+    final ids = await UsageHistoryService.instance.ids();
+    if (!mounted) return;
+    setState(() => _historyIds = ids);
+  }
+
   /// Re-runs the first page sized to the currently loaded window so a ws
   /// refresh does not visibly collapse the timeline back to one page.
   Future<void> _reloadWindow() async {
@@ -238,14 +312,13 @@ class _HomeScreenState extends State<HomeScreen>
       _errorMessage = null;
     });
     try {
-      final result = await ApiService.instance.queryItems(query: _query, limit: target, offset: 0);
+      final result = await _fetchPageSized(target);
       if (mounted) {
         setState(() {
           _items
             ..clear()
             ..addAll(result.items);
           _offset = result.items.length;
-          _totalCount = result.total;
           _hasMore = _items.length < result.total && result.items.isNotEmpty;
           _isLoading = false;
         });
@@ -373,25 +446,67 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _selectFolder(String? folderId) {
+  void _selectCollection(SidebarView view) {
     _snapDrawer(open: false);
+    if (view == _view && view != SidebarView.folder) return;
     setState(() {
-      _query = ItemQuery(
-        text: _query.text,
-        type: _query.type,
-        orientation: _query.orientation,
-        tag: _query.tag,
-        folder: folderId,
-        color: _query.color,
-        size: _query.size,
-        rating: _query.rating,
-        hasUrl: _query.hasUrl,
-        hasNote: _query.hasNote,
-      );
+      _view = view;
+      _activeFolderId = null;
+      _query = _baseQuery();
       _selectedIds.clear();
     });
     _loadItems(refresh: true);
   }
+
+  void _selectFolder(String? folderId) {
+    _snapDrawer(open: false);
+    setState(() {
+      _view = SidebarView.folder;
+      _activeFolderId = folderId;
+      _query = _baseQuery();
+      _selectedIds.clear();
+    });
+    _loadItems(refresh: true);
+  }
+
+  /// 当前侧边栏视图对应的查询（保留筛选 sheet 里的其他条件）。
+  ItemQuery _baseQuery() {
+    return ItemQuery(
+      text: _query.text,
+      type: _query.type,
+      orientation: _query.orientation,
+      tag: _query.tag,
+      folder: _view == SidebarView.folder ? _activeFolderId : null,
+      color: _query.color,
+      size: _query.size,
+      rating: _query.rating,
+      hasUrl: _query.hasUrl,
+      hasNote: _query.hasNote,
+      untagged: _view == SidebarView.untagged,
+      uncategorized: _view == SidebarView.uncategorized,
+    );
+  }
+
+  /// 各视图的空状态文案，与桌面端 workspace 的空状态保持一致。
+  String get _emptyMessage {
+    switch (_view) {
+      case SidebarView.trash:
+        return '废纸篓是空的';
+      case SidebarView.untagged:
+        return '没有未打标签的素材';
+      case SidebarView.uncategorized:
+        return '没有未分类的素材';
+      case SidebarView.history:
+        return '还没有使用记录\n分享或导出素材后会出现在这里';
+      case SidebarView.folder:
+        return _activeFolderId == null ? '资料库是空的' : '这个文件夹是空的';
+      case SidebarView.all:
+        return '资料库是空的';
+    }
+  }
+
+  bool get _isTrashView => _view == SidebarView.trash;
+  bool get _isHistoryView => _view == SidebarView.history;
 
   void _openFilterSheet() {
     showModalBottomSheet(
@@ -404,7 +519,24 @@ class _HomeScreenState extends State<HomeScreen>
         folders: _folders,
         colors: _colors,
         onApply: (q) {
-          setState(() => _query = q);
+          setState(() {
+            // 只采纳筛选条件本身；侧边栏集合（未打标签/未分类）与当前文件夹
+            // 仍由 _view/_activeFolderId 决定，避免筛选后视图悄悄变回「全部」。
+            _query = ItemQuery(
+              text: q.text,
+              type: q.type,
+              orientation: q.orientation,
+              tag: q.tag,
+              folder: _view == SidebarView.folder ? _activeFolderId : null,
+              color: q.color,
+              size: q.size,
+              rating: q.rating,
+              hasUrl: q.hasUrl,
+              hasNote: q.hasNote,
+              untagged: _view == SidebarView.untagged,
+              uncategorized: _view == SidebarView.uncategorized,
+            );
+          });
           _loadItems(refresh: true);
         },
       ),
@@ -453,6 +585,61 @@ class _HomeScreenState extends State<HomeScreen>
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('添加标签失败: $e'), backgroundColor: Colors.red.shade700));
+    }
+  }
+
+  /// 废纸篓视图里点击条目即恢复（与桌面端从废纸篓恢复的行为对应）。
+  Future<void> _restoreItem(MobileItem item) async {
+    try {
+      await ApiService.instance.restoreItem(item.id);
+      if (!mounted) return;
+      _markLocalMutation();
+      setState(() => _items.removeWhere((it) => it.id == item.id));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已从废纸篓恢复')));
+      _loadItems(refresh: true);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('恢复失败: ${e.toString().replaceAll('Exception: ', '')}'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmEmptyTrash() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('清空废纸篓？'),
+        content: const Text('废纸篓中的素材将被永久删除，此操作无法撤销。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await ApiService.instance.emptyTrash();
+      if (!mounted) return;
+      _markLocalMutation();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('废纸篓已清空')));
+      _loadItems(refresh: true);
+      _loadStats();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('清空失败: ${e.toString().replaceAll('Exception: ', '')}'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
     }
   }
 
@@ -841,7 +1028,10 @@ class _HomeScreenState extends State<HomeScreen>
       final file = File('${tempDir.path}/$filename');
       await file.writeAsBytes(response.bodyBytes);
 
+      // 分享即「使用」，记录到使用历史（等价于桌面端的拖出记录）
+      await UsageHistoryService.instance.record(item.id);
       if (mounted) {
+        setState(() => _historyIds = [item.id, ..._historyIds.where((id) => id != item.id)]);
         final xFile = XFile(file.path, mimeType: item.mimeType);
         await Share.shareXFiles([xFile], text: item.name.isNotEmpty ? item.name : item.filename);
       }
@@ -946,7 +1136,8 @@ class _HomeScreenState extends State<HomeScreen>
                             32,
                           ),
                           child: Text(
-                            '资料库是空的',
+                            _emptyMessage,
+                            textAlign: TextAlign.center,
                             style: theme.textTheme.titleMedium?.copyWith(
                               color: theme.colorScheme.outline,
                               fontWeight: FontWeight.w400,
@@ -1092,9 +1283,12 @@ class _HomeScreenState extends State<HomeScreen>
                 onHorizontalDragEnd: _onDrawerHorizontalEnd,
                 child: FolderDrawer(
                   folders: _folders,
-                  selectedFolderId: _query.folder,
-                  totalCount: _totalCount,
-                  onSelect: _selectFolder,
+                  view: _view,
+                  selectedFolderId: _activeFolderId,
+                  stats: _stats,
+                  historyCount: _historyIds.length,
+                  onSelectCollection: _selectCollection,
+                  onSelectFolder: _selectFolder,
                   libraryName: libraryTitle,
                   onSwitchLibrary: _showLibraryPicker,
                   onSearch: () {
@@ -1257,6 +1451,8 @@ class _HomeScreenState extends State<HomeScreen>
                     case 'inbox':
                       Navigator.of(context)
                           .push(MaterialPageRoute(builder: (_) => const InboxScreen()));
+                    case 'emptyTrash':
+                      _confirmEmptyTrash();
                     case 'disconnect':
                       _disconnect();
                   }
@@ -1293,6 +1489,18 @@ class _HomeScreenState extends State<HomeScreen>
                       ],
                     ),
                   ),
+                  // 仅在废纸篓视图下提供「清空废纸篓」，与桌面端右键菜单一致
+                  if (_isTrashView && _stats.trashCount > 0)
+                    const PopupMenuItem(
+                      value: 'emptyTrash',
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_forever_outlined, size: 20),
+                          SizedBox(width: 12),
+                          Text('清空废纸篓'),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'disconnect',
                     child: Row(
@@ -1335,6 +1543,9 @@ class _HomeScreenState extends State<HomeScreen>
       onTap: () {
         if (_selectedIds.isNotEmpty) {
           _toggleSelected(item);
+        } else if (_isTrashView) {
+          // 废纸篓里点击 = 恢复，避免打开详情后再操作
+          _restoreItem(item);
         } else {
           _openDetail(globalIndex);
         }
@@ -1343,7 +1554,7 @@ class _HomeScreenState extends State<HomeScreen>
       //   · 长按期间基本未移动 -> 进入多选
       //   · 长按期间上滑超过阈值 -> 打开快速操作
       // 未满 500ms 的滑动只由滚动列表消费，浏览内容时不会误触。
-      onLongPressStart: _selectedIds.isNotEmpty
+      onLongPressStart: _selectedIds.isNotEmpty || _isTrashView || _isHistoryView
           ? null
           : (details) {
               setState(() {

@@ -315,6 +315,30 @@ class ApiService {
     }
   }
 
+  /// 从废纸篓恢复一个素材（对应桌面端的「恢复」）。
+  Future<void> restoreItem(String id) async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/items/$id/restore');
+    final response = await http.post(uri, headers: authHeaders).timeout(const Duration(seconds: 15));
+    if (response.statusCode == 200) return;
+    if (response.statusCode == 401) {
+      throw Exception('授权失效，请重新配对');
+    }
+    throw Exception('恢复失败: HTTP ${response.statusCode}');
+  }
+
+  /// 清空废纸篓（对应桌面端的「清空废纸篓」）。
+  Future<void> emptyTrash() async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/items/collection?name=trash');
+    final response = await http.delete(uri, headers: authHeaders).timeout(const Duration(seconds: 30));
+    if (response.statusCode == 200) return;
+    if (response.statusCode == 401) {
+      throw Exception('授权失效，请重新配对');
+    }
+    throw Exception('清空废纸篓失败: HTTP ${response.statusCode}');
+  }
+
   static const int maxClipboardFileBytes = 500 * 1024 * 1024;
 
   /// Downloads the original file into `cache/clipboard/` so it can be handed to
@@ -454,6 +478,76 @@ class ApiService {
     } else {
       throw Exception('Failed to load item detail: HTTP ${response.statusCode}');
     }
+  }
+
+  /// Sidebar aggregates: total / untagged / uncategorized / trash counts.
+  ///
+  /// Falls back to counting via queries when the desktop build does not expose
+  /// `/api/v1/stats`, so older desktop versions keep working.
+  Future<LibraryStats> getStats() async {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+    final uri = Uri.parse('$baseUrl/api/v1/stats');
+    try {
+      final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        return LibraryStats.fromJson(json);
+      }
+      if (response.statusCode == 401) {
+        throw Exception('Unauthorized: please reconnect or re-pair with desktop');
+      }
+    } catch (_) {
+      // fall through to the query-based fallback
+    }
+
+    final results = await Future.wait([
+      queryItems(query: const ItemQuery(), limit: 1),
+      queryItems(query: const ItemQuery(uncategorized: true), limit: 1),
+      queryItems(query: const ItemQuery(untagged: true), limit: 1),
+    ]);
+    return LibraryStats(
+      total: results[0].total,
+      uncategorizedCount: results[1].total,
+      untaggedCount: results[2].total,
+      trashCount: 0,
+    );
+  }
+
+  /// Loads one page of a virtual collection (`trash` / `untagged` /
+  /// `uncategorized`). Trash is served by a dedicated endpoint because those
+  /// items live outside the query engine.
+  Future<({int total, List<MobileItem> items})> getCollectionItems({
+    required LibraryCollection collection,
+    int limit = 60,
+    int offset = 0,
+  }) async {
+    if (collection == LibraryCollection.trash) {
+      if (baseUrl == null) throw Exception('Base URL is not configured');
+      final uri = Uri.parse('$baseUrl/api/v1/items/collection').replace(
+        queryParameters: {
+          'name': collection.slug,
+          'limit': limit.toString(),
+          'offset': offset.toString(),
+        },
+      );
+      final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 15));
+      if (response.statusCode == 200) {
+        return _decodeItemsPage(response);
+      }
+      if (response.statusCode == 401) {
+        throw Exception('Unauthorized: please reconnect or re-pair with desktop');
+      }
+      throw Exception('Failed to load collection: HTTP ${response.statusCode}');
+    }
+
+    return queryItems(
+      query: ItemQuery(
+        untagged: collection == LibraryCollection.untagged,
+        uncategorized: collection == LibraryCollection.uncategorized,
+      ),
+      limit: limit,
+      offset: offset,
+    );
   }
 
   Future<List<MobileTag>> getTags() async {

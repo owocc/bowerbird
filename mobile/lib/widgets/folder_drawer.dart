@@ -1,22 +1,45 @@
 import 'package:flutter/material.dart';
+
 import '../models/item.dart';
+import 'tabler_icons.dart';
+
+/// 侧边栏（抽屉）当前浏览的位置。
+///
+/// 与桌面端 `SidebarDirectoryTree` 对齐：顶部是一组「通用集合」（全部素材 /
+/// 未打标签 / 未分类 / 使用历史 / 废纸篓），下方是「文件夹」列表。
+enum SidebarView {
+  all,
+  untagged,
+  uncategorized,
+  history,
+  trash,
+  folder;
+
+  bool get isCollection => this != SidebarView.folder;
+}
 
 class FolderDrawer extends StatefulWidget {
   const FolderDrawer({
     super.key,
     required this.folders,
+    required this.view,
     required this.selectedFolderId,
-    required this.totalCount,
-    required this.onSelect,
+    required this.stats,
+    required this.historyCount,
+    required this.onSelectCollection,
+    required this.onSelectFolder,
     required this.libraryName,
     required this.onSwitchLibrary,
     this.onSearch,
   });
 
   final List<MobileFolder> folders;
+  final SidebarView view;
   final String? selectedFolderId;
-  final int totalCount;
-  final ValueChanged<String?> onSelect;
+  final LibraryStats stats;
+  final int historyCount;
+  final ValueChanged<SidebarView> onSelectCollection;
+  final ValueChanged<String?> onSelectFolder;
   final String libraryName;
   final VoidCallback onSwitchLibrary;
   final VoidCallback? onSearch;
@@ -88,6 +111,7 @@ class _FolderDrawerState extends State<FolderDrawer> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final rows = _visibleRows();
+
     return Material(
       color: theme.colorScheme.surface,
       child: SafeArea(
@@ -136,26 +160,80 @@ class _FolderDrawerState extends State<FolderDrawer> {
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 8, 4, 8),
-                child: Text(
-                  '文件夹',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
+              // 通用集合：不分组、不带分组标题，与桌面端一致
+              _collectionRow(
+                theme,
+                name: TablerIconName.inbox,
+                label: '全部素材',
+                selected: widget.view == SidebarView.all,
+                count: widget.stats.total,
+                onTap: () => widget.onSelectCollection(SidebarView.all),
               ),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('全部素材'),
-                trailing: Text('${widget.totalCount}'),
-                selected: widget.selectedFolderId == null,
-                onTap: () => widget.onSelect(null),
+              _collectionRow(
+                theme,
+                name: TablerIconName.bookmarkQuestion,
+                label: '未打标签',
+                selected: widget.view == SidebarView.untagged,
+                count: widget.stats.untaggedCount,
+                onTap: () => widget.onSelectCollection(SidebarView.untagged),
+              ),
+              _collectionRow(
+                theme,
+                name: TablerIconName.folderQuestion,
+                label: '未分类',
+                selected: widget.view == SidebarView.uncategorized,
+                count: widget.stats.uncategorizedCount,
+                onTap: () => widget.onSelectCollection(SidebarView.uncategorized),
+              ),
+              _collectionRow(
+                theme,
+                name: TablerIconName.clock,
+                label: '使用历史',
+                selected: widget.view == SidebarView.history,
+                count: widget.historyCount,
+                onTap: () => widget.onSelectCollection(SidebarView.history),
+              ),
+              _collectionRow(
+                theme,
+                name: TablerIconName.trash,
+                label: '废纸篓',
+                selected: widget.view == SidebarView.trash,
+                count: widget.stats.trashCount,
+                onTap: () => widget.onSelectCollection(SidebarView.trash),
+              ),
+              // 「文件夹」标题与文件夹列表放在一起，只作用于文件夹这一组
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 14, 4, 4),
+                child: Row(
+                  children: [
+                    Text(
+                      '文件夹',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                    if (widget.folders.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '${widget.folders.length}',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
               Expanded(
                 child: widget.folders.isEmpty
-                    ? const Center(child: Text('暂无文件夹'))
+                    ? Center(
+                        child: Text(
+                          '暂无文件夹',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      )
                     : ListView.builder(
                         padding: const EdgeInsets.only(bottom: 16),
                         itemCount: rows.length,
@@ -163,7 +241,8 @@ class _FolderDrawerState extends State<FolderDrawer> {
                         itemBuilder: (context, index) {
                           final row = rows[index];
                           final folder = row.folder;
-                          final selected = widget.selectedFolderId == folder.id;
+                          final selected =
+                              widget.view == SidebarView.folder && widget.selectedFolderId == folder.id;
                           final hasChildren = folder.children.isNotEmpty;
                           final expanded = _expandedIds.contains(folder.id);
                           return Padding(
@@ -206,7 +285,7 @@ class _FolderDrawerState extends State<FolderDrawer> {
                                     ),
                                 ],
                               ),
-                              onTap: () => widget.onSelect(folder.id),
+                              onTap: () => widget.onSelectFolder(folder.id),
                             ),
                           );
                         },
@@ -216,6 +295,33 @@ class _FolderDrawerState extends State<FolderDrawer> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _collectionRow(
+    ThemeData theme, {
+    required TablerIconName name,
+    required String label,
+    required bool selected,
+    required int count,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      leading: TablerIcon(
+        name,
+        size: 20,
+        color: selected ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+      ),
+      title: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Text(
+        '$count',
+        style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+      ),
+      selected: selected,
+      onTap: onTap,
     );
   }
 }
