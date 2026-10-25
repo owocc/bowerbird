@@ -113,6 +113,7 @@ class _FolderDrawerState extends State<FolderDrawer> {
     final rows = _visibleRows();
 
     return Material(
+      // 侧边栏保持页面本身的颜色，不使用浮层的次级色
       color: theme.colorScheme.surface,
       child: SafeArea(
         top: true,

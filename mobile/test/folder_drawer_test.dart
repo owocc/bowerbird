@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bowerbird_mobile/models/item.dart';
 import 'package:bowerbird_mobile/widgets/folder_drawer.dart';
+import 'package:bowerbird_mobile/theme/app_theme.dart';
 import 'package:bowerbird_mobile/widgets/tabler_icons.dart';
 
 MobileFolder _folder(String id, String name, int count, [List<MobileFolder> children = const []]) {
@@ -109,5 +110,40 @@ void main() {
     );
     expect(allTile.selected, isFalse);
     expect(folderTile.selected, isTrue);
+  });
+
+  testWidgets('侧边栏保持页面原色（不使用浮层次级色）', (tester) async {
+    for (final theme in [AppTheme.light(), AppTheme.dark()]) {
+      await tester.pumpWidget(MaterialApp(
+        theme: theme,
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            height: 720,
+            child: FolderDrawer(
+              folders: const [],
+              view: SidebarView.all,
+              selectedFolderId: null,
+              stats: const LibraryStats(),
+              historyCount: 0,
+              onSelectCollection: (_) {},
+              onSelectFolder: (_) {},
+              libraryName: 'Demo',
+              onSwitchLibrary: () {},
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      // 抽屉自身是 FolderDrawer 下第一层 Material
+      final drawerMaterial = tester.widget<Material>(
+        find.descendant(
+          of: find.byType(FolderDrawer),
+          matching: find.byType(Material),
+        ).first,
+      );
+      expect(drawerMaterial.color, theme.colorScheme.surface);
+    }
   });
 }

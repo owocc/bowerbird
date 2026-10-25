@@ -8,7 +8,7 @@ void main() {
       final theme = entry.value;
       final menu = theme.popupMenuTheme;
       // 菜单底色与 header 按钮一致（深色模式为专用 #353638）
-      expect(menu.color, headerButtonColor(theme));
+      expect(menu.color, elevatedSurfaceColor(theme));
       expect(menu.surfaceTintColor, Colors.transparent);
       expect(menu.elevation, 8);
       expect(menu.menuPadding, const EdgeInsets.symmetric(vertical: 4));
@@ -43,7 +43,7 @@ void main() {
       find.ancestor(of: find.text('刷新'), matching: find.byType(Material)).first,
     );
     expect(material.elevation, 8);
-    expect(material.color, headerButtonColor(AppTheme.light()));
+    expect(material.color, elevatedSurfaceColor(AppTheme.light()));
     final shape = material.shape as RoundedRectangleBorder;
     expect(shape.borderRadius, BorderRadius.circular(AppRadii.menu));
   });

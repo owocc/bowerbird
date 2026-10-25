@@ -406,7 +406,7 @@ class _HomeScreenState extends State<HomeScreen>
     // 用圆形 ShapeDecoration（自带 fill + 阴影），避免默认正方形背景露出直角。
     final button = DecoratedBox(
       decoration: ShapeDecoration(
-        color: headerButtonColor(theme),
+        color: elevatedSurfaceColor(theme),
         shape: const CircleBorder(),
         shadows: _headerShadows,
       ),
@@ -441,7 +441,7 @@ class _HomeScreenState extends State<HomeScreen>
   /// 胶囊（全圆角矩形）背景：填充色 + 共用投影。
   ShapeDecoration _headerPillDecoration(ThemeData theme, Radius radius) {
     return ShapeDecoration(
-      color: headerButtonColor(theme),
+      color: elevatedSurfaceColor(theme),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(radius)),
       shadows: _headerShadows,
     );
@@ -801,9 +801,10 @@ class _HomeScreenState extends State<HomeScreen>
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: elevatedSurfaceColor(Theme.of(context)),
+      // 与其它下拉弹层一致的大圆角
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
       ),
       builder: (ctx) {
         return SafeArea(
@@ -1360,8 +1361,7 @@ class _HomeScreenState extends State<HomeScreen>
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // 背景层：从屏幕顶端（含状态栏）一路线性渐变到 header 下沿的完全透明，
-          // 不做纯色段，简单可预期。
+          // 背景层：从屏幕顶端（含状态栏）一路线性渐变到 header 下沿的完全透明。
           Positioned.fill(
             child: IgnorePointer(
               child: DecoratedBox(
@@ -1450,7 +1450,7 @@ class _HomeScreenState extends State<HomeScreen>
                 constraints: const BoxConstraints(minWidth: 200),
                 padding: EdgeInsets.zero,
                 // 与 header 按钮同色、大圆角、10% 大阴影
-                color: headerButtonColor(theme),
+                color: elevatedSurfaceColor(theme),
                 surfaceTintColor: Colors.transparent,
                 elevation: 8,
                 shadowColor: Colors.black.withValues(alpha: 0.10),

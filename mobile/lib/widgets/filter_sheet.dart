@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../theme/app_theme.dart';
 import '../models/item.dart';
 import '../services/item_query.dart';
 
@@ -55,7 +57,8 @@ class _FilterSheetState extends State<FilterSheet> {
       maxChildSize: 0.95,
       builder: (context, controller) {
         return Material(
-          color: theme.colorScheme.surface,
+          // 底部下拉弹层与 header 按钮同层次：使用统一的次级色
+          color: elevatedSurfaceColor(theme),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           child: Column(
             children: [
@@ -100,7 +103,7 @@ class _FilterSheetState extends State<FilterSheet> {
                   ],
                 ),
               ),
-              const Divider(height: 1),
+              // 标题栏与内容区之间不画分隔线，靠留白区分
               Expanded(
                 child: ListView(
                   controller: controller,
