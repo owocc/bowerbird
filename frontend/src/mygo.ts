@@ -164,6 +164,19 @@ export interface LibraryInfo {
 /** LibraryManager coordinates library lifecycle, storage, SQLite indexing, and user data. */
 export interface LibraryManager {}
 
+/**
+ * LibraryRef identifies a library on disk without opening it.
+ *
+ * ID comes from that library's own library.json, so it stays stable even if the
+ * folder is moved or renamed; Path is only how the app addresses it right now.
+ * The sidebar keeps its ordering against ID so moving a library can never make
+ * the order (or, worse, the data) belong to a different library.
+ */
+export interface LibraryRef {
+  id: string;
+  path: string;
+}
+
 /** LogEntry represents a single structured diagnostic log event. */
 export interface LogEntry {
   id: number;
@@ -474,6 +487,13 @@ export const Service = {
   },
   getRecentLibraries(): Promise<string[]> {
     return call("Service.GetRecentLibraries");
+  },
+  /**
+   * GetRecentLibraryRefs returns the recent libraries with their stable IDs.
+   * Entries whose library.json is missing or unreadable are skipped.
+   */
+  getRecentLibraryRefs(): Promise<LibraryRef[]> {
+    return call("Service.GetRecentLibraryRefs");
   },
   getScreenshotSettings(): Promise<ScreenshotSettings> {
     return call("Service.GetScreenshotSettings");

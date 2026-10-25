@@ -55,6 +55,7 @@ export const GetShortcutSettings = Service.getShortcutSettings;
 export const GetPendingPluginInstall = Service.getPendingPluginInstall;
 export const GetPluginsDir = Service.getPluginsDir;
 export const GetRecentLibraries = Service.getRecentLibraries;
+export const GetRecentLibraryRefs = Service.getRecentLibraryRefs;
 export const GetTags = Service.getTags;
 export const GetTheme = Service.getTheme;
 export const GetTrashCount = Service.getTrashCount;

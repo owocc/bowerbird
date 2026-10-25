@@ -347,3 +347,43 @@ func TestLibraryServiceEndToEnd(t *testing.T) {
 	}
 	_ = svc.CloseLibrary()
 }
+
+// TestRecentLibraryRefsKeepStableIdentity verifies that a library's ID comes
+// from its own library.json and survives reopening, while the sidebar ordering
+// key (that ID) stays independent of the folder's path.
+func TestRecentLibraryRefsKeepStableIdentity(t *testing.T) {
+	// Same isolation as the end-to-end test: never touch the real user profile.
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+
+	tempDir := t.TempDir()
+	svc := core.NewService(core.NewLibraryManager())
+
+	first, err := svc.CreateLibrary(tempDir, "StableIdentity")
+	if err != nil {
+		t.Fatalf("CreateLibrary failed: %v", err)
+	}
+	if first.ID == "" {
+		t.Fatal("created library has an empty ID")
+	}
+
+	refs := svc.GetRecentLibraryRefs()
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 recent library ref, got %d: %+v", len(refs), refs)
+	}
+	if refs[0].ID != first.ID {
+		t.Errorf("ref ID %q does not match created ID %q", refs[0].ID, first.ID)
+	}
+	if refs[0].Path != first.Path {
+		t.Errorf("ref Path %q does not match created Path %q", refs[0].Path, first.Path)
+	}
+
+	// Reopening by path must read the same ID back out of library.json, never
+	// mint a new one — otherwise ordering could be attributed to another lib.
+	reopened, err := svc.OpenLibrary(first.Path)
+	if err != nil {
+		t.Fatalf("OpenLibrary failed: %v", err)
+	}
+	if reopened.ID != first.ID {
+		t.Errorf("ID changed on reopen: %q -> %q", first.ID, reopened.ID)
+	}
+}

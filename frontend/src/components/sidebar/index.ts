@@ -7,12 +7,10 @@ export {
 } from "./SidebarMenuItemButton";
 export { SidebarTitlebar } from "./SidebarTitlebar";
 export type { SidebarTitlebarProps } from "./SidebarTitlebar";
-export {
-  SidebarLibrarySwitcher,
-  LIBRARY_OPEN_DIALOG_VALUE,
-  LIBRARY_CLOSE_VALUE,
-} from "./SidebarLibrarySwitcher";
+export { SidebarLibrarySwitcher } from "./SidebarLibrarySwitcher";
 export type { SidebarLibrarySwitcherProps } from "./SidebarLibrarySwitcher";
+export { CreateLibraryDialog } from "./CreateLibraryDialog";
+export type { CreateLibraryDialogProps } from "./CreateLibraryDialog";
 export { FolderTreeItemNode } from "./FolderTreeItemNode";
 export type { FolderTreeItemNodeProps } from "./FolderTreeItemNode";
 export { FolderContextMenu } from "./FolderContextMenu";

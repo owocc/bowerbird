@@ -21,13 +21,18 @@ import { Button } from "@/components/ui/button";
 import { isInternalDragActive } from "@/lib/drag-state";
 import { useIsMacOS } from "@/lib/macos";
 import {
-  GetRecentLibraries,
+  GetRecentLibraryRefs,
   OpenLibrary,
   SelectLibraryDialog,
 } from "../../bindings/bowerbird/core/service";
-import type { Folder, LibraryInfo } from "../../bindings/bowerbird/core/models";
+import type {
+  Folder,
+  LibraryInfo,
+  LibraryRef,
+} from "../../bindings/bowerbird/core/models";
 
 import {
+  CreateLibraryDialog,
   DeleteFolderDialog,
   FolderContextMenu,
   FolderTreeItemNode,
@@ -162,8 +167,9 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
     {}
   );
 
-  const [recentLibraries, setRecentLibraries] = useState<string[]>([]);
+  const [recentLibraries, setRecentLibraries] = useState<LibraryRef[]>([]);
   const [libPopoverOpen, setLibPopoverOpen] = useState(false);
+  const [createLibraryOpen, setCreateLibraryOpen] = useState(false);
 
   const [folderContextMenu, setFolderContextMenu] = useState<{
     position: { x: number; y: number };
@@ -253,7 +259,9 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
 
   const loadRecentLibraries = useCallback(async () => {
     try {
-      const list = await GetRecentLibraries();
+      // Refs carry each library's own ID (from library.json) so the sidebar
+      // orders by identity instead of by path.
+      const list = await GetRecentLibraryRefs();
       setRecentLibraries(list || []);
     } catch (err) {
       console.error("Failed to load recent libraries:", err);
@@ -392,12 +400,13 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
               onOpenChange={setLibPopoverOpen}
               onSelectLibrary={handleSelectLibrary}
               onOpenDialog={handleOpenLibraryDialog}
+              onCreateLibrary={() => setCreateLibraryOpen(true)}
               onCloseLibrary={() => onCloseLibrary()}
             />
           }
         />
 
-        <SidebarContent className="pl-0 pr-2 py-2.5 space-y-3.5 flex-1 overflow-y-auto">
+        <SidebarContent className="pl-0 pr-2 py-2.5 space-y-3.5 flex-1 overflow-y-auto no-scrollbar">
           <SidebarGroup className="py-0">
             <SidebarGroupContent>
               <SidebarMenu className="space-y-0.5">
@@ -552,6 +561,18 @@ export const SidebarDirectoryTree = React.memo(function SidebarDirectoryTree({
           </SidebarGroup>
         </SidebarContent>
       </aside>
+
+      <CreateLibraryDialog
+        open={createLibraryOpen}
+        onOpenChange={setCreateLibraryOpen}
+        onCreated={async (created) => {
+          // The backend already broadcasts "library-opened" for a new library;
+          // forward it too so the local workspace state switches immediately.
+          if (created.path !== library.path) {
+            onLibraryChanged?.(created);
+          }
+        }}
+      />
 
       <SidebarFormDialog
         open={createDialogOpen}
