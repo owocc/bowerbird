@@ -66,8 +66,23 @@ class _HomeScreenState extends State<HomeScreen>
   List<MobileTag> _tags = [];
   List<String> _colors = [];
   final Set<String> _selectedIds = {};
-  double _gridScale = 3;
-  double _pinchStartScale = 3;
+  // 每行显示的列数（离散步进 2~5）。离散值让每次捏合都必定有可见响应。
+  int _crossAxisCount = 3;
+  static const int _minCrossAxisCount = 2;
+  static const int _maxCrossAxisCount = 5;
+  // 当前按在屏幕上的手指集合（由 Listener 精确统计，不依赖手势竞技场）
+  final Set<int> _activePointers = {};
+  final Map<int, Offset> _pointerPositions = {};
+  // 捏合起始的双指间距，以及已应用的档位步数（避免同档重复触发）
+  double? _pinchStartSpan;
+  int _pinchAppliedSteps = 0;
+  bool _isPinching = false;
+  // 捏合期间冻结滚动，避免列表把双指手势吃掉
+  bool _scrollLocked = false;
+  // 触发换档所需的比例变化（8%），配合离散档位形成滞回
+  static const double _pinchStepThreshold = 0.08;
+  // 浮点误差容差：避免 0.92 被算成 -0.9999 而截断为 0 档
+  static const double _pinchEpsilon = 1e-6;
   // 长按手势状态：长按抬起时再依据是否上滑决定「多选」还是「快速操作」
   bool _isLongPressActive = false;
   bool _quickActionSwipedUp = false;
@@ -90,7 +105,10 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
-    _drawer = AnimationController(vsync: this, duration: const Duration(milliseconds: 240));
+    _drawer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 240),
+    );
     _drawer.addListener(_onDrawerTick);
     _loadItems(refresh: true);
     _loadNavMetadata();
@@ -131,7 +149,8 @@ class _HomeScreenState extends State<HomeScreen>
     });
     _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((event) {
       if (!mounted) return;
-      if (DateTime.now().difference(_lastLocalMutation) < const Duration(milliseconds: 900)) {
+      if (DateTime.now().difference(_lastLocalMutation) <
+          const Duration(milliseconds: 900)) {
         return;
       }
       _refreshGate.schedule(_reloadWindow);
@@ -173,8 +192,86 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
+  // ── 双指缩放（指针层接管，优先于滚动） ──────────────────────────────
+
+  void _onPointerDown(PointerDownEvent event) {
+    _activePointers.add(event.pointer);
+    _pointerPositions[event.pointer] = event.position;
+    // 第二根手指一落下就进入缩放，并冻结列表滚动
+    if (_activePointers.length >= 2) _beginPinch();
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    _pointerPositions[event.pointer] = event.position;
+    if (!_isPinching || _activePointers.length < 2) return;
+
+    final startSpan = _pinchStartSpan;
+    if (startSpan == null || startSpan <= 0) return;
+    final span = _currentPointerSpan();
+    if (span <= 0) return;
+
+    // 张开（span 变大）=> 放大 => 列数减少；收拢 => 列数增加
+    final steps = _stepsForRatio(span / startSpan);
+    if (steps == _pinchAppliedSteps) return;
+    _pinchAppliedSteps = steps;
+
+    final next = (_crossAxisCount - steps).clamp(
+      _minCrossAxisCount,
+      _maxCrossAxisCount,
+    );
+    if (next != _crossAxisCount) {
+      setState(() => _crossAxisCount = next);
+    }
+  }
+
+  void _onPointerUp(PointerEvent event) {
+    _activePointers.remove(event.pointer);
+    _pointerPositions.remove(event.pointer);
+    if (_activePointers.length < 2) _endPinch();
+  }
+
+  void _beginPinch() {
+    if (_isPinching) return;
+    _isPinching = true;
+    _pinchAppliedSteps = 0;
+    _pinchStartSpan = _currentPointerSpan();
+    _lockScroll(true);
+  }
+
+  void _endPinch() {
+    if (!_isPinching) return;
+    _isPinching = false;
+    _pinchStartSpan = null;
+    _pinchAppliedSteps = 0;
+    _lockScroll(false);
+  }
+
+  /// 当前双指间距；不足两指时为 0。
+  double _currentPointerSpan() {
+    final positions = _activePointers
+        .map((id) => _pointerPositions[id])
+        .whereType<Offset>()
+        .toList();
+    if (positions.length < 2) return 0;
+    return (positions[0] - positions[1]).distance;
+  }
+
+  /// 把缩放比例换算成档位步数（8% 一档，带浮点误差容差）。
+  int _stepsForRatio(double ratio) {
+    final raw = (ratio - 1) / _pinchStepThreshold;
+    final sign = raw >= 0 ? 1 : -1;
+    return (raw.abs() + _pinchEpsilon).floor() * sign;
+  }
+
+  /// 捏合期间冻结列表滚动。
+  void _lockScroll(bool locked) {
+    if (_scrollLocked == locked) return;
+    setState(() => _scrollLocked = locked);
+  }
+
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 400) {
       if (!_isLoading && _hasMore) {
         _loadItems();
       }
@@ -254,18 +351,26 @@ class _HomeScreenState extends State<HomeScreen>
           continue;
         }
         try {
-          items.add(MobileItem.fromDetail(await ApiService.instance.getItemDetail(id)));
+          items.add(
+            MobileItem.fromDetail(await ApiService.instance.getItemDetail(id)),
+          );
         } catch (_) {
           // 条目可能已被删除，跳过
         }
       }
       return (total: ordered.length, items: items);
     }
-    return ApiService.instance.queryItems(query: _query, limit: _pageSize, offset: offset);
+    return ApiService.instance.queryItems(
+      query: _query,
+      limit: _pageSize,
+      offset: offset,
+    );
   }
 
   /// 与 [_fetchPage] 一致，但按需要一次性取回更大的窗口（用于 ws 刷新）。
-  Future<({int total, List<MobileItem> items})> _fetchPageSized(int limit) async {
+  Future<({int total, List<MobileItem> items})> _fetchPageSized(
+    int limit,
+  ) async {
     if (_isTrashView) {
       return ApiService.instance.getCollectionItems(
         collection: LibraryCollection.trash,
@@ -278,12 +383,18 @@ class _HomeScreenState extends State<HomeScreen>
       final items = <MobileItem>[];
       for (final id in ordered) {
         try {
-          items.add(MobileItem.fromDetail(await ApiService.instance.getItemDetail(id)));
+          items.add(
+            MobileItem.fromDetail(await ApiService.instance.getItemDetail(id)),
+          );
         } catch (_) {}
       }
       return (total: _historyIds.length, items: items);
     }
-    return ApiService.instance.queryItems(query: _query, limit: limit, offset: 0);
+    return ApiService.instance.queryItems(
+      query: _query,
+      limit: limit,
+      offset: 0,
+    );
   }
 
   Future<void> _loadStats() async {
@@ -307,7 +418,9 @@ class _HomeScreenState extends State<HomeScreen>
       _pendingRefresh = true;
       return;
     }
-    final target = _items.isEmpty ? _pageSize : (_items.length > 500 ? _pageSize : _items.length);
+    final target = _items.isEmpty
+        ? _pageSize
+        : (_items.length > 500 ? _pageSize : _items.length);
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -358,8 +471,6 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (_) {}
   }
 
-  int get _crossAxisCount => _gridScale.round().clamp(2, 5);
-
   double get _drawerWidth => MediaQuery.sizeOf(context).width * 2 / 3;
 
   bool _drawerInteractable = false;
@@ -382,7 +493,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _onDrawerHorizontalUpdate(DragUpdateDetails details) {
-    final next = (_drawer.value + details.delta.dx / _drawerWidth).clamp(0.0, 1.0);
+    final next = (_drawer.value + details.delta.dx / _drawerWidth).clamp(
+      0.0,
+      1.0,
+    );
     _drawer.value = next;
   }
 
@@ -563,11 +677,16 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() => _selectedIds.clear());
       _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已添加到「${folder.name}」')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已添加到「${folder.name}」')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('添加失败: $e'), backgroundColor: Colors.red.shade700));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('添加失败: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
     }
   }
 
@@ -580,12 +699,16 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       setState(() => _selectedIds.clear());
       _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已添加标签「$tag」')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('已添加标签「$tag」')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('添加标签失败: $e'), backgroundColor: Colors.red.shade700));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('添加标签失败: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
     }
   }
 
@@ -596,7 +719,8 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
       _markLocalMutation();
       setState(() => _items.removeWhere((it) => it.id == item.id));
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已从废纸篓恢复')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已从废纸篓恢复')));
       _loadItems(refresh: true);
     } catch (e) {
       if (!mounted) return;
@@ -616,10 +740,15 @@ class _HomeScreenState extends State<HomeScreen>
         title: const Text('清空废纸篓？'),
         content: const Text('废纸篓中的素材将被永久删除，此操作无法撤销。'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('清空'),
           ),
         ],
@@ -630,7 +759,8 @@ class _HomeScreenState extends State<HomeScreen>
       await ApiService.instance.emptyTrash();
       if (!mounted) return;
       _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('废纸篓已清空')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('废纸篓已清空')));
       _loadItems(refresh: true);
       _loadStats();
     } catch (e) {
@@ -647,7 +777,8 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _pickFolderForSelection() async {
     final flat = _folders.expand((f) => f.flatten()).toList();
     if (flat.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('还没有文件夹')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('还没有文件夹')));
       return;
     }
     final chosen = await showModalBottomSheet<MobileFolder>(
@@ -704,7 +835,10 @@ class _HomeScreenState extends State<HomeScreen>
           title: const Text('新建标签'),
           content: TextField(controller: controller, autofocus: true),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, controller.text.trim()),
               child: const Text('添加'),
@@ -734,7 +868,8 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
     if (deleted == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
       _markLocalMutation();
       unawaited(_reloadWindow());
     }
@@ -758,7 +893,8 @@ class _HomeScreenState extends State<HomeScreen>
       case ItemPreviewAction.share:
         await _shareItem(item);
       case ItemPreviewAction.delete:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
         _markLocalMutation();
         await _reloadWindow();
     }
@@ -770,9 +906,14 @@ class _HomeScreenState extends State<HomeScreen>
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Disconnect Server'),
-          content: const Text('Disconnect from current Bowerbird desktop server?'),
+          content: const Text(
+            'Disconnect from current Bowerbird desktop server?',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
               child: const Text('Disconnect'),
@@ -786,8 +927,9 @@ class _HomeScreenState extends State<HomeScreen>
     WebSocketService.instance.disconnect();
     await ApiService.instance.disconnect();
     if (mounted) {
-      Navigator.of(context)
-          .pushReplacement(MaterialPageRoute(builder: (_) => const ConnectScreen()));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const ConnectScreen()),
+      );
     }
   }
 
@@ -804,7 +946,9 @@ class _HomeScreenState extends State<HomeScreen>
       backgroundColor: elevatedSurfaceColor(Theme.of(context)),
       // 与其它下拉弹层一致的大圆角
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadii.sheet),
+        ),
       ),
       builder: (ctx) {
         return SafeArea(
@@ -815,13 +959,19 @@ class _HomeScreenState extends State<HomeScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 8,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
                         '切换资源库 / Switch Library',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       IconButton(
                         icon: const Icon(Icons.close),
@@ -847,7 +997,9 @@ class _HomeScreenState extends State<HomeScreen>
                           leading: CircleAvatar(
                             backgroundColor: lib.isActive
                                 ? Theme.of(context).colorScheme.primaryContainer
-                                : Theme.of(context).colorScheme.surfaceContainerHighest,
+                                : Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest,
                             child: Icon(
                               Icons.photo_library_outlined,
                               color: lib.isActive
@@ -858,7 +1010,9 @@ class _HomeScreenState extends State<HomeScreen>
                           title: Text(
                             lib.name,
                             style: TextStyle(
-                              fontWeight: lib.isActive ? FontWeight.bold : FontWeight.normal,
+                              fontWeight: lib.isActive
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
                             ),
                           ),
                           subtitle: Text('${lib.itemCount} 个素材 • ${lib.path}'),
@@ -872,12 +1026,19 @@ class _HomeScreenState extends State<HomeScreen>
                             Navigator.pop(ctx);
                             if (!lib.isActive) {
                               try {
-                                await ApiService.instance.switchLibrary(lib.path);
+                                await ApiService.instance.switchLibrary(
+                                  lib.path,
+                                );
                                 if (mounted) {
-                                  setState(() => ApiService.instance.libraryName = lib.name);
-                                  ScaffoldMessenger.of(
-                                    context,
-                                  ).showSnackBar(SnackBar(content: Text('已切换至资源库: ${lib.name}')));
+                                  setState(
+                                    () => ApiService.instance.libraryName =
+                                        lib.name,
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('已切换至资源库: ${lib.name}'),
+                                    ),
+                                  );
                                   unawaited(_loadNavMetadata());
                                   _loadItems(refresh: true);
                                 }
@@ -944,7 +1105,9 @@ class _HomeScreenState extends State<HomeScreen>
         Navigator.pop(context); // Close dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('上传失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            content: Text(
+              '上传失败: ${e.toString().replaceAll('Exception: ', '')}',
+            ),
             backgroundColor: Colors.red.shade700,
           ),
         );
@@ -965,8 +1128,14 @@ class _HomeScreenState extends State<HomeScreen>
         throw Exception('HTTP ${response.statusCode}');
       }
 
-      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
-      await ApiService.instance.saveMediaToGallery(response.bodyBytes, filename, item.mimeType);
+      final filename = item.filename.isNotEmpty
+          ? item.filename
+          : '${item.id}.${item.extension}';
+      await ApiService.instance.saveMediaToGallery(
+        response.bodyBytes,
+        filename,
+        item.mimeType,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -976,7 +1145,9 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('下载失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            content: Text(
+              '下载失败: ${e.toString().replaceAll('Exception: ', '')}',
+            ),
             backgroundColor: Colors.red.shade700,
           ),
         );
@@ -1006,7 +1177,9 @@ class _HomeScreenState extends State<HomeScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('复制失败: ${e.toString().replaceAll('Exception: ', '')}'),
+            content: Text(
+              '复制失败: ${e.toString().replaceAll('Exception: ', '')}',
+            ),
             backgroundColor: Colors.red.shade700,
           ),
         );
@@ -1026,22 +1199,34 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       final tempDir = await getTemporaryDirectory();
-      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
+      final filename = item.filename.isNotEmpty
+          ? item.filename
+          : '${item.id}.${item.extension}';
       final file = File('${tempDir.path}/$filename');
       await file.writeAsBytes(response.bodyBytes);
 
       // 分享即「使用」，记录到使用历史（等价于桌面端的拖出记录）
       await UsageHistoryService.instance.record(item.id);
       if (mounted) {
-        setState(() => _historyIds = [item.id, ..._historyIds.where((id) => id != item.id)]);
+        setState(
+          () => _historyIds = [
+            item.id,
+            ..._historyIds.where((id) => id != item.id),
+          ],
+        );
         final xFile = XFile(file.path, mimeType: item.mimeType);
-        await Share.shareXFiles([xFile], text: item.name.isNotEmpty ? item.name : item.filename);
+        await Share.shareXFiles([
+          xFile,
+        ], text: item.name.isNotEmpty ? item.name : item.filename);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('分享失败: $e'), backgroundColor: Colors.red.shade700));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('分享失败: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
       }
     }
   }
@@ -1064,7 +1249,9 @@ class _HomeScreenState extends State<HomeScreen>
               return Transform.translate(
                 offset: Offset(drawerWidth * t, 0),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.horizontal(left: Radius.circular(40 * t)),
+                  borderRadius: BorderRadius.horizontal(
+                    left: Radius.circular(40 * t),
+                  ),
                   child: child,
                 ),
               );
@@ -1084,149 +1271,186 @@ class _HomeScreenState extends State<HomeScreen>
                 flexibleSpace: const SizedBox.shrink(),
                 title: const SizedBox.shrink(),
               ),
-              body: GestureDetector(
-                onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
-                onHorizontalDragEnd: _drawerInteractable ? _onDrawerHorizontalEnd : null,
-                onScaleStart: (details) {
-                  if (details.pointerCount >= 2) {
-                    _pinchStartScale = _gridScale;
-                  }
-                },
-                onScaleUpdate: (details) {
-                  if (details.pointerCount < 2) return;
-                  final next = (_pinchStartScale / details.scale).clamp(2.0, 5.0);
-                  if ((next - _gridScale).abs() >= 0.15) {
-                    setState(() => _gridScale = next);
-                  }
-                },
-                child: _errorMessage != null && _items.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            24,
-                            MediaQuery.paddingOf(context).top + kToolbarHeight,
-                            24,
-                            24,
-                          ),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.cloud_off, size: 64, color: theme.colorScheme.error),
-                              const SizedBox(height: 16),
-                              Text(
-                                _errorMessage!,
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyMedium,
-                              ),
-                              const SizedBox(height: 16),
-                              FilledButton.icon(
-                                onPressed: () => _loadItems(refresh: true),
-                                icon: const Icon(Icons.refresh),
-                                label: const Text('Retry'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : _items.isEmpty && !_isLoading
-                    ? Center(
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            32,
-                            MediaQuery.paddingOf(context).top + kToolbarHeight,
-                            32,
-                            32,
-                          ),
-                          child: Text(
-                            _emptyMessage,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              color: theme.colorScheme.outline,
-                              fontWeight: FontWeight.w400,
+              // 缩放在指针层接管：出现第二根手指即进入缩放并冻结滚动。
+              // 不用 onScale*：那套 API 需要赢下手势竞技场，而滚动列表往往先赢，
+              // 导致捏合很难触发（相册类应用的做法是指针计数优先）。
+              body: Listener(
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerUp,
+                child: GestureDetector(
+                  onHorizontalDragUpdate: _drawerInteractable
+                      ? _onDrawerHorizontalUpdate
+                      : null,
+                  onHorizontalDragEnd: _drawerInteractable
+                      ? _onDrawerHorizontalEnd
+                      : null,
+                  child: _errorMessage != null && _items.isEmpty
+                      ? Center(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              24,
+                              MediaQuery.paddingOf(context).top +
+                                  kToolbarHeight,
+                              24,
+                              24,
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.cloud_off,
+                                  size: 64,
+                                  color: theme.colorScheme.error,
+                                ),
+                                const SizedBox(height: 16),
+                                Text(
+                                  _errorMessage!,
+                                  textAlign: TextAlign.center,
+                                  style: theme.textTheme.bodyMedium,
+                                ),
+                                const SizedBox(height: 16),
+                                FilledButton.icon(
+                                  onPressed: () => _loadItems(refresh: true),
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('Retry'),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                      )
-                    : CustomScrollView(
-                        controller: _scrollController,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        slivers: [
-                          // 顶部留白：安全区 + 工具栏，留出空间给 _buildHeader 浮层。
-                          SliverToBoxAdapter(
-                            child: SizedBox(
-                              height: MediaQuery.paddingOf(context).top + kToolbarHeight + 8,
+                        )
+                      : _items.isEmpty && !_isLoading
+                      ? Center(
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              32,
+                              MediaQuery.paddingOf(context).top +
+                                  kToolbarHeight,
+                              32,
+                              32,
+                            ),
+                            child: Text(
+                              _emptyMessage,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: theme.colorScheme.outline,
+                                fontWeight: FontWeight.w400,
+                              ),
                             ),
                           ),
-                          ...grouped.entries.expand((entry) {
-                            final monthName = entry.key;
-                            final monthItems = entry.value;
+                        )
+                      : CustomScrollView(
+                          controller: _scrollController,
+                          // 捏合中禁用滚动，确保双指手势不被列表吃掉
+                          physics: _scrollLocked
+                              ? const NeverScrollableScrollPhysics()
+                              : const AlwaysScrollableScrollPhysics(),
+                          slivers: [
+                            // 顶部留白：安全区 + 工具栏，留出空间给 _buildHeader 浮层。
+                            SliverToBoxAdapter(
+                              child: SizedBox(
+                                height:
+                                    MediaQuery.paddingOf(context).top +
+                                    kToolbarHeight +
+                                    8,
+                              ),
+                            ),
+                            ...grouped.entries.expand((entry) {
+                              final monthName = entry.key;
+                              final monthItems = entry.value;
 
-                            return [
-                              // Month Section Header
-                              SliverToBoxAdapter(
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(monthName, style: theme.textTheme.titleMedium),
-                                      Text(
-                                        '${monthItems.length}',
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          color: theme.colorScheme.outline,
+                              return [
+                                // Month Section Header
+                                SliverToBoxAdapter(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      20,
+                                      16,
+                                      8,
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          monthName,
+                                          style: theme.textTheme.titleMedium,
                                         ),
+                                        Text(
+                                          '${monthItems.length}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color:
+                                                    theme.colorScheme.outline,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+
+                                // 3-Column Square Grid
+                                SliverPadding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  sliver: SliverGrid(
+                                    gridDelegate:
+                                        SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: _crossAxisCount,
+                                          crossAxisSpacing: 8,
+                                          mainAxisSpacing: 8,
+                                        ),
+                                    delegate: SliverChildBuilderDelegate((
+                                      context,
+                                      index,
+                                    ) {
+                                      final item = monthItems[index];
+                                      final globalIndex = _items.indexOf(item);
+                                      final useAnimatedGif =
+                                          item.isGif &&
+                                          item.size <= _gifAnimationMaxBytes;
+                                      final selected = _selectedIds.contains(
+                                        item.id,
+                                      );
+                                      return _buildGridTile(
+                                        item: item,
+                                        globalIndex: globalIndex,
+                                        useAnimatedGif: useAnimatedGif,
+                                        selected: selected,
+                                        theme: theme,
+                                      );
+                                    }, childCount: monthItems.length),
+                                  ),
+                                ),
+                              ];
+                            }),
+
+                            // Loading More Indicator
+                            if (_isLoading && _items.isNotEmpty)
+                              const SliverToBoxAdapter(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 24),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
                                       ),
-                                    ],
+                                    ),
                                   ),
                                 ),
                               ),
 
-                              // 3-Column Square Grid
-                              SliverPadding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                sliver: SliverGrid(
-                                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                    crossAxisCount: _crossAxisCount,
-                                    crossAxisSpacing: 8,
-                                    mainAxisSpacing: 8,
-                                  ),
-                                  delegate: SliverChildBuilderDelegate((context, index) {
-                                    final item = monthItems[index];
-                                    final globalIndex = _items.indexOf(item);
-                                    final useAnimatedGif =
-                                        item.isGif && item.size <= _gifAnimationMaxBytes;
-                                    final selected = _selectedIds.contains(item.id);
-                                    return _buildGridTile(
-                                      item: item,
-                                      globalIndex: globalIndex,
-                                      useAnimatedGif: useAnimatedGif,
-                                      selected: selected,
-                                      theme: theme,
-                                    );
-                                  }, childCount: monthItems.length),
-                                ),
-                              ),
-                            ];
-                          }),
-
-                          // Loading More Indicator
-                          if (_isLoading && _items.isNotEmpty)
                             const SliverToBoxAdapter(
-                              child: Padding(
-                                padding: EdgeInsets.symmetric(vertical: 24),
-                                child: Center(
-                                  child: SizedBox(
-                                    width: 24,
-                                    height: 24,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
-                                  ),
-                                ),
-                              ),
+                              child: SizedBox(height: 32),
                             ),
-
-                          const SliverToBoxAdapter(child: SizedBox(height: 32)),
-                        ],
-                      ),
+                          ],
+                        ),
+                ),
               ),
               bottomNavigationBar: _selectedIds.isEmpty
                   ? null
@@ -1236,15 +1460,21 @@ class _HomeScreenState extends State<HomeScreen>
                         elevation: 0,
                         child: Container(
                           decoration: BoxDecoration(
-                            border: Border(top: BorderSide(color: theme.dividerColor)),
+                            border: Border(
+                              top: BorderSide(color: theme.dividerColor),
+                            ),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                           child: Row(
                             children: [
                               Text('已选 ${_selectedIds.length}'),
                               const Spacer(),
                               TextButton(
-                                onPressed: () => setState(() => _selectedIds.clear()),
+                                onPressed: () =>
+                                    setState(() => _selectedIds.clear()),
                                 child: const Text('取消'),
                               ),
                               FilledButton.tonal(
@@ -1278,7 +1508,10 @@ class _HomeScreenState extends State<HomeScreen>
               animation: _drawer,
               builder: (context, child) {
                 final t = Curves.easeOutCubic.transform(_drawer.value);
-                return Transform.translate(offset: Offset(drawerWidth * (t - 1), 0), child: child);
+                return Transform.translate(
+                  offset: Offset(drawerWidth * (t - 1), 0),
+                  child: child,
+                );
               },
               child: GestureDetector(
                 onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
@@ -1294,8 +1527,9 @@ class _HomeScreenState extends State<HomeScreen>
                   libraryName: libraryTitle,
                   onSwitchLibrary: _showLibraryPicker,
                   onSearch: () {
-                    Navigator.of(context)
-                        .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SearchScreen()),
+                    );
                   },
                 ),
               ),
@@ -1333,7 +1567,10 @@ class _HomeScreenState extends State<HomeScreen>
               animation: _drawer,
               builder: (context, child) {
                 final t = Curves.easeOutCubic.transform(_drawer.value);
-                return Transform.translate(offset: Offset(drawerWidth * t, 0), child: child);
+                return Transform.translate(
+                  offset: Offset(drawerWidth * t, 0),
+                  child: child,
+                );
               },
               child: _buildHeader(context, theme),
             ),
@@ -1357,59 +1594,63 @@ class _HomeScreenState extends State<HomeScreen>
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: overlayStyle,
       child: SizedBox(
-      height: headerHeight,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // 背景层：从屏幕顶端（含状态栏）一路线性渐变到 header 下沿的完全透明。
-          Positioned.fill(
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      theme.colorScheme.surface,
-                      theme.colorScheme.surface.withValues(alpha: 0),
+        height: headerHeight,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // 背景层：从屏幕顶端（含状态栏）一路线性渐变到 header 下沿的完全透明。
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        theme.colorScheme.surface,
+                        theme.colorScheme.surface.withValues(alpha: 0),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // 内容层
+            SafeArea(
+              bottom: false,
+              child: SizedBox(
+                height: kToolbarHeight + 8,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Row(
+                    children: [
+                      _roundIconButton(
+                        icon: Icons.menu,
+                        tooltip: '文件夹',
+                        onPressed: () => _snapDrawer(open: !_drawerOpen),
+                      ),
+                      // 不再显示当前资料库名称，仅作为左右两组按钮之间的弹性留白
+                      const Spacer(),
+                      const SizedBox(width: 10),
+                      _buildActionPill(context, theme, pillRadius),
                     ],
                   ),
                 ),
               ),
             ),
-          ),
-          // 内容层
-          SafeArea(
-            bottom: false,
-            child: SizedBox(
-              height: kToolbarHeight + 8,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
-                  children: [
-                    _roundIconButton(
-                      icon: Icons.menu,
-                      tooltip: '文件夹',
-                      onPressed: () => _snapDrawer(open: !_drawerOpen),
-                    ),
-                    // 不再显示当前资料库名称，仅作为左右两组按钮之间的弹性留白
-                    const Spacer(),
-                    const SizedBox(width: 10),
-                    _buildActionPill(context, theme, pillRadius),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
 
   /// 右侧搜索与更多二枚按钮共用一个胶囊背景，每个按钮自身状态独立
   /// （透明背景，仅共享背景 + 阴影；按下时各自显示高亮水波纹）。
-  Widget _buildActionPill(BuildContext context, ThemeData theme, Radius pillRadius) {
+  Widget _buildActionPill(
+    BuildContext context,
+    ThemeData theme,
+    Radius pillRadius,
+  ) {
     // 注意：Material 必须在 ClipRRect 内部，否则 InkWell 的水波纹会被裁剪/绘制在上层
     // 之外而看不到；同时文字与图标都要在 Material 内部，否则会被材质背景遮住。
     return DecoratedBox(
@@ -1419,25 +1660,34 @@ class _HomeScreenState extends State<HomeScreen>
         children: [
           // 搜索按钮（独立的按下高亮）
           ClipRRect(
-            borderRadius: const BorderRadius.horizontal(left: Radius.circular(24)),
+            borderRadius: const BorderRadius.horizontal(
+              left: Radius.circular(24),
+            ),
             child: Material(
               type: MaterialType.transparency,
               child: InkWell(
                 onTap: () {
-                  Navigator.of(context)
-                      .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SearchScreen()),
+                  );
                 },
                 child: SizedBox(
                   width: 48,
                   height: 48,
-                  child: Icon(Icons.search, size: 24, color: theme.colorScheme.onSurface),
+                  child: Icon(
+                    Icons.search,
+                    size: 24,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
               ),
             ),
           ),
           // 更多按钮
           ClipRRect(
-            borderRadius: const BorderRadius.horizontal(right: Radius.circular(24)),
+            borderRadius: const BorderRadius.horizontal(
+              right: Radius.circular(24),
+            ),
             child: Material(
               type: MaterialType.transparency,
               child: PopupMenuButton<String>(
@@ -1466,8 +1716,9 @@ class _HomeScreenState extends State<HomeScreen>
                     case 'filter':
                       _openFilterSheet();
                     case 'inbox':
-                      Navigator.of(context)
-                          .push(MaterialPageRoute(builder: (_) => const InboxScreen()));
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const InboxScreen()),
+                      );
                     case 'emptyTrash':
                       _confirmEmptyTrash();
                     case 'disconnect':
@@ -1517,7 +1768,11 @@ class _HomeScreenState extends State<HomeScreen>
                 child: SizedBox(
                   width: 48,
                   height: 48,
-                  child: Icon(Icons.more_horiz, size: 24, color: theme.colorScheme.onSurface),
+                  child: Icon(
+                    Icons.more_horiz,
+                    size: 24,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
               ),
             ),
@@ -1539,7 +1794,9 @@ class _HomeScreenState extends State<HomeScreen>
   }) {
     final tint = destructive
         ? theme.colorScheme.error
-        : (active ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant);
+        : (active
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant);
     return PopupMenuItem<String>(
       value: value,
       height: 42,
@@ -1603,7 +1860,8 @@ class _HomeScreenState extends State<HomeScreen>
       //   · 长按期间基本未移动 -> 进入多选
       //   · 长按期间上滑超过阈值 -> 打开快速操作
       // 未满 500ms 的滑动只由滚动列表消费，浏览内容时不会误触。
-      onLongPressStart: _selectedIds.isNotEmpty || _isTrashView || _isHistoryView
+      onLongPressStart:
+          _selectedIds.isNotEmpty || _isTrashView || _isHistoryView
           ? null
           : (details) {
               setState(() {
@@ -1620,7 +1878,9 @@ class _HomeScreenState extends State<HomeScreen>
               final origin = _quickActionOrigin;
               if (origin == null) return;
               // 只做记录，不在此触发任何动作（但高亮要实时反映是否已上滑）。
-              final swipedUp = details.localPosition.dy - origin.dy < -_quickActionSwipeThreshold;
+              final swipedUp =
+                  details.localPosition.dy - origin.dy <
+                  -_quickActionSwipeThreshold;
               if (swipedUp != _quickActionSwipedUp) {
                 setState(() => _quickActionSwipedUp = swipedUp);
               }
@@ -1670,7 +1930,8 @@ class _HomeScreenState extends State<HomeScreen>
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             value: progress.expectedTotalBytes != null
-                                ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                                ? progress.cumulativeBytesLoaded /
+                                      progress.expectedTotalBytes!
                                 : null,
                           ),
                         ),
@@ -1699,7 +1960,11 @@ class _HomeScreenState extends State<HomeScreen>
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(Icons.play_arrow, color: Colors.white, size: 14),
+                    child: const Icon(
+                      Icons.play_arrow,
+                      color: Colors.white,
+                      size: 14,
+                    ),
                   ),
                 ),
               if (item.isGif)
@@ -1707,7 +1972,10 @@ class _HomeScreenState extends State<HomeScreen>
                   top: 4,
                   left: 4,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(4),
@@ -1732,7 +2000,11 @@ class _HomeScreenState extends State<HomeScreen>
                       color: Colors.black54,
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: const Icon(Icons.audiotrack, color: Colors.white, size: 14),
+                    child: const Icon(
+                      Icons.audiotrack,
+                      color: Colors.white,
+                      size: 14,
+                    ),
                   ),
                 ),
               if (ShareTagService.instance.isMarked(item.id))
@@ -1742,7 +2014,11 @@ class _HomeScreenState extends State<HomeScreen>
                   color: Colors.black38,
                   alignment: Alignment.topRight,
                   padding: const EdgeInsets.all(4),
-                  child: const Icon(Icons.check_circle, color: Colors.white, size: 20),
+                  child: const Icon(
+                    Icons.check_circle,
+                    color: Colors.white,
+                    size: 20,
+                  ),
                 ),
               // 长按高亮：告诉用户当前触摸的是哪个 item，样式与多选态一致。
               if (_pressedItemId == item.id)
