@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 
 import '../models/inbox_entry.dart';
 import '../services/api_service.dart';
 import '../services/inbox_service.dart';
 import 'connect_screen.dart';
+import 'inbox/widgets/inbox_tile.dart';
 
 /// Local queue of shared items that have not reached the desktop library yet.
 class InboxScreen extends StatefulWidget {
@@ -135,120 +135,17 @@ class _InboxScreenState extends State<InboxScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: entries.length,
       separatorBuilder: (_, _) => const Divider(height: 1, indent: 84),
-      itemBuilder: (context, index) => _buildTile(entries[index]),
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return InboxTile(
+          entry: entry,
+          busy: _uploading,
+          onUpload: () => _uploadEntries([entry]),
+          onDelete: () => _confirmDelete(entry),
+          onShowText: () => _showText(entry),
+        );
+      },
     );
-  }
-
-  Widget _buildTile(InboxEntry entry) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: _buildThumbnail(entry),
-      title: Text(
-        entry.fileName,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Text(
-        _buildSubtitle(entry),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      onTap: entry.isText ? () => _showText(entry) : null,
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.upload_file_outlined),
-            tooltip: entry.isText ? '上传为 .txt' : '上传',
-            onPressed: _uploading ? null : () => _uploadEntries([entry]),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: '删除',
-            onPressed: _uploading ? null : () => _confirmDelete(entry),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildThumbnail(InboxEntry entry) {
-    final file = InboxService.instance.fileFor(entry);
-    if (!entry.isText && entry.isImage && file != null) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.file(
-          file,
-          width: 52,
-          height: 52,
-          fit: BoxFit.cover,
-          cacheWidth: 160,
-          errorBuilder: (_, _, _) => _iconThumbnail(entry),
-        ),
-      );
-    }
-    return _iconThumbnail(entry);
-  }
-
-  Widget _iconThumbnail(InboxEntry entry) {
-    final theme = Theme.of(context);
-    final icon = entry.isText
-        ? Icons.article_outlined
-        : entry.isVideo
-            ? Icons.videocam_outlined
-            : entry.isImage
-                ? Icons.image_outlined
-                : Icons.insert_drive_file_outlined;
-    return Container(
-      width: 52,
-      height: 52,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(icon, color: theme.colorScheme.primary),
-          if (entry.isVideo)
-            Positioned(
-              right: 2,
-              bottom: 2,
-              child: Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  color: Colors.black54,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: const Icon(
-                  Icons.play_arrow,
-                  size: 11,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  String _buildSubtitle(InboxEntry entry) {
-    final typeLabel = entry.isText
-        ? '文本'
-        : entry.isVideo
-            ? '视频'
-            : entry.isImage
-                ? '图片'
-                : '文件';
-    final parts = <String>[
-      '$typeLabel · ${entry.formattedSize}',
-      DateFormat('MM-dd HH:mm').format(
-        DateTime.fromMillisecondsSinceEpoch(entry.receivedAt),
-      ),
-      if (entry.isText && entry.preview.isNotEmpty) entry.preview,
-    ];
-    return parts.join(' · ');
   }
 
   Future<void> _uploadAll() async {

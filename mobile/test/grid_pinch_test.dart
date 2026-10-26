@@ -1,109 +1,115 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:bowerbird_mobile/controllers/pinch_zoom_controller.dart';
 
-/// 复刻缩放状态机的核心换档逻辑，验证离散步进与边界钳制。
-class _PinchModel {
-  _PinchModel({this.count = 3, this.min = 2, this.max = 5, this.threshold = 0.08});
+/// 构造一个指定坐标的 down 事件。
+PointerDownEvent _down(int id, Offset pos) =>
+    PointerDownEvent(pointer: id, position: pos);
 
-  int count;
-  final int min;
-  final int max;
-  final double threshold;
-  static const double epsilon = 1e-6;
-  double accumulated = 1.0;
+PointerMoveEvent _move(int id, Offset pos) =>
+    PointerMoveEvent(pointer: id, position: pos);
 
-  /// 返回本次 feed 是否发生了换档。
-  bool feed(double scale) {
-    accumulated = scale;
-    final raw = (accumulated - 1) / threshold;
-    final sign = raw >= 0 ? 1 : -1;
-    final steps = (raw.abs() + epsilon).floor() * sign;
-    if (steps == 0) return false;
-    final next = (count - steps).clamp(min, max);
-    if (next == count) return false;
-    count = next;
-    accumulated = 1.0; // 换档后重置基准
-    return true;
-  }
-}
+PointerUpEvent _up(int id, Offset pos) =>
+    PointerUpEvent(pointer: id, position: pos);
 
 void main() {
-  test('张开手指（scale > 1）减少列数，即放大', () {
-    final m = _PinchModel(count: 3);
-    expect(m.feed(1.10), isTrue);
-    expect(m.count, 2);
+  group('档位换算', () {
+    test('张开手指（ratio > 1）返回正步数，即放大', () {
+      final c = PinchZoomController();
+      expect(c.stepsForRatio(1.10), 1);
+      expect(c.stepsForRatio(1.25), 3);
+    });
+
+    test('收拢手指（ratio < 1）返回负步数，即缩小', () {
+      final c = PinchZoomController();
+      expect(c.stepsForRatio(0.90), -1);
+      expect(c.stepsForRatio(0.80), -2);
+    });
+
+    test('小于 8% 的变化不换档（滞回，避免抖动）', () {
+      final c = PinchZoomController();
+      expect(c.stepsForRatio(1.05), 0);
+      expect(c.stepsForRatio(0.95), 0);
+    });
+
+    test('浮点边界：恰好 8% 也能换档（0.92 不被截断为 0）', () {
+      final c = PinchZoomController();
+      expect(c.stepsForRatio(0.92), -1);
+      expect(c.stepsForRatio(1.08), 1);
+    });
+
+    test('countForSpanRatio 给出期望列数', () {
+      final c = PinchZoomController(); // 默认 3 列
+      expect(c.countForSpanRatio(1.10), 2); // 放大 -> 列数减少
+      expect(c.countForSpanRatio(0.90), 4); // 缩小 -> 列数增加
+    });
   });
 
-  test('收拢手指（scale < 1）增加列数，即缩小', () {
-    final m = _PinchModel(count: 3);
-    expect(m.feed(0.90), isTrue);
-    expect(m.count, 4);
-  });
+  group('指针手势', () {
+    test('单指不会进入缩放', () {
+      final c = PinchZoomController();
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      expect(c.isPinching, isFalse);
+      c.handlePointerUp(_up(1, const Offset(100, 100)));
+      expect(c.isPinching, isFalse);
+    });
 
-  test('小于 8% 的变化不换档（滞回，避免抖动）', () {
-    final m = _PinchModel(count: 3);
-    expect(m.feed(1.05), isFalse);
-    expect(m.count, 3);
-    expect(m.feed(0.95), isFalse);
-    expect(m.count, 3);
-  });
+    test('第二根手指落下立即进入缩放', () {
+      final c = PinchZoomController();
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      c.handlePointerDown(_down(2, const Offset(200, 100)));
+      expect(c.isPinching, isTrue);
+      expect(c.debugCurrentSpan, closeTo(100, 0.01));
+    });
 
-  test('换档后重置基准，可连续换多档', () {
-    final m = _PinchModel(count: 3);
-    expect(m.feed(1.10), isTrue);
-    expect(m.count, 2);
-    // 基准已重置，再给 1.10 会继续换档（但已到下限）
-    expect(m.feed(1.10), isFalse);
-    expect(m.count, 2);
-  });
+    test('张开双指减少列数（放大）', () {
+      final c = PinchZoomController(); // 3 列
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      c.handlePointerDown(_down(2, const Offset(200, 100)));
+      // 间距从 100 拉到 120 => ratio 1.2 => 2 档
+      c.handlePointerMove(_move(1, const Offset(90, 100)));
+      c.handlePointerMove(_move(2, const Offset(210, 100)));
+      expect(c.crossAxisCount, 2);
+    });
 
-  test('列数被钳制在 2~5 之间', () {
-    final m = _PinchModel(count: 5);
-    m.feed(0.80);
-    expect(m.count, 5, reason: '已到上限不能再缩小');
-    final m2 = _PinchModel(count: 2);
-    m2.feed(1.30);
-    expect(m2.count, 2, reason: '已到下限不能再放大');
-  });
+    test('收拢双指增加列数（缩小）', () {
+      final c = PinchZoomController(); // 3 列
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      c.handlePointerDown(_down(2, const Offset(200, 100)));
+      // 间距从 100 收到 80 => ratio 0.8 => -2 档
+      c.handlePointerMove(_move(1, const Offset(110, 100)));
+      c.handlePointerMove(_move(2, const Offset(190, 100)));
+      expect(c.crossAxisCount, 5);
+    });
 
-  test('大幅捏合一次可跨多档', () {
-    final m = _PinchModel(count: 4);
-    m.feed(1.25); // steps = 3
-    expect(m.count, 2);
-  });
+    test('抬起一根手指即结束缩放', () {
+      final c = PinchZoomController();
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      c.handlePointerDown(_down(2, const Offset(200, 100)));
+      expect(c.isPinching, isTrue);
+      c.handlePointerUp(_up(2, const Offset(200, 100)));
+      expect(c.isPinching, isFalse);
+    });
 
-  test('浮点边界：恰好 8% 的收拢也能换档（0.92 不被截断为 0）', () {
-    final m = _PinchModel(count: 3);
-    expect(m.feed(0.92), isTrue);
-    expect(m.count, 4);
+    test('列数被钳制在 2~5', () {
+      final c = PinchZoomController();
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      c.handlePointerDown(_down(2, const Offset(200, 100)));
+      // 极端张开也不会小于 2
+      c.handlePointerMove(_move(1, const Offset(0, 100)));
+      c.handlePointerMove(_move(2, const Offset(400, 100)));
+      expect(c.crossAxisCount, 2);
+      expect(c.atMin, isTrue);
+    });
 
-    final up = _PinchModel(count: 3);
-    expect(up.feed(1.08), isTrue);
-    expect(up.count, 2);
-  });
-
-  testWidgets('捏合期间列表滚动被冻结', (tester) async {
-    var locked = false;
-    Widget build() => MaterialApp(
-          home: Scaffold(
-            body: ListView.builder(
-              physics: locked
-                  ? const NeverScrollableScrollPhysics()
-                  : const AlwaysScrollableScrollPhysics(),
-              itemCount: 30,
-              itemBuilder: (_, i) => SizedBox(height: 100, child: Text('$i')),
-            ),
-          ),
-        );
-
-    await tester.pumpWidget(build());
-    // 未冻结时可滚动
-    await tester.drag(find.byType(ListView), const Offset(0, -200));
-    await tester.pumpAndSettle();
-    expect(tester.widget<ListView>(find.byType(ListView)).physics, isA<AlwaysScrollableScrollPhysics>());
-
-    locked = true;
-    await tester.pumpWidget(build());
-    expect(tester.widget<ListView>(find.byType(ListView)).physics, isA<NeverScrollableScrollPhysics>());
+    test('状态变化会通知监听者', () {
+      final c = PinchZoomController();
+      var calls = 0;
+      c.addListener(() => calls++);
+      c.handlePointerDown(_down(1, const Offset(100, 100)));
+      c.handlePointerDown(_down(2, const Offset(200, 100)));
+      expect(calls, greaterThan(0));
+      c.dispose();
+    });
   });
 }

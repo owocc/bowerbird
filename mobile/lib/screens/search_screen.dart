@@ -1,15 +1,20 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../models/item.dart';
+import '../services/api_items.dart';
+import '../services/api_metadata.dart';
 import '../services/api_service.dart';
 import '../services/item_query.dart';
-import '../services/refresh_gate.dart';
-import '../services/share_tag_service.dart';
 import '../services/websocket_service.dart';
-import '../widgets/share_tag_badge.dart';
-import '../theme/app_theme.dart';
 import 'detail_screen.dart';
+import 'search/widgets/search_filters.dart';
+import 'search/widgets/search_results.dart';
 
+/// 搜索页：查询输入 + 多维筛选 + 结果网格。
+///
+/// 筛选区与结果区分别在 `search/widgets/` 下，本文件只负责状态与请求。
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -18,74 +23,48 @@ class SearchScreen extends StatefulWidget {
 }
 
 class _SearchScreenState extends State<SearchScreen> {
+  static const int _pageSize = 60;
+
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   final List<MobileItem> _results = [];
-  final RefreshGate _refreshGate = RefreshGate();
-  static const int _pageSize = 100;
 
   bool _isLoading = false;
   bool _isLoadingMore = false;
   bool _hasMore = true;
   int _totalCount = 0;
   int _requestId = 0;
+  String? _errorMessage;
+
   String _selectedType = '';
   String _selectedOrientation = '';
   String _selectedSize = '';
   int? _selectedRating;
   String _urlPresence = '';
   String _notePresence = '';
-  String? _selectedTag;
-  String? _selectedFolderId;
   String? _selectedColor;
-  String? _errorMessage;
-  DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
-  StreamSubscription? _wsItemsSub;
+  String? _selectedFolderId;
+  String? _selectedTag;
 
-  List<MobileTag> _availableTags = [];
-  List<MobileFolder> _availableFolders = [];
-  List<String> _availableColors = [];
+  List<MobileTag> _availableTags = const [];
+  List<MobileFolder> _availableFolders = const [];
+  List<String> _availableColors = const [];
 
-  final List<({String label, String value})> _typeFilters = const [
-    (label: 'All Types', value: ''),
-    (label: 'Images', value: 'image'),
-    (label: 'Videos', value: 'video'),
-    (label: 'Audio', value: 'audio'),
-    (label: 'Documents', value: 'document'),
-  ];
-
-  final List<({String label, String value})> _orientationFilters = const [
-    (label: 'All Orientations', value: ''),
-    (label: 'Landscape', value: 'landscape'),
-    (label: 'Portrait', value: 'portrait'),
-    (label: 'Square', value: 'square'),
-  ];
-
-  final List<({String label, String value})> _sizeFilters = const [
-    (label: 'Any Size', value: ''),
-    (label: 'Small <1MB', value: 'small'),
-    (label: 'Medium 1-10MB', value: 'medium'),
-    (label: 'Large >10MB', value: 'large'),
-  ];
+  StreamSubscription<Map<String, dynamic>>? _wsItemsSub;
 
   @override
   void initState() {
     super.initState();
-    _loadMetadata();
-    _performSearch();
     _scrollController.addListener(_onScroll);
+    _loadMetadata();
+    unawaited(_performSearch());
     _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((_) {
-      if (!mounted) return;
-      if (DateTime.now().difference(_lastLocalMutation) < const Duration(milliseconds: 900)) {
-        return;
-      }
-      _refreshGate.schedule(_reloadWindow);
+      if (mounted) unawaited(_reloadWindow());
     });
   }
 
   @override
   void dispose() {
-    _refreshGate.cancel();
     _wsItemsSub?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
@@ -93,25 +72,24 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
-      _performSearch(reset: false);
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 300) {
+      unawaited(_performSearch(reset: false));
     }
   }
 
-  ItemQuery _currentQuery() {
-    return ItemQuery(
-      text: _searchController.text,
-      type: _selectedType,
-      orientation: _selectedOrientation,
-      tag: _selectedTag,
-      folder: _selectedFolderId,
-      color: _selectedColor,
-      size: _selectedSize,
-      rating: _selectedRating,
-      hasUrl: _urlPresence,
-      hasNote: _notePresence,
-    );
-  }
+  ItemQuery _currentQuery() => ItemQuery(
+        text: _searchController.text,
+        type: _selectedType,
+        orientation: _selectedOrientation,
+        tag: _selectedTag,
+        folder: _selectedFolderId,
+        color: _selectedColor,
+        size: _selectedSize,
+        rating: _selectedRating,
+        hasUrl: _urlPresence,
+        hasNote: _notePresence,
+      );
 
   Future<void> _performSearch({bool reset = true}) async {
     if (!reset && (!_hasMore || _isLoading || _isLoadingMore)) return;
@@ -150,8 +128,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  /// Reruns the query with a page sized to the loaded window after a remote
-  /// change, preserving the user's place in the result list where possible.
+  /// 远端变更后按已加载窗口重跑，尽量保持用户在结果里的位置。
   Future<void> _reloadWindow() async {
     if (_isLoading || _isLoadingMore) return;
     if (_results.isEmpty) {
@@ -188,28 +165,21 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  void _markLocalMutation() {
-    _lastLocalMutation = DateTime.now();
-    _refreshGate.cancel();
-  }
-
   Future<void> _loadMetadata() async {
     try {
-      final tagsFuture = ApiService.instance.getTags();
-      final foldersFuture = ApiService.instance.getFolders();
-      final colorsFuture = ApiService.instance.getColors();
-
-      final results = await Future.wait([tagsFuture, foldersFuture, colorsFuture]);
-      if (mounted) {
-        setState(() {
-          _availableTags = results[0] as List<MobileTag>;
-          _availableFolders = results[1] as List<MobileFolder>;
-          _availableColors = results[2] as List<String>;
-        });
-      }
+      final results = await Future.wait([
+        ApiService.instance.getTags(),
+        ApiService.instance.getFolders(),
+        ApiService.instance.getColors(),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _availableTags = results[0] as List<MobileTag>;
+        _availableFolders = results[1] as List<MobileFolder>;
+        _availableColors = results[2] as List<String>;
+      });
     } catch (_) {}
   }
-
 
   void _clearAllFilters() {
     setState(() {
@@ -224,7 +194,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _selectedFolderId = null;
       _selectedColor = null;
     });
-    _performSearch();
+    unawaited(_performSearch());
   }
 
   bool get _hasActiveFilters =>
@@ -238,36 +208,31 @@ class _SearchScreenState extends State<SearchScreen> {
       _selectedTag != null ||
       _selectedFolderId != null ||
       _selectedColor != null;
+
+  Future<void> _openItem(int index) async {
+    final deleted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => DetailScreen(items: _results, initialIndex: index),
+      ),
+    );
+    if (deleted != true || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已移入废纸篓')));
+    unawaited(_performSearch());
+  }
+
+  /// 统一处理筛选变化：更新状态后立即重查。
+  void _apply(VoidCallback change) {
+    setState(change);
+    unawaited(_performSearch());
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: TextField(
-            controller: _searchController,
-            autofocus: false,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => _performSearch(),
-            decoration: InputDecoration(
-              hintText: '搜索素材、标签、备注',
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
-                      onPressed: () {
-                        _searchController.clear();
-                        _performSearch();
-                      },
-                    )
-                  : null,
-            ),
-          ),
-        ),
+        title: _buildSearchField(),
         actions: [
           if (_hasActiveFilters)
             IconButton(
@@ -275,483 +240,83 @@ class _SearchScreenState extends State<SearchScreen> {
               tooltip: 'Reset Filters',
               onPressed: _clearAllFilters,
             ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: _performSearch,
-          ),
+          IconButton(icon: const Icon(Icons.search), onPressed: _performSearch),
         ],
       ),
       body: Column(
         children: [
-          // Filter Chips Section
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surface,
-              border: Border(bottom: BorderSide(color: theme.dividerColor)),
-            ),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Type filters
-                  SizedBox(
-                    height: 34,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _typeFilters.length,
-                      separatorBuilder: (context, index) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final item = _typeFilters[i];
-                        final isSelected = _selectedType == item.value;
-                        return ChoiceChip(
-                          label: Text(item.label),
-                          labelStyle: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400),
-                          selected: isSelected,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (val) {
-                            if (val) {
-                              setState(() => _selectedType = item.value);
-                              _performSearch();
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  // Orientation filters
-                  SizedBox(
-                    height: 34,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _orientationFilters.length,
-                      separatorBuilder: (context, index) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final item = _orientationFilters[i];
-                        final isSelected = _selectedOrientation == item.value;
-                        return ChoiceChip(
-                          label: Text(item.label),
-                          labelStyle: TextStyle(fontSize: 12, fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400),
-                          selected: isSelected,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (val) {
-                            if (val) {
-                              setState(() => _selectedOrientation = item.value);
-                              _performSearch();
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  // File size filters
-                  SizedBox(
-                    height: 32,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _sizeFilters.length,
-                      separatorBuilder: (context, index) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final item = _sizeFilters[i];
-                        final isSelected = _selectedSize == item.value;
-                        return ChoiceChip(
-                          label: Text(item.label),
-                          labelStyle: const TextStyle(fontSize: 11),
-                          selected: isSelected,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (_) {
-                            setState(() => _selectedSize = item.value);
-                            _performSearch();
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  // Rating filters
-                  SizedBox(
-                    height: 32,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: 6,
-                      separatorBuilder: (context, index) => const SizedBox(width: 8),
-                      itemBuilder: (context, i) {
-                        final rating = i == 0 ? null : i;
-                        final isSelected = _selectedRating == rating;
-                        return ChoiceChip(
-                          label: Text(i == 0 ? 'Any Rating' : '$i★'),
-                          labelStyle: const TextStyle(fontSize: 11),
-                          selected: isSelected,
-                          visualDensity: VisualDensity.compact,
-                          onSelected: (_) {
-                            setState(() => _selectedRating = rating);
-                            _performSearch();
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  // URL / note presence filters
-                  SizedBox(
-                    height: 32,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        for (final option in const [
-                          (label: 'Has URL', value: 'has', note: false),
-                          (label: 'No URL', value: 'empty', note: false),
-                          (label: 'Has Note', value: 'has', note: true),
-                          (label: 'No Note', value: 'empty', note: true),
-                        ])
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(option.label),
-                              labelStyle: const TextStyle(fontSize: 11),
-                              selected: option.note
-                                  ? _notePresence == option.value
-                                  : _urlPresence == option.value,
-                              visualDensity: VisualDensity.compact,
-                              onSelected: (_) {
-                                setState(() {
-                                  if (option.note) {
-                                    _notePresence = _notePresence == option.value ? '' : option.value;
-                                  } else {
-                                    _urlPresence = _urlPresence == option.value ? '' : option.value;
-                                  }
-                                });
-                                _performSearch();
-                              },
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  if (_availableColors.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    // Colors filter
-                    SizedBox(
-                      height: 32,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _availableColors.length + 1,
-                        separatorBuilder: (context, index) => const SizedBox(width: 6),
-                        itemBuilder: (context, i) {
-                          if (i == 0) {
-                            final isSelected = _selectedColor == null;
-                            return ChoiceChip(
-                              label: const Text('All Colors'),
-                              labelStyle: const TextStyle(fontSize: 11),
-                              selected: isSelected,
-                              visualDensity: VisualDensity.compact,
-                              onSelected: (_) {
-                                setState(() => _selectedColor = null);
-                                _performSearch();
-                              },
-                            );
-                          }
-                          final hex = _availableColors[i - 1];
-                          final isSelected = _selectedColor == hex;
-                          final color = _parseColor(hex);
-                          return InkWell(
-                            onTap: () {
-                              setState(() {
-                                _selectedColor = isSelected ? null : hex;
-                              });
-                              _performSearch();
-                            },
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              width: 26,
-                              height: 26,
-                              decoration: BoxDecoration(
-                                color: color,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: isSelected ? theme.colorScheme.primary : Colors.white24,
-                                  width: isSelected ? 3 : 1,
-                                ),
-                                boxShadow: isSelected
-                                    ? [
-                                        BoxShadow(
-                                          color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                                          blurRadius: 4,
-                                          spreadRadius: 1,
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: isSelected
-                                  ? Icon(
-                                      Icons.check,
-                                      size: 14,
-                                      color: color.computeLuminance() > 0.5 ? Colors.black : Colors.white,
-                                    )
-                                  : null,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                  if (_availableFolders.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    // Folders filter
-                    SizedBox(
-                      height: 32,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _availableFolders.length + 1,
-                        separatorBuilder: (context, index) => const SizedBox(width: 6),
-                        itemBuilder: (context, i) {
-                          if (i == 0) {
-                            return ChoiceChip(
-                              avatar: const Icon(Icons.folder, size: 14),
-                              label: const Text('All Folders'),
-                              labelStyle: const TextStyle(fontSize: 11),
-                              selected: _selectedFolderId == null,
-                              visualDensity: VisualDensity.compact,
-                              onSelected: (_) {
-                                setState(() => _selectedFolderId = null);
-                                _performSearch();
-                              },
-                            );
-                          }
-                          final folder = _availableFolders[i - 1];
-                          final isSelected = _selectedFolderId == folder.id;
-                          return ChoiceChip(
-                            avatar: const Icon(Icons.folder_outlined, size: 14),
-                            label: Text('${folder.name} (${folder.itemCount})'),
-                            labelStyle: const TextStyle(fontSize: 11),
-                            selected: isSelected,
-                            visualDensity: VisualDensity.compact,
-                            onSelected: (val) {
-                              setState(() => _selectedFolderId = val ? folder.id : null);
-                              _performSearch();
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                  if (_availableTags.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    // Tags filter
-                    SizedBox(
-                      height: 32,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: _availableTags.length + 1,
-                        separatorBuilder: (context, index) => const SizedBox(width: 6),
-                        itemBuilder: (context, i) {
-                          if (i == 0) {
-                            return ChoiceChip(
-                              avatar: const Icon(Icons.tag, size: 14),
-                              label: const Text('All Tags'),
-                              labelStyle: const TextStyle(fontSize: 11),
-                              selected: _selectedTag == null,
-                              visualDensity: VisualDensity.compact,
-                              onSelected: (_) {
-                                setState(() => _selectedTag = null);
-                                _performSearch();
-                              },
-                            );
-                          }
-                          final tag = _availableTags[i - 1];
-                          final isSelected = _selectedTag == tag.name;
-                          return ChoiceChip(
-                            avatar: const Icon(Icons.label_outline, size: 14),
-                            label: Text('${tag.name} (${tag.itemCount})'),
-                            labelStyle: const TextStyle(fontSize: 11),
-                            selected: isSelected,
-                            visualDensity: VisualDensity.compact,
-                            onSelected: (val) {
-                              setState(() => _selectedTag = val ? tag.name : null);
-                              _performSearch();
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
+          SearchFilters(
+            type: _selectedType,
+            orientation: _selectedOrientation,
+            size: _selectedSize,
+            rating: _selectedRating,
+            urlPresence: _urlPresence,
+            notePresence: _notePresence,
+            color: _selectedColor,
+            folderId: _selectedFolderId,
+            tag: _selectedTag,
+            colors: _availableColors,
+            folders: _availableFolders,
+            tags: _availableTags,
+            onTypeChanged: (v) => _apply(() => _selectedType = v),
+            onOrientationChanged: (v) => _apply(() => _selectedOrientation = v),
+            onSizeChanged: (v) => _apply(() => _selectedSize = v),
+            onRatingChanged: (v) => _apply(() => _selectedRating = v),
+            onUrlPresenceChanged: (v) => _apply(() => _urlPresence = v),
+            onNotePresenceChanged: (v) => _apply(() => _notePresence = v),
+            onColorChanged: (v) => _apply(() => _selectedColor = v),
+            onFolderChanged: (v) => _apply(() => _selectedFolderId = v),
+            onTagChanged: (v) => _apply(() => _selectedTag = v),
           ),
-
-          // Search Results Counter
           if (!_isLoading)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               alignment: Alignment.centerLeft,
               child: Text(
-                '共 $_totalCount 个结果 · 已加载 ${_results.length}${_isLoadingMore ? " · 加载中…" : ""}',
-                style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                '共 $_totalCount 个结果 · 已加载 ${_results.length}'
+                '${_isLoadingMore ? " · 加载中…" : ""}',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-
-          // Results Grid / State
           Expanded(
-            child: _buildBody(theme),
+            child: SearchResults(
+              results: _results,
+              isLoading: _isLoading,
+              errorMessage: _errorMessage,
+              scrollController: _scrollController,
+              onRetry: () => unawaited(_performSearch()),
+              onOpenItem: (index) => unawaited(_openItem(index)),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Color _parseColor(String hex) {
-    try {
-      final clean = hex.replaceAll('#', '').trim();
-      if (clean.length == 6) {
-        return Color(int.parse('FF$clean', radix: 16));
-      }
-    } catch (_) {}
-    return Colors.grey;
-  }
-
-  Widget _buildBody(ThemeData theme) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 12),
-              Text(
-                'Search Error',
-                style: theme.textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 16),
-              OutlinedButton(
-                onPressed: _performSearch,
-                child: const Text('Try Again'),
-              ),
-            ],
-          ),
+  Widget _buildSearchField() {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: TextField(
+        controller: _searchController,
+        textInputAction: TextInputAction.search,
+        onSubmitted: (_) => _performSearch(),
+        decoration: InputDecoration(
+          hintText: '搜索素材、标签、备注',
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    unawaited(_performSearch());
+                  },
+                )
+              : null,
         ),
-      );
-    }
-
-    if (_results.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Text(
-            '没有匹配的素材',
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.outline,
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return GridView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.all(8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
-        childAspectRatio: 1.0,
       ),
-      itemCount: _results.length,
-      itemBuilder: (context, index) {
-        final item = _results[index];
-        return InkWell(
-          onTap: () async {
-            final deleted = await Navigator.of(context).push<bool>(
-              MaterialPageRoute(
-                builder: (_) => DetailScreen(
-                  items: _results,
-                  initialIndex: index,
-                ),
-              ),
-            );
-            if (deleted == true && mounted && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('已移入废纸篓')),
-              );
-              _markLocalMutation();
-              _performSearch();
-            }
-          },
-          borderRadius: BorderRadius.circular(AppRadii.card),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(AppRadii.card),
-            child: Container(
-              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.network(
-                    ApiService.instance.getThumbnailUrl(item.id),
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) => const Center(
-                      child: Icon(Icons.broken_image, size: 28, color: Colors.grey),
-                    ),
-                  ),
-                  if (item.isGif)
-                    Positioned(
-                      top: 4,
-                      left: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                        ),
-                        child: const Text(
-                          'GIF',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (item.isVideo)
-                    Positioned(
-                      bottom: 4,
-                      right: 4,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                        ),
-                        child: const Icon(Icons.play_arrow, size: 14, color: Colors.white),
-                      ),
-                    ),
-                  if (ShareTagService.instance.isMarked(item.id))
-                    const Positioned(
-                      left: 4,
-                      bottom: 4,
-                      child: ShareTagBadge(),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 }

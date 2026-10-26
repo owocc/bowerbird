@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/discovery_service.dart';
+import 'connect/widgets/connect_lists.dart';
+import 'connect/widgets/pairing_code_dialog.dart';
 import 'home_screen.dart';
 import 'scan_screen.dart';
 class ConnectScreen extends StatefulWidget {
@@ -20,7 +22,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
   bool _isScanning = false;
   bool _isConnecting = false;
   String? _errorMessage;
-  String? _dialogError;
 
   @override
   void initState() {
@@ -124,89 +125,29 @@ class _ConnectScreenState extends State<ConnectScreen> {
     }
   }
 
-  void _showPairingDialog(String hostUrl, String libraryName) {
-    final codeController = TextEditingController();
-    showDialog(
+  Future<void> _showPairingDialog(String hostUrl, String libraryName) async {
+    await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Pair with Desktop'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Enter the 6-digit pairing code displayed in Bowerbird desktop settings on "$libraryName":',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: codeController,
-                    keyboardType: TextInputType.number,
-                    maxLength: 6,
-                    autofocus: true,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontSize: 28, letterSpacing: 8, fontWeight: FontWeight.bold),
-                    decoration: InputDecoration(
-                      hintText: '000000',
-                      errorText: _dialogError,
-                      border: const OutlineInputBorder(),
-                    ),
-                    onSubmitted: (code) async {
-                      if (code.trim().length == 6) {
-                        _performPair(hostUrl, code.trim(), setDialogState);
-                      }
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () {
-                    final code = codeController.text.trim();
-                    if (code.length != 6) {
-                      setDialogState(() => _dialogError = 'Please enter a 6-digit code');
-                      return;
-                    }
-                  },
-                  child: const Text('Pair & Connect'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => PairingCodeDialog(
+        libraryName: libraryName,
+        onSubmit: (code) => _pair(hostUrl, code),
+      ),
     );
   }
 
-  Future<void> _performPair(String hostUrl, String code, void Function(void Function()) setDialogState) async {
+  /// 返回 null 表示配对成功；否则返回错误提示文案。
+  Future<String?> _pair(String hostUrl, String code) async {
     try {
       await ApiService.instance.pair(host: hostUrl, code: code);
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        _navigateToHome();
-      }
+      if (mounted) _navigateToHome();
+      return null;
     } catch (e) {
-      final msg = e is PairingException
-          ? e.message
-          : (e.toString().contains('invalid_code') || e.toString().contains('401')
-              ? '连接码错误，请重新核对桌面端显示的 6 位配对码'
-              : e.toString().replaceAll('Exception: ', ''));
-      setDialogState(() {
-        _dialogError = msg;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700),
-        );
+      if (e is PairingException) return e.message;
+      if (e.toString().contains('invalid_code') || e.toString().contains('401')) {
+        return '连接码错误，请重新核对桌面端显示的 6 位配对码';
       }
+      return e.toString().replaceAll('Exception: ', '');
     }
   }
 
@@ -298,107 +239,16 @@ class _ConnectScreenState extends State<ConnectScreen> {
             const SizedBox(height: 20),
             const SizedBox(height: 24),
 
-            // History Connections
-            if (_historyConnections.isNotEmpty) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'HISTORICAL CONNECTIONS / 历史连接',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ..._historyConnections.map((conn) {
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.history_rounded)),
-                    title: Text(conn.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('${conn.ips.join(", ")} • 端口: ${conn.port}'),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        FilledButton.tonal(
-                          onPressed: _isConnecting ? null : () => _reconnect(conn),
-                          child: const Text('重连'),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 20),
-                          tooltip: '删除此连接',
-                          onPressed: () => _removeHistory(conn.id),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-              const SizedBox(height: 16),
-            ],
-            // Discovered Servers Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'DISCOVERED DESKTOPS',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-                if (_isScanning)
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                else
-                  IconButton(
-                    icon: const Icon(Icons.refresh, size: 20),
-                    tooltip: 'Rescan LAN',
-                    onPressed: _startScan,
-                  ),
-              ],
+            ConnectLists(
+              history: _historyConnections,
+              discovered: _discoveredServers,
+              scanning: _isScanning,
+              connecting: _isConnecting,
+              onReconnect: (conn) => _reconnect(conn),
+              onRemoveHistory: _removeHistory,
+              onConnect: (url) => _connectToServer(url),
+              onScan: _startScan,
             ),
-            const SizedBox(height: 8),
-
-            // Discovered list
-            if (_discoveredServers.isEmpty && !_isScanning)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.devices_other, size: 36, color: theme.colorScheme.outline),
-                    const SizedBox(height: 8),
-                    Text(
-                      'No desktop found via mDNS.\nMake sure Bowerbird is open on your PC.',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
-                    ),
-                  ],
-                ),
-              )
-            else
-              ..._discoveredServers.map((server) {
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: ListTile(
-                    leading: const CircleAvatar(child: Icon(Icons.computer)),
-                    title: Text(server.name, style: const TextStyle(fontWeight: FontWeight.w500)),
-                    subtitle: Text('${server.host}:${server.port} • v${server.version}'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: _isConnecting ? null : () => _connectToServer(server.url),
-                  ),
-                );
-              }),
 
             const SizedBox(height: 28),
 

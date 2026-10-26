@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
 import '../services/share_tag_service.dart';
+import '../services/api_items.dart';
+import 'preview_action_drawer.dart';
+import 'preview_badge.dart';
 
 /// Actions the preview overlay can hand back to the grid.
 enum ItemPreviewAction { viewDetail, copyContent, download, share, delete }
@@ -60,7 +63,6 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
   late double _dragOffset;
   bool _dragging = false;
   double _drawerDragOffset = 0;
-  bool _drawerDragging = false;
   bool _closing = false;
   bool _deleting = false;
 
@@ -71,6 +73,7 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
     super.initState();
     _dragOffset = widget.initialDragOffset;
   }
+
 
   void _close([ItemPreviewAction? action]) {
     if (_closing || _deleting) return;
@@ -107,7 +110,7 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
 
   void _onDrawerDragStart(DragStartDetails details) {
     if (_deleting) return;
-    setState(() => _drawerDragging = true);
+    setState(() => _dragging = true);
   }
 
   void _onDrawerDragUpdate(DragUpdateDetails details) {
@@ -127,7 +130,7 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
       return;
     }
     setState(() {
-      _drawerDragging = false;
+      _dragging = false;
       _drawerDragOffset = 0;
     });
   }
@@ -182,28 +185,28 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
     final routeAnimation = ModalRoute.of(context)!.animation!;
     final theme = Theme.of(context);
 
-    final actions = <_DrawerAction>[
-      _DrawerAction(
+    final actions = <PreviewAction>[
+      PreviewAction(
         icon: Icons.info_outline_rounded,
         label: '查看详情',
         onTap: () => _close(ItemPreviewAction.viewDetail),
       ),
-      _DrawerAction(
+      PreviewAction(
         icon: Icons.copy_rounded,
         label: '复制图片',
         onTap: () => _close(ItemPreviewAction.copyContent),
       ),
-      _DrawerAction(
+      PreviewAction(
         icon: Icons.download_rounded,
         label: '下载',
         onTap: () => _close(ItemPreviewAction.download),
       ),
-      _DrawerAction(
+      PreviewAction(
         icon: Icons.share_rounded,
         label: '分享',
         onTap: () => _close(ItemPreviewAction.share),
       ),
-      _DrawerAction(
+      PreviewAction(
         icon: Icons.delete_outline_rounded,
         label: '删除',
         onTap: _confirmDelete,
@@ -302,12 +305,12 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
                             ),
                           ),
                           if (_item.isVideo)
-                            _PreviewBadge(
+                            PreviewBadge(
                               icon: Icons.play_arrow_rounded,
                               label: '视频',
                             )
                           else if (_item.isGif)
-                            _PreviewBadge(
+                            PreviewBadge(
                               icon: Icons.gif_box_outlined,
                               label: 'GIF',
                             ),
@@ -321,11 +324,18 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
           ),
           Align(
             alignment: Alignment.bottomCenter,
-            child: _buildDrawer(
-              routeAnimation,
-              actions,
-              drawerHeight,
-              drawerMaxHeight,
+            child: PreviewActionDrawer(
+              actions: actions,
+              routeAnimation: routeAnimation,
+              height: drawerHeight,
+              maxHeight: drawerMaxHeight,
+              enabled: !_deleting,
+              listPadding: _drawerListPadding,
+              rowHeight: _drawerRowHeight,
+              handleArea: _drawerHandleArea,
+              onDragStart: _onDrawerDragStart,
+              onDragUpdate: _onDrawerDragUpdate,
+              onDragEnd: _onDrawerDragEnd,
             ),
           ),
         ],
@@ -351,204 +361,6 @@ class _ItemPreviewOverlayState extends State<ItemPreviewOverlay> {
           ),
         );
       },
-    );
-  }
-
-  Widget _buildDrawer(
-    Animation<double> routeAnimation,
-    List<_DrawerAction> actions,
-    double height,
-    double maxHeight,
-  ) {
-    final theme = Theme.of(context);
-    final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final scrollable = height < maxHeight;
-    const radius = BorderRadius.vertical(top: Radius.circular(24));
-
-    final drawer = GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragStart: _onDrawerDragStart,
-      onVerticalDragUpdate: _onDrawerDragUpdate,
-      onVerticalDragEnd: _onDrawerDragEnd,
-      child: Container(
-        width: double.infinity,
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        decoration: BoxDecoration(
-          borderRadius: radius,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.45),
-              blurRadius: 28,
-              offset: const Offset(0, -6),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: radius,
-          child: Material(
-            color: theme.colorScheme.surfaceContainerHigh,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildDragHandle(theme),
-                Flexible(
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    padding: EdgeInsets.only(
-                      top: _drawerListPadding,
-                      bottom: bottomInset + _drawerListPadding,
-                    ),
-                    physics: scrollable
-                        ? const ClampingScrollPhysics()
-                        : const NeverScrollableScrollPhysics(),
-                    itemCount: actions.length,
-                    itemBuilder: (context, index) =>
-                        _drawerRow(theme, actions[index]),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    return AnimatedBuilder(
-      animation: routeAnimation,
-      builder: (context, child) {
-        // The preview lands first; the drawer follows through the last ~88%
-        // of the route animation.
-        final t = const Interval(
-          0.12,
-          1,
-          curve: Curves.easeOutCubic,
-        ).transform(routeAnimation.value);
-        return Transform.translate(
-          offset: Offset(0, (1 - t) * height),
-          child: child,
-        );
-      },
-      child: AnimatedContainer(
-        duration: _drawerDragging
-            ? Duration.zero
-            : const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        transform: Matrix4.translationValues(0, _drawerDragOffset, 0),
-        child: drawer,
-      ),
-    );
-  }
-
-  Widget _buildDragHandle(ThemeData theme) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragStart: _onDrawerDragStart,
-      onVerticalDragUpdate: _onDrawerDragUpdate,
-      onVerticalDragEnd: _onDrawerDragEnd,
-      child: SizedBox(
-        height: _drawerHandleArea,
-        child: Center(
-          child: Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _drawerRow(ThemeData theme, _DrawerAction action) {
-    final foreground = action.destructive
-        ? theme.colorScheme.error
-        : theme.colorScheme.onSurface;
-    return InkWell(
-      onTap: _deleting ? null : action.onTap,
-      child: SizedBox(
-        height: _drawerRowHeight,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: foreground.withValues(alpha: 0.08),
-                ),
-                child: Icon(action.icon, size: 21, color: foreground),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  action.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: foreground,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DrawerAction {
-  const _DrawerAction({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.destructive = false,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool destructive;
-}
-
-class _PreviewBadge extends StatelessWidget {
-  const _PreviewBadge({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      top: 10,
-      right: 10,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.6),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: Colors.white),
-            const SizedBox(width: 3),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

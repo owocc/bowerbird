@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:bowerbird_mobile/services/api_service.dart';
 import 'package:bowerbird_mobile/services/item_query.dart';
+import 'package:bowerbird_mobile/services/api_items.dart';
 
 void main() {
   test('falls back to the legacy endpoint when /query is missing', () async {

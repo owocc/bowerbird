@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
+import 'inbox_store.dart';
 
 import '../models/inbox_entry.dart';
 import 'api_service.dart';
 import 'share_tag_service.dart';
+import 'api_upload.dart';
 
 class IngestFailure {
   IngestFailure(this.name, this.reason);
@@ -54,13 +55,12 @@ class InboxService extends ChangeNotifier {
   static final InboxService instance = InboxService._();
 
   static const _channel = MethodChannel('com.bowerbird.mobile/share');
-  static const _indexVersion = 1;
   static const _maxProcessedEvents = 300;
 
   final List<InboxEntry> _entries = [];
   final List<String> _processedEventIds = [];
 
-  Directory? _root;
+  final InboxStore _store = InboxStore();
   bool _initialized = false;
   bool _ingesting = false;
 
@@ -75,53 +75,21 @@ class InboxService extends ChangeNotifier {
 
   Future<void> init() async {
     if (_initialized) return;
-    final documents = await getApplicationDocumentsDirectory();
-    _root = Directory('${documents.path}/share_inbox');
-    await _root!.create(recursive: true);
-    await Directory('${_root!.path}/files').create(recursive: true);
-
-    final indexFile = _indexFile;
-    if (await indexFile.exists()) {
-      try {
-        final decoded = jsonDecode(await indexFile.readAsString());
-        if (decoded is Map<String, dynamic>) {
-          final rawEntries = decoded['entries'];
-          if (rawEntries is List) {
-            for (final raw in rawEntries) {
-              if (raw is! Map) continue;
-              final entry = InboxEntry.fromJson(Map<String, dynamic>.from(raw));
-              if (entry == null) continue;
-              if (!entry.isText) {
-                final file = fileFor(entry);
-                if (file == null || !await file.exists()) continue;
-              }
-              _entries.add(entry);
-            }
-          }
-          final processed = decoded['processedEvents'];
-          if (processed is List) {
-            _processedEventIds.addAll(
-              processed.map((value) => value.toString()).where((id) => id.isNotEmpty),
-            );
-          }
-        }
-      } catch (_) {
-        // A corrupt index must not hide newly shared files: start empty and let
-        // the next save rewrite it.
+    final loaded = await _store.load();
+    for (final entry in loaded.entries) {
+      if (!entry.isText) {
+        final file = fileFor(entry);
+        if (file == null) continue;
       }
+      _entries.add(entry);
     }
-
+    _processedEventIds.addAll(loaded.processedEvents);
     _entries.sort((a, b) => b.receivedAt.compareTo(a.receivedAt));
     _initialized = true;
     notifyListeners();
   }
 
-  File? fileFor(InboxEntry entry) {
-    final relative = entry.storedPath;
-    final root = _root;
-    if (relative == null || relative.isEmpty || root == null) return null;
-    return File('${root.path}/$relative');
-  }
+  File? fileFor(InboxEntry entry) => _store.fileFor(entry);
 
   /// Reads every event queued by the native share bridge and moves its payload
   /// into the persistent inbox. Safe to call repeatedly: native events and
@@ -227,7 +195,9 @@ class InboxService extends ChangeNotifier {
               fallback: 'shared_$index',
             );
             final relative = 'files/$id/$originalName';
-            final destination = File('${_root!.path}/$relative');
+            final root = _store.root;
+            if (root == null) throw StateError('inbox not initialized');
+            final destination = File('${root.path}/$relative');
             try {
               await destination.parent.create(recursive: true);
               try {
@@ -353,66 +323,18 @@ class InboxService extends ChangeNotifier {
     }
   }
 
-  Future<File> _writeTextFile(InboxEntry entry) async {
-    final tempDir = await getTemporaryDirectory();
-    final directory = Directory('${tempDir.path}/share_inbox_upload');
-    await directory.create(recursive: true);
-    var name = sanitizeInboxFileName(entry.fileName, fallback: '分享文本');
-    if (!name.toLowerCase().endsWith('.txt')) name = '$name.txt';
-    var file = File('${directory.path}/$name');
-    if (await file.exists()) {
-      file = File('${directory.path}/${entry.id}_$name');
-    }
-    return file.writeAsString(entry.text ?? '', encoding: utf8);
-  }
+  Future<File> _writeTextFile(InboxEntry entry) =>
+      _store.writeTextFile(entry, sanitizeInboxFileName);
 
   Future<bool> _removeEntry(InboxEntry entry) async {
     final index = _entries.indexWhere((candidate) => candidate.id == entry.id);
     if (index < 0) return false;
-    final file = fileFor(entry);
     _entries.removeAt(index);
-    if (file != null && await file.exists()) {
-      try {
-        await file.delete();
-      } catch (_) {}
-      final parent = file.parent;
-      try {
-        if (await parent.exists() &&
-            await parent.list().isEmpty) {
-          await parent.delete();
-        }
-      } catch (_) {}
-    }
+    await _store.deleteFileFor(entry);
     return true;
   }
 
-  Future<void> _saveChain = Future.value();
-
-  Future<void> _save() {
-    if (_root == null) return Future.value();
-    final payload = jsonEncode({
-      'version': _indexVersion,
-      'entries': _entries.map((entry) => entry.toJson()).toList(),
-      'processedEvents': _processedEventIds,
-    });
-    final indexFile = _indexFile;
-    _saveChain = _saveChain.then((_) => _writeIndex(indexFile, payload));
-    return _saveChain;
-  }
-
-  Future<void> _writeIndex(File indexFile, String payload) async {
-    final temp = File('${indexFile.path}.tmp');
-    try {
-      await temp.writeAsString(payload, flush: true);
-      await temp.rename(indexFile.path);
-    } catch (_) {
-      try {
-        await indexFile.writeAsString(payload, flush: true);
-        if (await temp.exists()) await temp.delete();
-      } catch (_) {}
-    }
-  }
-  File get _indexFile => File('${_root!.path}/index.json');
+  Future<void> _save() => _store.save(_entries, _processedEventIds.toSet());
 
   String _cleanError(Object error) =>
       error.toString().replaceFirst('Exception: ', '');
