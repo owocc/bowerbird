@@ -20,12 +20,15 @@ type UserData struct {
 	Language string `json:"language,omitempty"`
 	// LightweightModeEnabled, when true, destroys webview windows after the
 	// main window has been hidden for a minute (or immediately from the tray).
-	LightweightModeEnabled bool                `json:"lightweightModeEnabled,omitempty"`
-	Network                NetworkSettings     `json:"network,omitempty"`
-	Mobile                 *MobileSettings     `json:"mobile,omitempty"`
-	Shortcuts              *ShortcutSettings   `json:"shortcuts,omitempty"`
-	Screenshot             *ScreenshotSettings `json:"screenshot,omitempty"`
-	UpdatedAt              int64               `json:"updatedAt"`
+	LightweightModeEnabled bool `json:"lightweightModeEnabled,omitempty"`
+	// VibrancyEnabled, when true, puts a blurred material behind every window
+	// and lets the page draw no background of its own.
+	VibrancyEnabled bool                `json:"vibrancyEnabled,omitempty"`
+	Network         NetworkSettings     `json:"network,omitempty"`
+	Mobile          *MobileSettings     `json:"mobile,omitempty"`
+	Shortcuts       *ShortcutSettings   `json:"shortcuts,omitempty"`
+	Screenshot      *ScreenshotSettings `json:"screenshot,omitempty"`
+	UpdatedAt       int64               `json:"updatedAt"`
 }
 
 // UserDataStore provides thread-safe, atomic persistence for user configuration.
@@ -189,6 +192,24 @@ func (s *UserDataStore) SetLightweightModeEnabled(enabled bool) error {
 	defer s.mu.Unlock()
 
 	s.data.LightweightModeEnabled = enabled
+	s.data.UpdatedAt = time.Now().Unix()
+	return s.saveLocked()
+}
+
+// GetVibrancyEnabled returns whether windows show a blurred material behind a
+// transparent page.
+func (s *UserDataStore) GetVibrancyEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.VibrancyEnabled
+}
+
+// SetVibrancyEnabled persists the vibrancy preference.
+func (s *UserDataStore) SetVibrancyEnabled(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.data.VibrancyEnabled = enabled
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }

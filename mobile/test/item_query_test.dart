@@ -2,42 +2,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:bowerbird_mobile/services/item_query.dart';
 
 void main() {
-  test('empty query means browse all', () {
-    expect(const ItemQuery().toQueryString(), '');
+  test('未打标签 / 未分类使用 core 支持的 is: 语法', () {
+    expect(const ItemQuery(untagged: true).toQueryString(), 'is:untagged');
+    expect(const ItemQuery(uncategorized: true).toQueryString(), 'is:uncategorized');
   });
 
-  test('maps every filter to the query grammar', () {
-    const query = ItemQuery(
-      text: 'sunset',
+  test('集合条件可与筛选条件组合', () {
+    final query = const ItemQuery(
       type: 'image',
+      untagged: true,
       orientation: 'landscape',
-      tag: 'nature',
-      folder: 'f1',
-      color: '#EF4444',
-      size: 'large',
-      rating: 5,
-      hasUrl: 'has',
-      hasNote: 'empty',
     );
-    expect(
-      query.toQueryString(),
-      'sunset type:image orientation:landscape tag:nature folder:f1 '
-      'color:#EF4444 size:large rating:5 has:url no:note',
-    );
+    expect(query.toQueryString(), 'type:image orientation:landscape is:untagged');
   });
 
-  test('quotes free text so it cannot become a filter', () {
-    const query = ItemQuery(text: 'tag:red two words');
-    expect(query.toQueryString(), '"tag:red two words"');
-  });
-
-  test('quotes filter values containing spaces and escapes quotes', () {
-    const query = ItemQuery(tag: 'client work', text: 'say "hi"');
-    expect(query.toQueryString(), r'"say \"hi\"" tag:"client work"');
-  });
-
-  test('presence toggles only emit active states', () {
-    expect(const ItemQuery(hasUrl: '', hasNote: '').toQueryString(), '');
-    expect(const ItemQuery(hasUrl: 'empty', hasNote: 'has').toQueryString(), 'no:url has:note');
+  test('默认不含集合条件', () {
+    expect(const ItemQuery().toQueryString(), '');
   });
 }

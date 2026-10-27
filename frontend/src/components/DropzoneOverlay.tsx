@@ -1,4 +1,5 @@
-import { Upload, Loader2 } from "lucide-react";
+import { default as Upload } from "~icons/ri/upload-line";
+import { default as Loader2 } from "~icons/ri/loader-4-line";
 import { useTranslation } from "react-i18next";
 import type { DropState } from "@/hooks/useFileDrop";
 

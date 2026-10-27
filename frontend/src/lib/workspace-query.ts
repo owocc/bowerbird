@@ -15,7 +15,6 @@ export interface WorkspaceQueryInput {
   activeFolderId: string | null;
   includeSubfolders: boolean;
   activeFolderMatchSet: Set<string> | null;
-  tagsSidebarOpen: boolean;
   activeTag: string | null;
   category: WorkspaceCategory;
   folderFilter: string | null;
@@ -68,10 +67,10 @@ export function buildWorkspaceQuery(input: WorkspaceQueryInput): WorkspaceQuery 
     }
   }
 
-  if (input.tagsSidebarOpen) {
-    tokens.push(
-      input.activeTag ? `tag:${quoteQueryToken(input.activeTag)}` : "has:tag"
-    );
+  // A tag picked in the tag manager narrows the listing to it; it no longer
+  // implies "only tagged assets", so no has:tag fallback.
+  if (input.activeTag) {
+    tokens.push(`tag:${quoteQueryToken(input.activeTag)}`);
   }
 
   if (input.category !== "all") {

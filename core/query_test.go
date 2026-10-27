@@ -355,6 +355,7 @@ func (h *recordingHost) NativeWindowHandle() uintptr          { return 0 }
 func (h *recordingHost) WriteFilesToClipboard([]string) error { return nil }
 func (h *recordingHost) WriteTextToClipboard(string) error    { return nil }
 func (h *recordingHost) ApplyTheme(string)                    {}
+func (h *recordingHost) ApplyVibrancy(bool)                   {}
 func (h *recordingHost) EnterLightweightMode()                { h.record("enter-lightweight") }
 func (h *recordingHost) CancelLightweightIdle()               { h.record("cancel-lightweight-idle") }
 
@@ -631,5 +632,128 @@ func TestImportFromBase64NotifiesMobile(t *testing.T) {
 		if json.Unmarshal(msg, &ev) == nil && ev["event"] == "items_updated" {
 			return
 		}
+	}
+}
+
+// The mobile drawer renders its counts from /api/v1/stats and its trash list
+// from the collection endpoint, so both must agree with the query engine.
+func TestMobileStatsAndCollectionEndpoints(t *testing.T) {
+	s := setupMobileTestServer(t)
+
+	folder, err := s.mgr.CreateFolder("Work", "")
+	if err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	s.importPNG(t, "tagged", 10, 10, color.RGBA{R: 255, A: 255}, ImportItemOptions{
+		Tags: []string{"red"}, FolderIDs: []string{folder.ID},
+	})
+	// Untagged and uncategorized.
+	s.importPNG(t, "loose", 10, 10, color.RGBA{B: 255, A: 255}, ImportItemOptions{})
+	// Trashed item.
+	trashed := s.importPNG(t, "gone", 10, 10, color.RGBA{G: 255, A: 255}, ImportItemOptions{})
+
+	resp := s.authRequest(t, http.MethodGet, "/api/v1/stats", nil, "")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("stats status %d: %s", resp.StatusCode, body)
+	}
+	var stats MobileStatsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if stats.Total != 3 || stats.UntaggedCount != 2 || stats.UncategorizedCount != 2 {
+		t.Fatalf("unexpected stats: %+v", stats)
+	}
+	if stats.TrashCount != 0 {
+		t.Fatalf("expected empty trash, got %d", stats.TrashCount)
+	}
+
+	if err := s.mgr.MoveToTrash(trashed.ID); err != nil {
+		t.Fatalf("move to trash: %v", err)
+	}
+
+	statsResp := s.authRequest(t, http.MethodGet, "/api/v1/stats", nil, "")
+	defer statsResp.Body.Close()
+	if err := json.NewDecoder(statsResp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode stats after trash: %v", err)
+	}
+	if stats.Total != 2 || stats.TrashCount != 1 {
+		t.Fatalf("unexpected stats after trash: %+v", stats)
+	}
+
+	cases := []struct {
+		name  string
+		path  string
+		total int
+	}{
+		{"trash", "/api/v1/items/collection?name=trash&limit=10", 1},
+		{"untagged", "/api/v1/items/collection?name=untagged&limit=10", 1},
+		{"uncategorized", "/api/v1/items/collection?name=uncategorized&limit=10", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			itemResp := s.authRequest(t, http.MethodGet, tc.path, nil, "")
+			defer itemResp.Body.Close()
+			if itemResp.StatusCode != http.StatusOK {
+				body, _ := io.ReadAll(itemResp.Body)
+				t.Fatalf("status %d: %s", itemResp.StatusCode, body)
+			}
+			var page MobileItemsResponse
+			if err := json.NewDecoder(itemResp.Body).Decode(&page); err != nil {
+				t.Fatalf("decode collection: %v", err)
+			}
+			if page.Total != tc.total || len(page.Items) != tc.total {
+				t.Fatalf("expected %d items, got total=%d len=%d", tc.total, page.Total, len(page.Items))
+			}
+		})
+	}
+
+	badResp := s.authRequest(t, http.MethodGet, "/api/v1/items/collection?name=bogus", nil, "")
+	defer badResp.Body.Close()
+	if badResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unknown collection, got %d", badResp.StatusCode)
+	}
+
+	// Restoring a single item brings it back out of the trash.
+	restoreResp := s.authRequest(t, http.MethodPost, "/api/v1/items/"+trashed.ID+"/restore", nil, "")
+	restoreResp.Body.Close()
+	if restoreResp.StatusCode != http.StatusOK {
+		t.Fatalf("restore status %d", restoreResp.StatusCode)
+	}
+	afterRestore := s.authRequest(t, http.MethodGet, "/api/v1/stats", nil, "")
+	defer afterRestore.Body.Close()
+	stats = MobileStatsResponse{}
+	if err := json.NewDecoder(afterRestore.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode stats after restore: %v", err)
+	}
+	if stats.TrashCount != 0 || stats.Total != 3 {
+		t.Fatalf("unexpected stats after restore: %+v", stats)
+	}
+
+	// Emptying the trash clears every trashed item.
+	if err := s.mgr.MoveToTrash(trashed.ID); err != nil {
+		t.Fatalf("move to trash again: %v", err)
+	}
+	emptyResp := s.authRequest(t, http.MethodDelete, "/api/v1/items/collection?name=trash", nil, "")
+	emptyResp.Body.Close()
+	if emptyResp.StatusCode != http.StatusOK {
+		t.Fatalf("empty trash status %d", emptyResp.StatusCode)
+	}
+	finalResp := s.authRequest(t, http.MethodGet, "/api/v1/stats", nil, "")
+	defer finalResp.Body.Close()
+	stats = MobileStatsResponse{}
+	if err := json.NewDecoder(finalResp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode final stats: %v", err)
+	}
+	if stats.TrashCount != 0 {
+		t.Fatalf("expected empty trash, got %d", stats.TrashCount)
+	}
+
+	// Non-trash collections cannot be emptied.
+	guardResp := s.authRequest(t, http.MethodDelete, "/api/v1/items/collection?name=untagged", nil, "")
+	defer guardResp.Body.Close()
+	if guardResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 when emptying a non-trash collection, got %d", guardResp.StatusCode)
 	}
 }

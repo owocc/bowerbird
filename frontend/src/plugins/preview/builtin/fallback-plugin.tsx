@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
+import { default as FileImage } from "~icons/ri/file-image-line";
+import { default as FileVideo } from "~icons/ri/file-video-line";
+import { default as FileAudio } from "~icons/ri/file-music-line";
+import { default as FileText } from "~icons/ri/file-text-line";
+import { default as FileArchive } from "~icons/ri/file-zip-line";
+import { default as File } from "~icons/ri/file-line";
 import { useTranslation } from "react-i18next";
-import {
-  FileImage,
-  FileVideo,
-  FileAudio,
-  FileText,
-  FileArchive,
-  File,
-} from "lucide-react";
 import { UniversalThumbnail } from "@/components/UniversalThumbnail";
 import { getFileCategory, formatBytes } from "@/lib/formatters";
 import type {

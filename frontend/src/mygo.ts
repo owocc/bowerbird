@@ -164,6 +164,19 @@ export interface LibraryInfo {
 /** LibraryManager coordinates library lifecycle, storage, SQLite indexing, and user data. */
 export interface LibraryManager {}
 
+/**
+ * LibraryRef identifies a library on disk without opening it.
+ *
+ * ID comes from that library's own library.json, so it stays stable even if the
+ * folder is moved or renamed; Path is only how the app addresses it right now.
+ * The sidebar keeps its ordering against ID so moving a library can never make
+ * the order (or, worse, the data) belong to a different library.
+ */
+export interface LibraryRef {
+  id: string;
+  path: string;
+}
+
 /** LogEntry represents a single structured diagnostic log event. */
 export interface LogEntry {
   id: number;
@@ -211,23 +224,6 @@ export interface NetworkInterfaceInfo {
   type: string;
   ips: string[];
   selected: boolean;
-}
-
-/** ShortcutSettings maps action id -> accelerator (e.g. "Alt+A", "CmdOrCtrl+,"). */
-export interface ShortcutSettings {
-  bindings: Record<string, string>;
-}
-
-/** ScreenshotSettings controls how captures are encoded, named, tagged and filed. */
-export interface ScreenshotSettings {
-  format: string;
-  quality: number;
-  naming: string;
-  includeDate: boolean;
-  includeApp: boolean;
-  autoTag: boolean;
-  folderId: string;
-  customPattern?: string;
 }
 
 /** NetworkSettings stores user-configured proxy settings. */
@@ -278,6 +274,23 @@ export interface QueryPage {
   totalSize: number;
   offset: number;
   limit: number;
+}
+
+/** ScreenshotSettings controls how captures are encoded, named, tagged and filed. */
+export interface ScreenshotSettings {
+  format: string;
+  quality: number;
+  naming: string;
+  includeDate: boolean;
+  includeApp: boolean;
+  autoTag: boolean;
+  folderId: string;
+  customPattern?: string;
+}
+
+/** ShortcutSettings maps action id -> accelerator (e.g. "Alt+A", "CmdOrCtrl+,"). */
+export interface ShortcutSettings {
+  bindings: Record<string, string>;
 }
 
 /** Tag represents a tag taxonomy entry with its item count. */
@@ -464,12 +477,6 @@ export const Service = {
   getNetworkSettings(): Promise<NetworkSettings> {
     return call("Service.GetNetworkSettings");
   },
-  getScreenshotSettings(): Promise<ScreenshotSettings> {
-    return call("Service.GetScreenshotSettings");
-  },
-  getShortcutSettings(): Promise<ShortcutSettings> {
-    return call("Service.GetShortcutSettings");
-  },
   /** GetPendingPluginInstall returns any pending plugin installation request. */
   getPendingPluginInstall(): Promise<PluginInstallRequest | null> {
     return call("Service.GetPendingPluginInstall");
@@ -480,6 +487,19 @@ export const Service = {
   },
   getRecentLibraries(): Promise<string[]> {
     return call("Service.GetRecentLibraries");
+  },
+  /**
+   * GetRecentLibraryRefs returns the recent libraries with their stable IDs.
+   * Entries whose library.json is missing or unreadable are skipped.
+   */
+  getRecentLibraryRefs(): Promise<LibraryRef[]> {
+    return call("Service.GetRecentLibraryRefs");
+  },
+  getScreenshotSettings(): Promise<ScreenshotSettings> {
+    return call("Service.GetScreenshotSettings");
+  },
+  getShortcutSettings(): Promise<ShortcutSettings> {
+    return call("Service.GetShortcutSettings");
   },
   getTags(): Promise<Tag[]> {
     return call("Service.GetTags");
@@ -500,6 +520,13 @@ export const Service = {
   /** GetUserDataDir returns the absolute path of the Bowerbird user data directory. */
   getUserDataDir(): Promise<string> {
     return call("Service.GetUserDataDir");
+  },
+  /**
+   * GetVibrancyEnabled reports whether windows show a blurred material behind a
+   * transparent page.
+   */
+  getVibrancyEnabled(): Promise<boolean> {
+    return call("Service.GetVibrancyEnabled");
   },
   getWorkspaceStats(sortOrder: string): Promise<WorkspaceStats | null> {
     return call("Service.GetWorkspaceStats", sortOrder);
@@ -715,15 +742,15 @@ export const Service = {
   setNetworkSettings(settings: NetworkSettings): Promise<void> {
     return call("Service.SetNetworkSettings", settings);
   },
+  /** SetPluginEnabled enables or disables the specified plugin. */
+  setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+    return call("Service.SetPluginEnabled", id, enabled);
+  },
   setScreenshotSettings(settings: ScreenshotSettings): Promise<void> {
     return call("Service.SetScreenshotSettings", settings);
   },
   setShortcutSettings(settings: ShortcutSettings): Promise<void> {
     return call("Service.SetShortcutSettings", settings);
-  },
-  /** SetPluginEnabled enables or disables the specified plugin. */
-  setPluginEnabled(id: string, enabled: boolean): Promise<void> {
-    return call("Service.SetPluginEnabled", id, enabled);
   },
   /**
    * SetTheme validates and persists the colour mode, then broadcasts the change
@@ -731,6 +758,16 @@ export const Service = {
    */
   setTheme(theme: string): Promise<void> {
     return call("Service.SetTheme", theme);
+  },
+  /**
+   * SetVibrancyEnabled persists the preference, hands it to the native windows
+   * and broadcasts the change to every open window.
+   */
+  setVibrancyEnabled(enabled: boolean): Promise<void> {
+    return call("Service.SetVibrancyEnabled", enabled);
+  },
+  shortcutAccelerator(action: string): Promise<string> {
+    return call("Service.ShortcutAccelerator", action);
   },
   startDragItems(ids: string[]): Promise<void> {
     return call("Service.StartDragItems", ids);

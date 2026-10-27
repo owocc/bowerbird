@@ -37,7 +37,10 @@
     overscroll-behavior: none;
   }
   body {
-    @apply bg-background text-foreground;
+    /* The background belongs to the backdrop layer (see lib/backdrop.ts), so the
+       page itself never paints one and the window material can reach it. */
+    background-color: transparent;
+    @apply text-foreground;
     position: fixed;
     inset: 0;
     --wails-draggable: no-drag;
@@ -69,6 +72,80 @@
   html {
     @apply font-sans;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Chrome transparency
+
+   The app shell, the page roots and the first-level sidebar never paint a
+   background of their own: their colour is whatever the background layer holds.
+   That keeps one rule for every case — the sidebar always shows the backdrop,
+   so a theme colour, a solid fill, a gradient and a see-through window all work
+   without special-casing them here.
+
+   Content surfaces (the gallery, the tag manager, the inspector) do paint their
+   own fill, so the backdrop never reaches text.
+   --------------------------------------------------------------------------- */
+[data-slot="app-shell"],
+[data-slot="page-root"],
+[data-slot="sidebar-wrapper"],
+[data-slot="sidebar"],
+[data-slot="settings-sidebar"],
+[data-slot="sidebar-inset"],
+[data-slot="sidebar-content"],
+[data-panel="sidebar"] {
+  background-color: transparent !important;
+}
+
+/* The handles around the sidebar column keep only their border. */
+[data-slot="resizable-handle"] {
+  background-color: transparent !important;
+}
+
+/* Vibrancy only decides whether the *window* shows a material. The chrome above
+   stays transparent either way, so with the default/solid/gradient background it
+   shows that fill instead of the blur — no extra rules needed. */
+
+/* The sidebar hairline. Without the material it follows --border (see
+   packages/ui/src/styles/globals.css); with the material on the sidebar sits on
+   translucent glass, where a themed line is not dependable, so it switches to the
+   fixed light/dark pair in one step. */
+html[data-vibrancy="on"] {
+  --sidebar-border: var(--sidebar-border-vibrant);
+}
+
+/* ---------------------------------------------------------------------------
+   Background layer
+
+   One layer between <body> and the content, owned by lib/backdrop.ts. It paints
+   the theme's own colour (the default), a solid colour, a gradient, or nothing
+   at all so the window material shows through. Every content surface keeps its
+   own fill on top, so the background never reaches text.
+
+   The chrome above it is always transparent, so this layer's colour *is* the
+   sidebar's colour — which is why no mode needs a rule of its own here.
+   --------------------------------------------------------------------------- */
+[data-slot="backdrop"] {
+  background: var(--app-backdrop, var(--sidebar));
+  background-size: cover;
+  background-repeat: no-repeat;
+  /* Set by lib/backdrop.ts for the colour and gradient modes; `opacity` rather
+     than a colour mix because a gradient is an <image>, which color-mix rejects. */
+  opacity: var(--app-backdrop-opacity, 1);
+  /* Below the app shell, above <body>. */
+  z-index: 0;
+}
+
+/* A checkerboard behind a see-through preview, so "transparent" reads as such
+   in the settings swatches rather than looking like an empty box. */
+.checker {
+  background-image:
+    linear-gradient(45deg, color-mix(in oklab, var(--muted-foreground) 18%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in oklab, var(--muted-foreground) 18%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in oklab, var(--muted-foreground) 18%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in oklab, var(--muted-foreground) 18%, transparent) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
 }
 
 /* Window drag handle classes: only applied to dedicated empty spacer divs */

@@ -3,6 +3,7 @@ package core
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -291,6 +292,42 @@ func (s *Service) GetRecentLibraries() []string {
 		return []string{}
 	}
 	return s.mgr.GetUserDataStore().GetRecentLibraries()
+}
+
+// LibraryRef identifies a library on disk without opening it.
+//
+// ID comes from that library's own library.json, so it stays stable even if the
+// folder is moved or renamed; Path is only how the app addresses it right now.
+// The sidebar keeps its ordering against ID so moving a library can never make
+// the order (or, worse, the data) belong to a different library.
+type LibraryRef struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+}
+
+// GetRecentLibraryRefs returns the recent libraries with their stable IDs.
+// Entries whose library.json is missing or unreadable are skipped.
+func (s *Service) GetRecentLibraryRefs() []LibraryRef {
+	if s.mgr == nil || s.mgr.GetUserDataStore() == nil {
+		return []LibraryRef{}
+	}
+
+	paths := s.mgr.GetUserDataStore().GetRecentLibraries()
+	refs := make([]LibraryRef, 0, len(paths))
+	for _, p := range paths {
+		data, err := os.ReadFile(filepath.Join(p, "library.json"))
+		if err != nil {
+			continue
+		}
+		var meta struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(data, &meta); err != nil || meta.ID == "" {
+			continue
+		}
+		refs = append(refs, LibraryRef{ID: meta.ID, Path: p})
+	}
+	return refs
 }
 
 func (s *Service) GetFolders() ([]Folder, error) {

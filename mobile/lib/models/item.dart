@@ -58,6 +58,30 @@ class MobileItem {
     required this.folders,
   });
 
+  /// 从详情接口的结果构造摘要（使用历史按 id 拉取时使用）。
+  factory MobileItem.fromDetail(ItemDetail detail) {
+    return MobileItem(
+      id: detail.id,
+      name: detail.name,
+      filename: detail.filename,
+      extension: detail.extension,
+      width: detail.width,
+      height: detail.height,
+      size: detail.size,
+      mimeType: detail.mimeType,
+      thumbnailUrl: '/api/v1/thumbs/${detail.id}',
+      originalUrl: '/api/v1/originals/${detail.id}',
+      createdAt: 0,
+      importedAt: 0,
+      date: 0,
+      orientation: detail.width > detail.height
+          ? 'landscape'
+          : (detail.width < detail.height ? 'portrait' : 'square'),
+      tags: detail.tags,
+      folders: detail.folders,
+    );
+  }
+
   factory MobileItem.fromJson(Map<String, dynamic> json) {
     return MobileItem(
       id: json['id'] as String? ?? '',
@@ -331,4 +355,42 @@ class HistoryConnection {
     'token': token,
     'lastConnectedAt': lastConnectedAt,
   };
+}
+
+/// 侧边栏的虚拟素材集合（不带标签 / 未分类 / 废纸篓）。
+enum LibraryCollection {
+  trash('trash'),
+  untagged('untagged'),
+  uncategorized('uncategorized');
+
+  const LibraryCollection(this.slug);
+
+  final String slug;
+}
+
+/// 侧边栏统计数字，与桌面端 `WorkspaceStats` + 废纸篓数量对应。
+class LibraryStats {
+  const LibraryStats({
+    this.total = 0,
+    this.untaggedCount = 0,
+    this.uncategorizedCount = 0,
+    this.trashCount = 0,
+    this.totalSize = 0,
+  });
+
+  final int total;
+  final int untaggedCount;
+  final int uncategorizedCount;
+  final int trashCount;
+  final int totalSize;
+
+  factory LibraryStats.fromJson(Map<String, dynamic> json) {
+    return LibraryStats(
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      untaggedCount: (json['untaggedCount'] as num?)?.toInt() ?? 0,
+      uncategorizedCount: (json['uncategorizedCount'] as num?)?.toInt() ?? 0,
+      trashCount: (json['trashCount'] as num?)?.toInt() ?? 0,
+      totalSize: (json['totalSize'] as num?)?.toInt() ?? 0,
+    );
+  }
 }

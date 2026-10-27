@@ -13,6 +13,8 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    "types": ["unplugin-icons/types/react"],
+
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": false,

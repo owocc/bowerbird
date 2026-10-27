@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Settings } from "~icons/ri/settings-line";
 import { useTranslation } from "react-i18next";
 import {
   createRootRoute,
@@ -25,7 +27,24 @@ import { useAppShortcuts } from "@/hooks/useAppShortcuts";
 import { useHistoryShortcuts } from "@/hooks/useHistoryShortcuts";
 import { isMacOS } from "@/lib/macos";
 import { OpenSetupWindow, OpenSettingsWindow } from "../bindings/bowerbird/core/service";
-import { FolderOpen, Settings } from "lucide-react";
+
+/**
+ * Paints the appearance gradient behind the whole app.
+ *
+ * It is a fixed layer rather than a body background so that it survives a
+ * transparent `app-shell` without inheriting the content's stacking contexts,
+ * and so that `index.html`'s first-paint script can prime it before React runs.
+ */
+function BackdropLayer() {
+  return (
+    <div
+      data-slot="backdrop"
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-0 z-0"
+      style={{ backgroundImage: "var(--app-backdrop, none)" }}
+    />
+  );
+}
 
 function RootLayout() {
   // In-app shortcuts (settings/logs on every window; window chrome on Win/Linux).
@@ -43,7 +62,14 @@ function RootLayout() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="bowerbird-ui-theme">
       <LibraryProvider>
-        <div className="h-screen w-screen overflow-hidden bg-background text-foreground antialiased font-sans flex flex-col">
+        {/* The backdrop gradient sits between <body> and the app: it is painted
+            here, below the content, and only shows wherever the app draws no
+            fill of its own (the vibrancy-transparent sidebar). */}
+        <BackdropLayer />
+        <div
+          data-slot="app-shell"
+          className="relative h-screen w-screen overflow-hidden text-foreground antialiased font-sans flex flex-col"
+        >
           <Outlet />
         </div>
         <Toaster position="bottom-right" richColors />
@@ -65,7 +91,10 @@ function EmptyLibraryPlaceholder() {
   }, []);
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-background flex flex-col items-center justify-center p-6 select-none">
+    <div
+      data-slot="page-root"
+      className="relative h-screen w-screen overflow-hidden flex flex-col items-center justify-center p-6 select-none"
+    >
       <div className="absolute top-0 left-0 right-0 h-(--titlebar-height) flex items-center px-3 z-10 wails-drag">
         <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />
         <div className="flex-1 h-full" />
@@ -145,7 +174,10 @@ function BrowsePage() {
   }
 
   return (
+    // `key`: a switched library gets a fresh workspace with no carried-over
+    // sidebar counts, folder expansion or scroll state.
     <LibraryWorkspace
+      key={library.id || library.path}
       library={library}
       onLibraryClosed={closeLibrary}
       onLibraryChanged={notifyLibraryChanged}

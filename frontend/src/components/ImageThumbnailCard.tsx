@@ -1,5 +1,5 @@
 import React from "react";
-import { Star } from "lucide-react";
+import { default as Star } from "~icons/ri/star-line";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { UniversalThumbnail } from "./UniversalThumbnail";
 import { formatBytes, formatDate, getFileCategory } from "@/lib/formatters";

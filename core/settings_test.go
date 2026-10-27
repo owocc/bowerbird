@@ -35,6 +35,38 @@ func TestSetThemeAppliesNativeAppearance(t *testing.T) {
 	}
 }
 
+func TestSetVibrancyAppliesToNativeWindows(t *testing.T) {
+	host := &vibrancyHost{}
+	svc := NewService(nil)
+	AttachHost(svc, host)
+
+	if err := svc.SetVibrancyEnabled(true); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if len(host.applied) != 1 || !host.applied[0] {
+		t.Fatalf("ApplyVibrancy got %v, want [true]", host.applied)
+	}
+	if host.count(VibrancyChangedEvent) != 1 {
+		t.Fatalf("vibrancy-changed events = %d, want 1", host.count(VibrancyChangedEvent))
+	}
+
+	if err := svc.SetVibrancyEnabled(false); err != nil {
+		t.Fatalf("disable: %v", err)
+	}
+	if len(host.applied) != 2 || host.applied[1] {
+		t.Fatalf("ApplyVibrancy got %v, want [true false]", host.applied)
+	}
+}
+
+type vibrancyHost struct {
+	recordingHost
+	applied []bool
+}
+
+func (h *vibrancyHost) ApplyVibrancy(enabled bool) {
+	h.applied = append(h.applied, enabled)
+}
+
 func TestSetLightweightModeCancelsIdleWhenDisabled(t *testing.T) {
 	host := &recordingHost{}
 	svc := NewService(nil)

@@ -10,6 +10,7 @@ export type {
   Item,
   LibraryInfo,
   LibraryManager,
+  LibraryRef,
   LogEntry,
   CreatedMobileToken,
   MobileDeviceInfo,

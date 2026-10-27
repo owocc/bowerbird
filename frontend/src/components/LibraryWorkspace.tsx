@@ -1,24 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { default as Search } from "~icons/ri/search-line";
+import { default as ArrowUpDown } from "~icons/ri/arrow-up-down-line";
+import { default as Upload } from "~icons/ri/upload-line";
+import { default as X } from "~icons/ri/close-line";
+import { default as Trash2 } from "~icons/ri/delete-bin-line";
+import { default as Minus } from "~icons/ri/subtract-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as RotateCcw } from "~icons/ri/arrow-go-back-line";
+import { default as Settings } from "~icons/ri/settings-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as FolderX } from "~icons/ri/folder-forbid-line";
+import { default as History } from "~icons/ri/history-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as ChevronDown } from "~icons/ri/arrow-down-s-line";
+import { default as ChevronRight } from "~icons/ri/arrow-right-s-line";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
-import {
-  Search,
-  ArrowUpDown,
-  Upload,
-  X,
-  Trash2,
-  Minus,
-  Plus,
-  RotateCcw,
-  Settings,
-  Tag as TagIcon,
-  Folder as FolderIcon,
-  FolderX,
-  History,
-  Check,
-  ChevronDown,
-  ChevronRight,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -47,7 +45,7 @@ import {
 } from "@/components/ui/command";
 import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
 import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
-import { TagsSidebar } from "@/components/TagsSidebar";
+import { TagsManager } from "@/components/TagsManager";
 import { JustifiedGallery } from "@/components/JustifiedGallery";
 import { ItemDetailPanel } from "@/components/ItemDetailPanel";
 import { MultiItemInspector } from "@/components/MultiItemInspector";
@@ -75,7 +73,6 @@ import {
   BatchRestoreFromTrash,
   PermanentDeleteItem,
   EmptyTrash,
-  CloseLibrary,
   GetFolders,
   CreateFolder,
   RenameFolder,
@@ -135,6 +132,12 @@ import { cn } from "@/lib/utils";
 
 const WORKSPACE_PAGE_SIZE = 200;
 
+// The sidebar owns its width (instead of being a resizable panel) so that it
+// cannot drift when the panel layout changes between views.
+const SIDEBAR_WIDTH_KEY = "bowerbird.workspace.sidebarWidth";
+const SIDEBAR_DEFAULT_WIDTH = 220;
+const SIDEBAR_MIN_WIDTH = 220;
+
 function isRealFolderIdValue(id: string | null): id is string {
   return Boolean(id) &&
     id !== TRASH_FOLDER_ID &&
@@ -160,7 +163,7 @@ export function LibraryWorkspace({
   const { canGoBack, goBack } = useHistoryNavigation();
   const activeFolderId = ws.activeFolderId;
   const activeTag = ws.activeTag;
-  const tagsSidebarOpen = ws.tags;
+  const tagsManagerOpen = ws.isTags;
   const categoryFilter = ws.type;
   const sortOrder = ws.sort;
   const layoutMode = ws.layout;
@@ -187,6 +190,56 @@ export function LibraryWorkspace({
     [setDisplayPrefs]
   );
   const inspectorOpen = displayPrefs.showInspector;
+
+  // The sidebar used to share a ResizablePanelGroup with the inspector. The tag
+  // manager hides the inspector, which changes the set of panels and makes the
+  // group re-split the remaining space proportionally — so the sidebar silently
+  // changed width when switching views. Owning the width here makes that
+  // impossible: it only ever changes when the user drags the divider.
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const stored = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    return Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH
+      ? stored
+      : SIDEBAR_DEFAULT_WIDTH;
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth));
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
+  }, [sidebarWidth]);
+
+  const handleSidebarDividerPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      const target = event.currentTarget;
+      const startX = event.clientX;
+      const startWidth = sidebarWidth;
+      target.setPointerCapture(event.pointerId);
+      const onMove = (moveEvent: PointerEvent) => {
+        const max = Math.max(SIDEBAR_MIN_WIDTH, window.innerWidth * 0.4);
+        const next = Math.min(
+          max,
+          Math.max(SIDEBAR_MIN_WIDTH, startWidth + moveEvent.clientX - startX)
+        );
+        setSidebarWidth(next);
+      };
+      const onUp = () => {
+        target.removeEventListener("pointermove", onMove);
+        target.removeEventListener("pointerup", onUp);
+        target.removeEventListener("pointercancel", onUp);
+        document.body.style.cursor = "";
+      };
+      document.body.style.cursor = "col-resize";
+      target.addEventListener("pointermove", onMove);
+      target.addEventListener("pointerup", onUp);
+      target.addEventListener("pointercancel", onUp);
+    },
+    [sidebarWidth]
+  );
+
   const setInspectorOpen = useCallback(
     (open: boolean | ((value: boolean) => boolean)) => {
       setDisplayPrefs((prev) => ({
@@ -196,6 +249,20 @@ export function LibraryWorkspace({
     },
     [setDisplayPrefs]
   );
+
+  // The two side panels are treated as one layout unit: the sidebar's collapse
+  // button hides *both* the sidebar and the inspector, and brings both back when
+  // the layout is already collapsed. They remain independently toggleable from
+  // the context menu / display settings — this is only the combined shortcut.
+  const layoutCollapsed = !sidebarOpen && !inspectorOpen;
+  const toggleLayoutPanels = useCallback(() => {
+    const next = layoutCollapsed;
+    setDisplayPrefs((prev) => ({
+      ...prev,
+      showSidebar: next,
+      showInspector: next,
+    }));
+  }, [layoutCollapsed, setDisplayPrefs]);
   const [items, setItems] = useState<Item[]>([]);
   const [trashItems, setTrashItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -402,7 +469,6 @@ export function LibraryWorkspace({
         activeFolderId,
         includeSubfolders,
         activeFolderMatchSet,
-        tagsSidebarOpen,
         activeTag,
         category: categoryFilter,
         folderFilter,
@@ -418,7 +484,6 @@ export function LibraryWorkspace({
       activeFolderId,
       includeSubfolders,
       activeFolderMatchSet,
-      tagsSidebarOpen,
       activeTag,
       categoryFilter,
       folderFilter,
@@ -501,14 +566,28 @@ export function LibraryWorkspace({
     }
   }, [fetchWorkspacePages, workspaceQuery]);
 
-  const refreshWorkspaceStats = useCallback(async () => {
-    try {
-      const stats = await GetWorkspaceStats(sortOrder);
-      if (stats) setWorkspaceStats(stats);
-    } catch (err) {
-      console.error("Failed to load workspace stats:", err);
-    }
-  }, [sortOrder]);
+  // Right after a library switch the backend may still be repopulating its
+  // in-memory index, in which case the very first read legitimately reports an
+  // empty library. Retry a few times (cheap: one pass over the index) so the
+  // sidebar counts settle on the real numbers instead of staying at 0.
+  const refreshWorkspaceStats = useCallback(
+    async (attempt = 0): Promise<void> => {
+      try {
+        const stats = await GetWorkspaceStats(sortOrder);
+        if (!stats) return;
+        setWorkspaceStats(stats);
+        const looksEmpty = (stats.total ?? 0) === 0;
+        if (looksEmpty && attempt < 5) {
+          window.setTimeout(() => {
+            void refreshWorkspaceStats(attempt + 1);
+          }, 120 * (attempt + 1));
+        }
+      } catch (err) {
+        console.error("Failed to load workspace stats:", err);
+      }
+    },
+    [sortOrder]
+  );
 
   // Coalesce bursts of upsert/trash events into one window refresh instead of
   // re-running the query for every item.
@@ -969,27 +1048,53 @@ export function LibraryWorkspace({
     loadMoreActive,
   ]);
 
+  // Switching libraries must not leave anything behind: every per-library slice
+  // is cleared and re-primed from the newly opened library's index.
   const previousLibraryPathRef = useRef(library.path);
   useEffect(() => {
     if (previousLibraryPathRef.current === library.path) return;
     previousLibraryPathRef.current = library.path;
+
+    // Invalidate in-flight work so a late response from the old library cannot
+    // write into the new library's state.
+    queryVersionRef.current++;
+    querySignatureRef.current = "";
+    itemsVersionRef.current = 0;
+    loadingMoreRef.current = false;
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+
     setSelectedOrder([]);
     setActiveItemId(null);
     setTrashItems([]);
     setItems([]);
+    setHistoryItems([]);
+    setFolders([]);
+    setTags([]);
+    setTrashCount(0);
     setQueryTotal(0);
     setQueryTotalSize(0);
     setWorkspaceStats(null);
     setFolderPreviewMap(new Map());
+    setSearchQuery("");
     loadedPagesRef.current = 1;
     setLoading(true);
     previewPushedRef.current = false;
     ws.reset();
+
+    // Sidebar/filter aggregates. This used to be missing here, so a freshly
+    // switched library showed 0/0/0 until some other event happened to refresh
+    // them. Prime them together with the rest of the first paint.
+    void refreshWorkspaceStats();
     void refreshActiveItems();
     void refreshFolders();
     void refreshTags();
     void refreshTrashCount();
-  }, [library.path]);
+    // `ws` is stable across renders (workspace-search state machine).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [library.path, refreshWorkspaceStats, refreshActiveItems, refreshFolders, refreshTags, refreshTrashCount]);
 
   const isRealFolderId = (id: string | null): id is string =>
     Boolean(id) &&
@@ -1368,7 +1473,7 @@ export function LibraryWorkspace({
         : historyItems;
     const hasExtraFilters =
       Boolean(normalizedQuery) ||
-      tagsSidebarOpen ||
+      Boolean(activeTag) ||
       categoryFilter !== "all" ||
       Boolean(folderFilter) ||
       orientationFilter !== "all" ||
@@ -1403,14 +1508,9 @@ export function LibraryWorkspace({
         }
       }
 
-      if (activeFolderId !== TRASH_FOLDER_ID && tagsSidebarOpen) {
-        // Standalone All Tags mode: only filter by the selected tag in TagsSidebar
-        const itemTags = item.tags || [];
-        if (activeTag !== null) {
-          if (!itemTags.includes(activeTag)) {
-            return false;
-          }
-        } else if (itemTags.length === 0) {
+      // A tag picked in the tag manager narrows the "all" view to it.
+      if (activeFolderId !== TRASH_FOLDER_ID && activeTag !== null) {
+        if (!(item.tags || []).includes(activeTag)) {
           return false;
         }
       }
@@ -1494,7 +1594,6 @@ export function LibraryWorkspace({
     sortOrder,
     normalizedQuery,
     activeFolderId,
-    tagsSidebarOpen,
     activeTag,
     categoryFilter,
     folderFilter,
@@ -1959,10 +2058,16 @@ export function LibraryWorkspace({
     }
   };
 
-  const handleCreateFolder = async (name: string, parentId?: string) => {
+  const handleCreateFolder = async (
+    name: string,
+    parentId?: string,
+    onCreated?: (folder: Folder) => void
+  ) => {
     try {
-      await CreateFolder(name, parentId || "");
+      const created = await CreateFolder(name, parentId || "");
       await refreshFolders();
+      // Hand the new folder back so the caller can start renaming it inline.
+      if (created) onCreated?.(created);
     } catch (err) {
       console.error("Failed to create folder:", err);
     }
@@ -2315,7 +2420,10 @@ export function LibraryWorkspace({
 
   return (
     <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-      <div className="flex h-screen w-screen bg-background text-foreground antialiased select-none overflow-hidden wails-no-drag">
+      <div
+        data-slot="page-root"
+        className="flex h-screen w-screen text-foreground antialiased select-none overflow-hidden wails-no-drag"
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -2329,32 +2437,28 @@ export function LibraryWorkspace({
           }}
         />
 
-        <ResizablePanelGroup
-          orientation="horizontal"
-          className="h-full w-full select-none overflow-hidden"
-        >
-          {sidebarOpen && (
-            <>
-              <ResizablePanel
-                id="sidebar-panel"
-                defaultSize={220}
-                minSize={220}
-                maxSize="40%"
-                className="min-w-[220px]"
-              >
-                <SidebarDirectoryTree
+        <div className="flex h-full w-full min-w-0 select-none overflow-hidden">
+        {sidebarOpen && (
+          <>
+            {/* Fixed-pixel sidebar: its width never depends on how many panels
+                the rest of the layout has. */}
+            <div
+              data-panel="sidebar"
+              style={{ width: sidebarWidth }}
+              className="h-full shrink-0 overflow-hidden"
+            >
+              <SidebarDirectoryTree
                   library={library}
                   folders={folders}
                   activeFolderId={activeFolderId}
                   totalItemCount={workspaceStats?.total ?? 0}
                   untaggedCount={workspaceStats?.untaggedCount ?? 0}
                   uncategorizedCount={workspaceStats?.uncategorizedCount ?? 0}
-                  historyCount={historyItems.length}
                   trashCount={trashCount}
                   tagsCount={tags.length}
-                  tagsSidebarOpen={tagsSidebarOpen}
+                  tagsSidebarOpen={tagsManagerOpen}
                   onToggleTagsSidebar={() => {
-                    ws.toggleTagsPanel();
+                    ws.selectTags();
                   }}
                   onSelectFolder={(id) => {
                     navigateToFolder(id);
@@ -2373,53 +2477,30 @@ export function LibraryWorkspace({
                     notifySuccess(SuccessCodes.MOVED_TO_TRASH);
                   }}
                   onEmptyTrash={handleRequestEmptyTrash}
-                  onCloseLibrary={async () => {
-                    // CloseLibrary closes the main window and leaves only the
-                    // setup window. The main window is created again once a
-                    // library is chosen there.
-                    await CloseLibrary();
-                    onLibraryClosed();
-                  }}
                   onLibraryChanged={onLibraryChanged}
-                  onToggleCollapse={() => setSidebarOpen(false)}
+                  onToggleCollapse={toggleLayoutPanels}
                 />
-              </ResizablePanel>
-              <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
+            </div>
+            {/* The divider *is* the drag handle: one 1px line, so the seam never
+                reads as 2px. Dragging updates the sidebar width directly. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              onPointerDown={handleSidebarDividerPointerDown}
+              className="w-px shrink-0 border-l border-sidebar-border bg-transparent hover:border-transparent hover:bg-primary/50 transition-colors cursor-col-resize z-20"
+            />
+          </>
+        )}
 
-              {tagsSidebarOpen && (
-                <>
-                  <ResizablePanel
-                    id="tags-sidebar-panel"
-                    defaultSize={190}
-                    minSize={160}
-                    maxSize={300}
-                    className="min-w-[160px] max-w-[300px]"
-                  >
-                    <TagsSidebar
-                      tags={tags}
-                      activeTag={activeTag}
-                      onSelectTag={(tg) => {
-                        ws.selectTag(tg);
-                        setSelectedOrder([]);
-                        setActiveItemId(null);
-                      }}
-                      onCreateTag={handleCreateTag}
-                      onDeleteTag={handleDeleteTag}
-                      onClose={() => {
-                        ws.closeTagsPanel();
-                      }}
-                    />
-                  </ResizablePanel>
-                  <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
-                </>
-              )}
-            </>
-          )}
-
+        <ResizablePanelGroup
+          orientation="horizontal"
+          className="h-full w-full min-w-0 select-none overflow-hidden"
+        >
           {/* COLUMN 2: CENTER MAIN CONTENT (Justified Gallery) */}
           <ResizablePanel id="gallery-main-panel" minSize={380}>
             <main
               data-file-drop-target={isInternalDragging ? undefined : "main"}
+              data-slot="content-surface"
               className="group/main relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-background"
               {...(isInternalDragging
                 ? {
@@ -2433,31 +2514,70 @@ export function LibraryWorkspace({
                   }
                 : dragHandlers)}
             >
+              {tagsManagerOpen ? (
+                /* Tag manager: browsing tags gets the whole content width, so
+                   long names stay readable in narrow windows. */
+                <header className="w-full bg-background shrink-0 select-none header-interactive-container wails-no-drag">
+                  <div className="h-(--titlebar-height) px-3 flex items-center wails-no-drag">
+                    <MainHeaderSafePrefix
+                      sidebarOpen={sidebarOpen}
+                      onToggleSidebar={toggleLayoutPanels}
+                    >
+                      <HistoryNavButtons className="mr-1" />
+                      <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
+                        {t("tags.title")}
+                      </span>
+                    </MainHeaderSafePrefix>
+                    <div className="flex-1 h-full min-w-4 wails-drag" />
+                  </div>
+                </header>
+              ) : null}
+
+              {tagsManagerOpen && (
+                <TagsManager
+                  tags={tags}
+                  activeTag={activeTag}
+                  onSelectTag={(tagName) => {
+                    ws.selectTag(tagName);
+                    setSelectedOrder([]);
+                    setActiveItemId(null);
+                  }}
+                  onCreateTag={handleCreateTag}
+                  onDeleteTag={handleDeleteTag}
+                />
+              )}
+
               {/* Pure 10% opacity mask + dashed border for main area dropzone (NO inner text/icons) */}
-              {dropState.status === "dragging-over" &&
+              {!tagsManagerOpen &&
+                dropState.status === "dragging-over" &&
                 !isInternalDragging &&
                 !dragHoverSubfolderId && (
                   <div className="pointer-events-none absolute inset-0 z-50 border-2 border-dashed border-primary/80 bg-foreground/10 rounded-[inherit]" />
                 )}
 
 
-              <header className="w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag">
+              <header
+                className={cn(
+                  "w-full bg-background border-b-0 shrink-0 select-none header-interactive-container wails-no-drag",
+                  tagsManagerOpen && "hidden"
+                )}
+              >
                 {/* Row 1: Titlebar height row — parent is strictly wails-no-drag; ONLY the middle spacer is wails-drag */}
                 <div className="h-(--titlebar-height) px-3 flex items-center justify-between wails-no-drag">
                   {/* Left operable container: full height, strictly header-interactive-container + wails-no-drag */}
                   <MainHeaderSafePrefix
                     sidebarOpen={sidebarOpen}
-                    onToggleSidebar={() => setSidebarOpen(true)}
+                    onToggleSidebar={toggleLayoutPanels}
                   >
                     <HistoryNavButtons className="mr-1" />
 
                     <span className="font-semibold text-xs tracking-tight truncate text-foreground header-interactive-container wails-no-drag">
                       {activeFolderId === TRASH_FOLDER_ID
                         ? t("workspace.trash")
-                        : tagsSidebarOpen
-                        ? activeTag
-                          ? t("workspace.tagWithValue", { tag: activeTagLabel })
-                          : t("sidebar.allTags")
+                        : tagsManagerOpen
+                        ? t("tags.title")
+                        : activeTag
+                        ? t("workspace.tagWithValue", { tag: activeTagLabel })
                         : activeFolderId === UNTAGGED_FOLDER_ID
                         ? t("sidebar.untagged")
                         : activeFolderId === UNCATEGORIZED_FOLDER_ID
@@ -2657,7 +2777,10 @@ export function LibraryWorkspace({
                     targetType: "general",
                   });
                 }}
-                className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag"
+                className={cn(
+                  "flex-1 min-h-0 overflow-y-auto p-4 flex flex-col wails-no-drag",
+                  tagsManagerOpen && "hidden"
+                )}
               >
                 {loading ? (
                   <div className="h-full flex-1 flex items-center justify-center text-xs text-muted-foreground">
@@ -2906,12 +3029,14 @@ export function LibraryWorkspace({
                       </section>
                     )}
 
+                    {/* No "no folders" placeholder: an empty folder just shows the
+                        normal file empty state (import CTA), never a nested one. */}
                     {filteredItems.length === 0 ? (
                       currentSubfolders.length === 0 ? (
-                        <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 border-2 border-dashed border-border/50 rounded-2xl max-w-md mx-auto my-8">
+                        <div className="h-full flex-1 flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
                           {activeFolderId === "__trash__" ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <Trash2 className="size-6 text-muted-foreground" />
                               </div>
                               <h3 className="font-semibold text-sm mb-1">
@@ -2921,17 +3046,15 @@ export function LibraryWorkspace({
                                 {t("workspace.trashEmptyDesc")}
                               </p>
                             </>
-                          ) : tagsSidebarOpen ? (
+                          ) : activeTag ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <TagIcon className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
-                                {activeTag
-                                  ? t("workspace.tagEmptyTitle", {
-                                      tag: activeTagLabel,
-                                    })
-                                  : t("tags.empty")}
+                                {t("workspace.tagEmptyTitle", {
+                                  tag: activeTagLabel,
+                                })}
                               </h3>
                               <p className="text-xs text-muted-foreground">
                                 {t("workspace.tagEmptyDesc")}
@@ -2939,9 +3062,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeFolderId === UNTAGGED_FOLDER_ID ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <TagIcon className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.untaggedEmptyTitle")}
                               </h3>
@@ -2951,9 +3074,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeFolderId === UNCATEGORIZED_FOLDER_ID ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <FolderX className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.uncategorizedEmptyTitle")}
                               </h3>
@@ -2963,9 +3086,9 @@ export function LibraryWorkspace({
                             </>
                           ) : activeFolderId === HISTORY_FOLDER_ID ? (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <History className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.historyEmptyTitle")}
                               </h3>
@@ -2975,9 +3098,9 @@ export function LibraryWorkspace({
                             </>
                           ) : (
                             <>
-                              <div className="size-12 rounded-2xl bg-muted/60 flex items-center justify-center text-muted-foreground mb-3">
+                              <div className="mb-3 flex items-center justify-center text-muted-foreground">
                                 <Upload className="size-6 text-muted-foreground" />
-                              </div>
+</div>
                               <h3 className="font-semibold text-sm mb-1">
                                 {t("workspace.noFilesTitle")}
                               </h3>
@@ -3044,7 +3167,7 @@ export function LibraryWorkspace({
                     ws.setPreviewItem(newItem.id);
                   }}
                   sidebarOpen={sidebarOpen}
-                  onToggleSidebar={() => setSidebarOpen(true)}
+                  onToggleSidebar={toggleLayoutPanels}
                   onItemUpdated={handleItemUpdatedInPlace}
                 />
               )}
@@ -3052,9 +3175,13 @@ export function LibraryWorkspace({
           </ResizablePanel>
 
           {/* COLUMN 3: RIGHT INSPECTOR PANEL (Single Item or Multi-Item) */}
-          {inspectorOpen && (
+          {/* Hidden in the tag manager: there is no selection to inspect there. */}
+          {inspectorOpen && !tagsManagerOpen && (
             <>
-              <ResizableHandle className="w-px bg-border hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
+              {/* The inspector edge: an opaque line, not the translucent --border,
+                  because it sits between two filled surfaces and must read as a
+                  real edge. Also independent of the sidebar hairline opacity. */}
+              <ResizableHandle className="w-px shrink-0 border-l border-border-solid bg-transparent hover:border-transparent hover:bg-primary/50 transition-colors cursor-col-resize z-20" />
               <ResizablePanel
                 id="inspector-panel"
                 defaultSize={260}
@@ -3117,6 +3244,7 @@ export function LibraryWorkspace({
             </>
           )}
         </ResizablePanelGroup>
+        </div>
 
         {/* FULL-WINDOW POPUP PREVIEW (Space key) */}
         {fullWindowPreviewOpen && (
@@ -3131,7 +3259,7 @@ export function LibraryWorkspace({
               ws.setPreviewItem(newItem.id);
             }}
             sidebarOpen={sidebarOpen}
-            onToggleSidebar={() => setSidebarOpen(true)}
+            onToggleSidebar={toggleLayoutPanels}
             onItemUpdated={handleItemUpdatedInPlace}
           />
         )}

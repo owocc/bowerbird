@@ -1081,10 +1081,21 @@ func (m *LibraryManager) importFilesWithProgress(sourcePaths []string, onProgres
 				if strings.HasPrefix(d.Name(), ".") {
 					return nil
 				}
+				// Never import the library's own bookkeeping. Dragging a
+				// .library folder (or a parent folder containing one) in used to
+				// re-import every items/<HEX>/metadata.json as a new asset, which
+				// then generated another metadata.json — a self-feeding loop that
+				// filled libraries with empty "metadata" items.
+				if isLibraryBookkeeping(path) {
+					return nil
+				}
 				allFiles = append(allFiles, path)
 				return nil
 			})
 		} else {
+			if isLibraryBookkeeping(srcPath) {
+				continue
+			}
 			allFiles = append(allFiles, srcPath)
 		}
 	}
@@ -1346,6 +1357,36 @@ func itemPayloadPresent(item *Item) bool {
 // drop handler), and a library can live on a synced or virtual drive where writes
 // take longer, so "database is locked" is a routine event rather than a bug.
 const sqliteDSNOptions = "?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-64000)&_pragma=temp_store(MEMORY)"
+
+// Library bookkeeping file names. These live inside a .library container and
+// describe its own contents; importing them as assets would recursively fill the
+// library with copies of its own metadata.
+const (
+	libraryManifestName = "library.json"
+	libraryDBName       = "index.db"
+	itemMetadataName    = "metadata.json"
+)
+
+// isLibraryBookkeeping reports whether path is one of the library's own
+// management files or sits inside a .library container's structural folders
+// (items/<HEX>/...), so it must never be imported as an asset.
+func isLibraryBookkeeping(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	switch base {
+	case libraryManifestName, libraryDBName, libraryDBName + "-wal", libraryDBName + "-shm", itemMetadataName:
+		return true
+	}
+
+	// Anything nested under a .library container on disk belongs to that
+	// library, including thumbnails and the per-item directories.
+	slashed := filepath.ToSlash(path)
+	for _, segment := range strings.Split(slashed, "/") {
+		if strings.HasSuffix(strings.ToLower(segment), ".library") {
+			return true
+		}
+	}
+	return false
+}
 
 func openLibraryDB(dbPath string) (*sql.DB, error) {
 	return sql.Open("sqlite", dbPath+sqliteDSNOptions)

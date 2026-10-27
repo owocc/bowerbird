@@ -83,6 +83,18 @@ type MobileItemsResponse struct {
 	Items  []MobileItemSummary `json:"items"`
 }
 
+// MobileStatsResponse mirrors the desktop sidebar aggregates (WorkspaceStats)
+// plus the trash count, so the mobile drawer can render every count without
+// issuing one query per collection.
+type MobileStatsResponse struct {
+	Total              int      `json:"total"`
+	UntaggedCount      int      `json:"untaggedCount"`
+	UncategorizedCount int      `json:"uncategorizedCount"`
+	TrashCount         int      `json:"trashCount"`
+	TotalSize          int64    `json:"totalSize"`
+	TopColors          []string `json:"topColors"`
+}
+
 // MobileStatusResponse represents the unauthenticated status response.
 type MobileStatusResponse struct {
 	Name            string   `json:"name"`
@@ -188,6 +200,8 @@ func (s *MobileServer) Start() error {
 	mux.HandleFunc("/api/v1/colors", s.authMiddleware(s.handleColorsList))
 	mux.HandleFunc("/api/v1/items", s.authMiddleware(s.handleItemsList))
 	mux.HandleFunc("/api/v1/query", s.authMiddleware(s.handleQuery))
+	mux.HandleFunc("/api/v1/stats", s.authMiddleware(s.handleStats))
+	mux.HandleFunc("/api/v1/items/collection", s.authMiddleware(s.handleCollectionItems))
 	mux.HandleFunc("/api/v1/items/", s.authMiddleware(s.handleItemRoutes))
 	mux.HandleFunc("/api/v1/thumbs/", s.authMiddleware(s.handleThumbnail))
 	mux.HandleFunc("/api/v1/originals/", s.authMiddleware(s.handleOriginal))
@@ -1134,6 +1148,145 @@ func (s *MobileServer) handleQuery(w http.ResponseWriter, r *http.Request) {
 	s.writeQueryResponse(w, spec, sortOrder, offset, limit)
 }
 
+// handleStats returns the sidebar aggregates: total items, untagged and
+// uncategorized counts (same definition as the desktop WorkspaceStats) and the
+// trash count.
+func (s *MobileServer) handleStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	stats := MobileStatsResponse{TopColors: []string{}}
+	if s.manager != nil && s.manager.GetActiveLibrary() != nil {
+		workspace, err := s.manager.WorkspaceStats("desc")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+		trash, err := s.manager.GetTrashCount()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+		stats = MobileStatsResponse{
+			Total:              workspace.Total,
+			UntaggedCount:      workspace.UntaggedCount,
+			UncategorizedCount: workspace.UncategorizedCount,
+			TrashCount:         trash,
+			TotalSize:          workspace.TotalSize,
+			TopColors:          workspace.TopColors,
+		}
+		if stats.TopColors == nil {
+			stats.TopColors = []string{}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(stats)
+}
+
+// MobileCollection names one of the drawer's virtual item collections.
+const (
+	MobileCollectionTrash         = "trash"
+	MobileCollectionUntagged      = "untagged"
+	MobileCollectionUncategorized = "uncategorized"
+)
+
+// handleCollectionItems returns a page of a virtual collection (trash /
+// untagged / uncategorized). Trash lives outside the query engine, so it is
+// served here alongside the two query-backed collections.
+func (s *MobileServer) handleCollectionItems(w http.ResponseWriter, r *http.Request) {
+	collection := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("name")))
+
+	// DELETE empties the trash, mirroring the desktop "empty trash" action.
+	if r.Method == http.MethodDelete {
+		if collection != MobileCollectionTrash {
+			writeError(w, http.StatusBadRequest, "INVALID_QUERY", "only the trash collection can be emptied")
+			return
+		}
+		if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+			writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
+			return
+		}
+		if err := s.manager.EmptyTrash(); err != nil {
+			writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+			return
+		}
+		writeSuccess(w, map[string]any{"emptied": true})
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	switch collection {
+	case MobileCollectionTrash:
+		s.writeTrashResponse(w, offset, limit)
+	case MobileCollectionUntagged:
+		s.writeCollectionQueryResponse(w, "is:untagged", offset, limit)
+	case MobileCollectionUncategorized:
+		s.writeCollectionQueryResponse(w, "is:uncategorized", offset, limit)
+	default:
+		writeError(w, http.StatusBadRequest, "INVALID_QUERY", "name must be trash, untagged or uncategorized")
+	}
+}
+
+func (s *MobileServer) writeCollectionQueryResponse(w http.ResponseWriter, query string, offset, limit int) {
+	spec, err := ParseQuery(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	s.writeQueryResponse(w, spec, "desc", offset, limit)
+}
+
+func (s *MobileServer) writeTrashResponse(w http.ResponseWriter, offset, limit int) {
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(MobileItemsResponse{Limit: limit, Offset: offset, Items: []MobileItemSummary{}})
+		return
+	}
+
+	items, err := s.manager.GetTrashItems("", "desc")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+
+	total := len(items)
+	page := []Item{}
+	if offset < total {
+		end := offset + limit
+		if end > total {
+			end = total
+		}
+		page = items[offset:end]
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(MobileItemsResponse{
+		Total:  total,
+		Limit:  limit,
+		Offset: offset,
+		Items:  mobileItemSummaries(page),
+	})
+}
+
 func (s *MobileServer) writeQueryResponse(w http.ResponseWriter, spec QuerySpec, sortOrder string, offset, limit int) {
 	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -1386,9 +1539,28 @@ func (s *MobileServer) handleItemRoutes(w http.ResponseWriter, r *http.Request) 
 		s.handleItemAddTag(w, r, itemID)
 	case "folders":
 		s.handleItemAddFolder(w, r, itemID)
+	case "restore":
+		s.handleItemRestore(w, r, itemID)
 	default:
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "unknown item route")
 	}
+}
+
+// handleItemRestore restores one item from the recycle bin.
+func (s *MobileServer) handleItemRestore(w http.ResponseWriter, r *http.Request, itemID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s.manager == nil || s.manager.GetActiveLibrary() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeNoActiveLibrary, "no active library")
+		return
+	}
+	if err := s.manager.RestoreFromTrash(itemID); err != nil {
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]any{"id": itemID, "restored": true})
 }
 
 func (s *MobileServer) handleItemAddTag(w http.ResponseWriter, r *http.Request, itemID string) {

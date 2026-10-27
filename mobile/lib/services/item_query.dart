@@ -14,6 +14,8 @@ class ItemQuery {
     this.rating,
     this.hasUrl = '',
     this.hasNote = '',
+    this.untagged = false,
+    this.uncategorized = false,
   });
 
   final String text;
@@ -29,6 +31,10 @@ class ItemQuery {
   final String hasUrl;
   final String hasNote;
 
+  /// Virtual collections from the desktop sidebar (`is:untagged` / `is:uncategorized`).
+  final bool untagged;
+  final bool uncategorized;
+
   String toQueryString() {
     final parts = <String>[];
     final trimmed = text.trim();
@@ -39,6 +45,8 @@ class ItemQuery {
     }
     if (type.isNotEmpty) parts.add('type:${_value(type)}');
     if (orientation.isNotEmpty) parts.add('orientation:${_value(orientation)}');
+    if (untagged) parts.add('is:untagged');
+    if (uncategorized) parts.add('is:uncategorized');
     if (tag != null && tag!.trim().isNotEmpty) parts.add('tag:${_value(tag!)}');
     if (folder != null && folder!.trim().isNotEmpty) parts.add('folder:${_value(folder!)}');
     if (color != null && color!.trim().isNotEmpty) parts.add('color:${_value(color!)}');

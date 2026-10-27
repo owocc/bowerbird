@@ -1,26 +1,37 @@
 import 'dart:async';
-import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+
+import '../controllers/home_controller.dart';
+import '../controllers/tile_gesture_controller.dart';
+import '../controllers/pinch_zoom_controller.dart';
 import '../models/item.dart';
 import '../services/api_service.dart';
-import '../services/websocket_service.dart';
-import '../services/item_query.dart';
-import '../services/refresh_gate.dart';
-import 'connect_screen.dart';
 import '../services/inbox_service.dart';
+import '../services/gallery_actions.dart';
+import '../services/media_actions.dart';
 import '../services/share_tag_service.dart';
-import '../widgets/share_tag_badge.dart';
-import 'detail_screen.dart';
-import 'inbox_screen.dart';
+import '../services/home_socket_bindings.dart';
+import '../services/websocket_service.dart';
 import '../widgets/item_preview_overlay.dart';
-import '../widgets/folder_drawer.dart';
-import '../widgets/filter_sheet.dart';
-import '../theme/app_theme.dart';
-import 'search_screen.dart';
+import 'connect_screen.dart';
+import 'detail_screen.dart';
+import 'dialogs/home_dialogs.dart';
+import 'home/widgets/gallery_scaffold.dart';
+import 'home/widgets/home_shell.dart';
+import 'home/widgets/home_menu_actions.dart';
+import 'home/widgets/home_navigation.dart';
+import '../utils/snack.dart';
+import '../services/api_upload.dart';
+
+/// 主界面：资料库浏览。
+///
+/// 分工（详见 mobile/CODE_STYLE.md）：
+///  · 数据与浏览状态 → [HomeController]
+///  · 双指缩放      → [PinchZoomController]
+///  · 媒体动作      → `MediaActions`
+///  · 弹窗          → [HomeDialogs]
+///  · 视图          → `screens/home/widgets/`
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -30,35 +41,88 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  final List<MobileItem> _items = [];
+  final HomeController _data = HomeController();
+  final PinchZoomController _zoom = PinchZoomController();
   final ScrollController _scrollController = ScrollController();
-
-  bool _isLoading = false;
-  bool _hasMore = true;
-  int _offset = 0;
-  static const int _pageSize = 60;
-  // Grid animates GIFs only below this size; larger ones keep the static
-  // thumbnail and the GIF badge to avoid multi-megabyte downloads per tile.
-  static const int _gifAnimationMaxBytes = 8 * 1024 * 1024;
-  String? _errorMessage;
-  bool _isUploading = false;
-  StreamSubscription? _wsLibSub;
-  StreamSubscription? _wsItemsSub;
-  StreamSubscription? _wsRevokedSub;
-  bool _pendingRefresh = false;
-  int _totalCount = 0;
-  final RefreshGate _refreshGate = RefreshGate();
-  DateTime _lastLocalMutation = DateTime.fromMillisecondsSinceEpoch(0);
-  int _inboxCount = InboxService.instance.count;
   late final AnimationController _drawer;
-  ItemQuery _query = const ItemQuery();
-  List<MobileFolder> _folders = [];
-  List<MobileTag> _tags = [];
-  List<String> _colors = [];
-  final Set<String> _selectedIds = {};
-  double _gridScale = 3;
-  double _pinchStartScale = 3;
-  bool _previewOpening = false;
+
+  final TileGestureController _tileGesture = TileGestureController();
+  bool _isUploading = false;
+  bool _drawerInteractable = false;
+  int _inboxCount = InboxService.instance.count;
+
+  late final HomeSocketBindings _sockets;
+
+  @override
+  void initState() {
+    super.initState();
+    _drawer = AnimationController(vsync: this, duration: const Duration(milliseconds: 240))
+      ..addListener(_onDrawerTick);
+    _data.addListener(_onDataChanged);
+    _zoom.addListener(_onZoomChanged);
+    _tileGesture.addListener(_onDataChanged);
+    _scrollController.addListener(_onScroll);
+    WidgetsBinding.instance.addObserver(this);
+    InboxService.instance.addListener(_onInboxChanged);
+    ShareTagService.instance.addListener(_onShareTagsChanged);
+
+    _sockets = HomeSocketBindings(
+      onLibraryChanged: (_, _) {
+        if (!mounted) return;
+        setState(() {});
+        unawaited(_data.loadNavMetadata());
+        unawaited(_data.loadStats());
+        unawaited(_data.loadItems(refresh: true));
+      },
+      onItemsUpdated: () {
+        if (mounted) unawaited(_data.reloadWindow());
+      },
+      onPairingRevoked: () {
+        if (!mounted) return;
+        HomeDialogs.showPairingRevoked(context, onConfirm: () => _disconnect(silent: true));
+      },
+    )..connect();
+    unawaited(_data.refreshAll());
+  }
+
+  @override
+  void dispose() {
+    _sockets.dispose();
+    InboxService.instance.removeListener(_onInboxChanged);
+    ShareTagService.instance.removeListener(_onShareTagsChanged);
+    _data
+      ..removeListener(_onDataChanged)
+      ..dispose();
+    _zoom
+      ..removeListener(_onZoomChanged)
+      ..dispose();
+    _tileGesture
+      ..removeListener(_onDataChanged)
+      ..dispose();
+    _scrollController.dispose();
+    _drawer.dispose();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!WebSocketService.instance.isConnected) {
+      WebSocketService.instance.connect();
+    }
+    unawaited(_data.refreshAll());
+  }
+
+  // ── 监听 ────────────────────────────────────────────────────────────
+
+  void _onDataChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onZoomChanged() {
+    if (mounted) setState(() {});
+  }
 
   void _onInboxChanged() {
     if (!mounted) return;
@@ -69,221 +133,19 @@ class _HomeScreenState extends State<HomeScreen>
     if (mounted) setState(() {});
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _drawer = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 240),
-    );
-    _drawer.addListener(_onDrawerTick);
-    _loadItems(refresh: true);
-    _loadNavMetadata();
-    _scrollController.addListener(_onScroll);
-    _initWebSocket();
-    WidgetsBinding.instance.addObserver(this);
-    InboxService.instance.addListener(_onInboxChanged);
-    ShareTagService.instance.addListener(_onShareTagsChanged);
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      if (!WebSocketService.instance.isConnected) {
-        WebSocketService.instance.connect();
-      }
-      _loadItems(refresh: true);
-    }
-  }
-
-  void _initWebSocket() {
-    WebSocketService.instance.connect();
-    _wsLibSub = WebSocketService.instance.onLibraryChanged.listen((event) {
-      if (mounted) {
-        final data = event['data'] as Map<String, dynamic>? ?? event;
-        final newName = data['name'] as String?;
-        if (newName != null && newName.isNotEmpty) {
-          setState(() => ApiService.instance.libraryName = newName);
-        }
-        unawaited(_loadNavMetadata());
-        _refreshGate.schedule(() => _loadItems(refresh: true));
-      }
-    });
-    _wsItemsSub = WebSocketService.instance.onItemsUpdated.listen((event) {
-      if (!mounted) return;
-      if (DateTime.now().difference(_lastLocalMutation) < const Duration(milliseconds: 900)) {
-        return;
-      }
-      _refreshGate.schedule(_reloadWindow);
-    });
-    _wsRevokedSub = WebSocketService.instance.onPairingRevoked.listen((_) {
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('授权已撤销'),
-            content: const Text('桌面端已撤销此设备的连接授权，请重新配对。'),
-            actions: [
-              FilledButton(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _disconnect(silent: true);
-                },
-                child: const Text('确定'),
-              ),
-            ],
-          ),
-        );
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _wsLibSub?.cancel();
-    _wsItemsSub?.cancel();
-    _wsRevokedSub?.cancel();
-    InboxService.instance.removeListener(_onInboxChanged);
-    ShareTagService.instance.removeListener(_onShareTagsChanged);
-    _scrollController.dispose();
-    _drawer.dispose();
-    WidgetsBinding.instance.removeObserver(this);
-    _refreshGate.cancel();
-    super.dispose();
-  }
-  void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 400) {
-      if (!_isLoading && _hasMore) {
-        _loadItems();
-      }
-    }
-  }
-
-  Future<void> _loadItems({bool refresh = false}) async {
-    if (_isLoading) {
-      if (refresh) {
-        _pendingRefresh = true;
-      }
-      return;
-    }
-
-    if (refresh) {
-      setState(() {
-        _isLoading = true;
-        _offset = 0;
-        _hasMore = true;
-        _errorMessage = null;
-      });
-    } else {
-      setState(() {
-        _isLoading = true;
-      });
-    }
-
-    final requestOffset = refresh ? 0 : _offset;
-    try {
-      final result = await ApiService.instance.queryItems(
-        query: _query,
-        limit: _pageSize,
-        offset: requestOffset,
-      );
-
-      if (mounted) {
-        setState(() {
-          if (refresh) {
-            _items.clear();
-          }
-          _items.addAll(result.items);
-          _offset = requestOffset + result.items.length;
-          _totalCount = result.total;
-          _hasMore = _items.length < result.total && result.items.isNotEmpty;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceAll('Exception: ', '');
-        });
-      }
-    } finally {
-      if (mounted && _pendingRefresh) {
-        _pendingRefresh = false;
-        _loadItems(refresh: true);
-      }
-    }
-  }
-
-  /// Re-runs the first page sized to the currently loaded window so a ws
-  /// refresh does not visibly collapse the timeline back to one page.
-  Future<void> _reloadWindow() async {
-    if (_isLoading) {
-      _pendingRefresh = true;
-      return;
-    }
-    final target = _items.isEmpty ? _pageSize : (_items.length > 500 ? _pageSize : _items.length);
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-    try {
-      final result = await ApiService.instance.queryItems(
-        query: _query,
-        limit: target,
-        offset: 0,
-      );
-      if (mounted) {
-        setState(() {
-          _items
-            ..clear()
-            ..addAll(result.items);
-          _offset = result.items.length;
-          _totalCount = result.total;
-          _hasMore = _items.length < result.total && result.items.isNotEmpty;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = e.toString().replaceAll('Exception: ', '');
-        });
-      }
-    } finally {
-      if (mounted && _pendingRefresh) {
-        _pendingRefresh = false;
-        _reloadWindow();
-      }
-    }
-  }
-
   void _markLocalMutation() {
-    _lastLocalMutation = DateTime.now();
-    _refreshGate.cancel();
+    _sockets.markLocalMutation();
+    _data.cancelPendingRefresh();
   }
 
-  Future<void> _loadNavMetadata() async {
-    try {
-      final tags = await ApiService.instance.getTags();
-      final folders = await ApiService.instance.getFolders();
-      final colors = await ApiService.instance.getColors();
-      if (!mounted) return;
-      setState(() {
-        _tags = tags;
-        _folders = folders;
-        _colors = colors;
-      });
-    } catch (_) {}
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 400) {
+      if (!_data.isLoading && _data.hasMore) unawaited(_data.loadItems());
+    }
   }
 
-  int get _crossAxisCount => _gridScale.round().clamp(2, 5);
-
-  double get _drawerWidth => MediaQuery.sizeOf(context).width * 2 / 3;
-
-  bool _drawerInteractable = false;
+  // ── 抽屉 ────────────────────────────────────────────────────────────
 
   void _onDrawerTick() {
     final next = _drawer.value > 0.001;
@@ -294,1109 +156,244 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool get _drawerOpen => _drawer.value > 0.5;
 
-  void _snapDrawer({required bool open}) {
-    if (open) {
-      _drawer.fling(velocity: 2);
+  double get _drawerWidth => MediaQuery.sizeOf(context).width * 2 / 3;
+
+  void _snapDrawer({required bool open}) => open ? _drawer.forward() : _drawer.reverse();
+
+  void _onDrawerHorizontalUpdate(DragUpdateDetails d) =>
+      _drawer.value = (_drawer.value + d.delta.dx / _drawerWidth).clamp(0.0, 1.0);
+
+  void _onDrawerHorizontalEnd(DragEndDetails d) {
+    final v = d.primaryVelocity ?? 0;
+    _snapDrawer(open: v.abs() > 500 ? v > 0 : _drawer.value > 0.4);
+  }
+
+  // ── 条目交互 ────────────────────────────────────────────────────────
+
+  void _onTileTap(MobileItem item) {
+    if (_tileGesture.selectedIds.isNotEmpty) {
+      _tileGesture.toggleSelected(item.id);
+    } else if (_data.isTrashView) {
+      unawaited(_restoreItem(item));
     } else {
-      _drawer.fling(velocity: -2);
+      final index = _data.items.indexOf(item);
+      if (index >= 0) unawaited(_openDetail(index));
     }
   }
 
-  void _onDrawerHorizontalUpdate(DragUpdateDetails details) {
-    final next = (_drawer.value + details.delta.dx / _drawerWidth).clamp(0.0, 1.0);
-    _drawer.value = next;
-  }
+  void _onLongPressStart(MobileItem item, Offset local) =>
+      _tileGesture.start(item.id, local);
 
-  void _onDrawerHorizontalEnd(DragEndDetails details) {
-    final v = details.primaryVelocity ?? 0;
-    if (v.abs() > 500) {
-      _snapDrawer(open: v > 0);
-      return;
-    }
-    _snapDrawer(open: _drawer.value > 0.4);
-  }
+  void _onLongPressMove(MobileItem item, Offset local) => _tileGesture.move(local);
 
-  Widget _roundIconButton({
-    required IconData icon,
-    required VoidCallback onPressed,
-    String? tooltip,
-    Widget? badgeChild,
-  }) {
-    final theme = Theme.of(context);
-    final button = Material(
-      color: theme.colorScheme.surface,
-      elevation: 0,
-      shadowColor: Colors.transparent,
-      shape: CircleBorder(
-        side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
-      ),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(icon, size: 24, color: theme.colorScheme.onSurface),
-        ),
-      ),
-    );
-    final wrapped = badgeChild ?? button;
-    if (tooltip == null) return wrapped;
-    return Tooltip(message: tooltip, child: wrapped);
-  }
-
-  void _selectFolder(String? folderId) {
-    _snapDrawer(open: false);
-    setState(() {
-      _query = ItemQuery(
-        text: _query.text,
-        type: _query.type,
-        orientation: _query.orientation,
-        tag: _query.tag,
-        folder: folderId,
-        color: _query.color,
-        size: _query.size,
-        rating: _query.rating,
-        hasUrl: _query.hasUrl,
-        hasNote: _query.hasNote,
-      );
-      _selectedIds.clear();
-    });
-    _loadItems(refresh: true);
-  }
-
-  void _openFilterSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => FilterSheet(
-        initial: _query,
-        tags: _tags,
-        folders: _folders,
-        colors: _colors,
-        onApply: (q) {
-          setState(() => _query = q);
-          _loadItems(refresh: true);
-        },
-      ),
-    );
-  }
-
-  void _toggleSelected(MobileItem item) {
-    setState(() {
-      if (_selectedIds.contains(item.id)) {
-        _selectedIds.remove(item.id);
-      } else {
-        _selectedIds.add(item.id);
-      }
-    });
-  }
-
-  Future<void> _addSelectedToFolder(MobileFolder folder) async {
-    final ids = _selectedIds.toList();
-    try {
-      for (final id in ids) {
-        await ApiService.instance.addItemToFolder(id, folder.id);
-      }
-      if (!mounted) return;
-      setState(() => _selectedIds.clear());
-      _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已添加到「${folder.name}」')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('添加失败: $e'), backgroundColor: Colors.red.shade700),
-      );
+  void _onLongPressEnd(MobileItem item) {
+    switch (_tileGesture.end()) {
+      case TileGestureResult.quickAction:
+        unawaited(_openItemPreview(item));
+      case TileGestureResult.select:
+        _tileGesture.toggleSelected(item.id);
+      case TileGestureResult.none:
+        break;
     }
   }
 
-  Future<void> _addTagToSelected(String tag) async {
-    final ids = _selectedIds.toList();
-    try {
-      for (final id in ids) {
-        await ApiService.instance.addTagToItem(id, tag);
-      }
-      if (!mounted) return;
-      setState(() => _selectedIds.clear());
-      _markLocalMutation();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已添加标签「$tag」')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('添加标签失败: $e'), backgroundColor: Colors.red.shade700),
-      );
-    }
-  }
-
-  Future<void> _pickFolderForSelection() async {
-    final flat = _folders.expand((f) => f.flatten()).toList();
-    if (flat.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('还没有文件夹')));
-      return;
-    }
-    final chosen = await showModalBottomSheet<MobileFolder>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          children: [
-            const ListTile(title: Text('添加到文件夹')),
-            for (final f in flat)
-              ListTile(
-                leading: const Icon(Icons.folder_outlined),
-                title: Text(f.name),
-                onTap: () => Navigator.pop(ctx, f),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (chosen != null) await _addSelectedToFolder(chosen);
-  }
-
-  Future<void> _pickTagForSelection() async {
-    String? chosen;
-    if (_tags.isNotEmpty) {
-      chosen = await showModalBottomSheet<String>(
-        context: context,
-        builder: (ctx) => SafeArea(
-          child: ListView(
-            children: [
-              const ListTile(title: Text('添加标签')),
-              for (final t in _tags)
-                ListTile(
-                  leading: const Icon(Icons.label_outline),
-                  title: Text(t.name),
-                  onTap: () => Navigator.pop(ctx, t.name),
-                ),
-              ListTile(
-                leading: const Icon(Icons.add),
-                title: const Text('新建标签'),
-                onTap: () => Navigator.pop(ctx, '__new__'),
-              ),
-            ],
-          ),
-        ),
-      );
-    } else {
-      chosen = '__new__';
-    }
-    if (chosen == '__new__') {
-      final controller = TextEditingController();
-      chosen = await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('新建标签'),
-          content: TextField(controller: controller, autofocus: true),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, controller.text.trim()), child: const Text('添加')),
-          ],
-        ),
-      );
-    }
-    if (chosen != null && chosen.isNotEmpty) await _addTagToSelected(chosen);
-  }
-
-  Map<String, List<MobileItem>> _groupItemsByMonth(List<MobileItem> items) {
-    final groups = <String, List<MobileItem>>{};
-    final formatter = DateFormat('MMMM yyyy');
-
-    for (final item in items) {
-      final key = formatter.format(item.dateTime);
-      groups.putIfAbsent(key, () => []).add(item);
-    }
-    return groups;
-  }
+  void _onLongPressCancel(MobileItem item) => _tileGesture.cancel();
 
   Future<void> _openDetail(int globalIndex) async {
-    final deleted = await Navigator.of(context).push<bool>(
+    final before = _data.items.length;
+    await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => DetailScreen(
-          items: _items,
-          initialIndex: globalIndex,
-        ),
+        builder: (_) => DetailScreen(items: _data.items, initialIndex: globalIndex),
       ),
     );
-    if (deleted == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已移入废纸篓')),
-      );
+    if (mounted && _data.items.length != before) {
       _markLocalMutation();
-      unawaited(_reloadWindow());
+      unawaited(_data.reloadWindow());
     }
   }
 
-  Future<void> _openItemPreview(MobileItem item, int globalIndex) async {
-    if (_previewOpening) return;
-    _previewOpening = true;
+  Future<void> _openItemPreview(MobileItem item) async {
+    if (!_tileGesture.beginPreview()) return;
     final action = await showItemPreviewOverlay(context, item);
-    _previewOpening = false;
-    if (!mounted) return;
-    if (action == null) return;
+    _tileGesture.endPreview();
+    if (!mounted || action == null) return;
 
-    switch (action) {
-      case ItemPreviewAction.viewDetail:
-        await _openDetail(globalIndex);
-      case ItemPreviewAction.copyContent:
-        await _copyItemContent(item);
-      case ItemPreviewAction.download:
-        await _downloadItem(item);
-      case ItemPreviewAction.share:
-        await _shareItem(item);
-      case ItemPreviewAction.delete:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已移入废纸篓')),
-        );
-        _markLocalMutation();
-        await _reloadWindow();
+    if (action == ItemPreviewAction.viewDetail) {
+      final index = _data.items.indexOf(item);
+      if (index >= 0) await _openDetail(index);
+      return;
     }
+    if (action == ItemPreviewAction.delete) {
+      showAppSnack(context, '已移入废纸篓');
+      _markLocalMutation();
+      await _data.reloadWindow();
+      return;
+    }
+    final result = await MediaActions.fromPreview(action, item);
+    if (result != null && mounted) await _runAction(Future.value(result));
   }
 
-  Future<void> _disconnect({bool silent = false}) async {
-    if (!silent) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Disconnect Server'),
-          content: const Text('Disconnect from current Bowerbird desktop server?'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Disconnect')),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-    }
-
-    WebSocketService.instance.disconnect();
-    await ApiService.instance.disconnect();
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const ConnectScreen()),
-      );
-    }
+  Future<void> _runAction(Future<MediaActionResult> action) async {
+    final result = await action;
+    if (!mounted) return;
+    if (result.markedUsed) unawaited(_data.loadHistory());
+    showAppSnack(context, result.message, error: result.error);
   }
 
-  Future<void> _showLibraryPicker() async {
-    List<MobileLibrary> libraries = [];
-    try {
-      libraries = await ApiService.instance.getLibraries();
-    } catch (_) {}
+  // ── 批量操作 / 废纸篓 / 上传 / 连接 ─────────────────────────────────
 
+  /// 批量动作的统一收尾：成功则清空选择并标记本地变更。
+  Future<void> _applyToSelection(Future<ActionResult> action) async {
+    final result = await action;
     if (!mounted) return;
+    if (result.ok) {
+      setState(_tileGesture.clearSelection);
+      _markLocalMutation();
+    }
+    showAppSnack(context, result.message, error: !result.ok);
+  }
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        '切换资源库 / Switch Library',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(ctx),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(),
-                if (libraries.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24.0),
-                    child: Center(child: Text('未发现其他资源库')),
-                  )
-                else
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: libraries.length,
-                      itemBuilder: (tileCtx, i) {
-                        final lib = libraries[i];
-                        return ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: lib.isActive
-                                ? Theme.of(context).colorScheme.primaryContainer
-                                : Theme.of(context).colorScheme.surfaceContainerHighest,
-                            child: Icon(
-                              Icons.photo_library_outlined,
-                              color: lib.isActive
-                                  ? Theme.of(context).colorScheme.primary
-                                  : Theme.of(context).colorScheme.outline,
-                            ),
-                          ),
-                          title: Text(
-                            lib.name,
-                            style: TextStyle(
-                              fontWeight: lib.isActive ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                          subtitle: Text('${lib.itemCount} 个素材 • ${lib.path}'),
-                          trailing: lib.isActive
-                              ? Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary)
-                              : null,
-                          onTap: () async {
-                            Navigator.pop(ctx);
-                            if (!lib.isActive) {
-                              try {
-                                await ApiService.instance.switchLibrary(lib.path);
-                                if (mounted) {
-                                  setState(() => ApiService.instance.libraryName = lib.name);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('已切换至资源库: ${lib.name}')),
-                                  );
-                                  unawaited(_loadNavMetadata());
-                                  _loadItems(refresh: true);
-                                }
-                              } catch (e) {
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('切库失败: $e'), backgroundColor: Colors.red.shade700),
-                                  );
-                                }
-                              }
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
+  Future<void> _restoreItem(MobileItem item) async {
+    final result = await GalleryActions.restore(item);
+    if (!mounted) return;
+    if (result.ok) {
+      _markLocalMutation();
+      _data.removeLocal(item.id);
+      unawaited(_data.loadItems(refresh: true));
+    }
+    showAppSnack(context, result.message, error: !result.ok);
+  }
+
+  Future<void> _confirmEmptyTrash() async {
+    final confirmed = await HomeDialogs.confirmEmptyTrash(context);
+    if (confirmed != true || !mounted) return;
+    final result = await GalleryActions.emptyTrash();
+    if (!mounted) return;
+    if (result.ok) {
+      _markLocalMutation();
+      unawaited(_data.loadItems(refresh: true));
+      unawaited(_data.loadStats());
+    }
+    showAppSnack(context, result.message, error: !result.ok);
+  }
+
+  Future<void> _openFilterSheet() async {
+    final applied = await HomeDialogs.showFilterSheet(
+      context,
+      initial: _data.query,
+      tags: _data.tags,
+      folders: _data.folders,
+      colors: _data.colors,
     );
+    if (applied != null && mounted) _data.applyFilter(applied);
   }
 
   Future<void> _handleUpload() async {
     final paths = await ApiService.instance.pickMediaFiles();
-    if (paths.isEmpty) return;
-
-    if (!mounted) return;
+    if (paths.isEmpty || !mounted) return;
     setState(() => _isUploading = true);
+    HomeDialogs.showUploadProgress(context, count: paths.length);
+    final result = await GalleryActions.upload(paths);
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop();
+    setState(() => _isUploading = false);
+    if (!mounted) return;
+    if (result.error != null) {
+      showAppSnack(context, '上传失败: ${result.error}', error: true);
+    } else {
+      _markLocalMutation();
+      await _data.reloadWindow();
+      if (mounted) showAppSnack(context, '已上传 ${result.count} 个素材');
+    }
+  }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          content: Row(
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Text('正在上传 ${paths.length} 个素材到当前资源库...'),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Future<void> _disconnect({bool silent = false}) async {
+    if (!silent && !await HomeDialogs.confirmDisconnect(context)) return;
+    await ApiService.instance.disconnect();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const ConnectScreen()),
+      (_) => false,
     );
-
-    try {
-      final result = await ApiService.instance.uploadFiles(paths);
-      final count = result.count;
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('成功上传 $count 个素材到当前资源库')),
-        );
-        _markLocalMutation();
-        await _reloadWindow();
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close dialog
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('上传失败: ${e.toString().replaceAll('Exception: ', '')}'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
-    }
   }
 
-  Future<void> _downloadItem(MobileItem item) async {
-    try {
-      final originalUrl = ApiService.instance.getOriginalUrl(item.id);
-      final response = await http.get(
-        Uri.parse(originalUrl),
-        headers: ApiService.instance.authHeaders,
-      ).timeout(const Duration(seconds: 30));
+  void _onMenuSelected(String value) => HomeMenuActions.handle(
+        value,
+        context: context,
+        onRefresh: () => unawaited(_data.loadItems(refresh: true)),
+        onFilter: () => unawaited(_openFilterSheet()),
+        onEmptyTrash: () => unawaited(_confirmEmptyTrash()),
+        onDisconnect: () => unawaited(_disconnect()),
+      );
 
-      if (response.statusCode != 200) {
-        throw Exception('HTTP ${response.statusCode}');
-      }
+  // ── 构建 ────────────────────────────────────────────────────────────
 
-      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
-      await ApiService.instance.saveMediaToGallery(response.bodyBytes, filename, item.mimeType);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已保存至手机相册/下载目录: $filename')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('下载失败: ${e.toString().replaceAll('Exception: ', '')}'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
-    }
-  }
-
-
-  Future<void> _copyItemContent(MobileItem item) async {
-    if (item.size > ApiService.maxClipboardFileBytes) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('文件过大（${item.formattedSize}），请使用分享或下载'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
-      return;
-    }
-    try {
-      await ApiService.instance.copyItemContent(item);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('已复制素材内容，可粘贴到微信等应用')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('复制失败: ${e.toString().replaceAll('Exception: ', '')}'),
-            backgroundColor: Colors.red.shade700,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _shareItem(MobileItem item) async {
-    try {
-      final originalUrl = ApiService.instance.getOriginalUrl(item.id);
-      final response = await http.get(
-        Uri.parse(originalUrl),
-        headers: ApiService.instance.authHeaders,
-      ).timeout(const Duration(seconds: 30));
-
-      if (response.statusCode != 200) {
-        throw Exception('HTTP ${response.statusCode}');
-      }
-
-      final tempDir = await getTemporaryDirectory();
-      final filename = item.filename.isNotEmpty ? item.filename : '${item.id}.${item.extension}';
-      final file = File('${tempDir.path}/$filename');
-      await file.writeAsBytes(response.bodyBytes);
-
-      if (mounted) {
-        final xFile = XFile(file.path, mimeType: item.mimeType);
-        await Share.shareXFiles([xFile], text: item.name.isNotEmpty ? item.name : item.filename);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('分享失败: $e'), backgroundColor: Colors.red.shade700),
-        );
-      }
-    }
-  }
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final grouped = _groupItemsByMonth(_items);
-
-    final drawerWidth = _drawerWidth;
-    final libraryTitle = ApiService.instance.libraryName ?? 'Bowerbird';
-    return Material(
-      color: theme.colorScheme.surface,
-      child: Stack(
-      children: [
-        AnimatedBuilder(
-          animation: _drawer,
-          builder: (context, child) {
-            final t = Curves.easeOutCubic.transform(_drawer.value);
-            return Transform.translate(
-              offset: Offset(drawerWidth * t, 0),
-              child: ClipRRect(
-                borderRadius: BorderRadius.horizontal(
-                  left: Radius.circular(40 * t),
-                ),
-                child: child,
-              ),
-            );
+    final width = MediaQuery.sizeOf(context).width * 2 / 3;
+    return HomeShell(
+      drawerAnimation: _drawer,
+      drawerWidth: width,
+      content: GalleryScaffold(
+        data: _data,
+        zoom: _zoom,
+        tileGesture: _tileGesture,
+        scrollController: _scrollController,
+        selectedIds: _tileGesture.selectedIds,
+        drawerInteractable: _drawerInteractable,
+        isUploading: _isUploading,
+        onDrawerHorizontalUpdate: _onDrawerHorizontalUpdate,
+        onDrawerHorizontalEnd: _onDrawerHorizontalEnd,
+        onRetry: () => unawaited(_data.loadItems(refresh: true)),
+        onTileTap: _onTileTap,
+        onTileSelect: (item) => _tileGesture.toggleSelected(item.id),
+        onTilePreview: (item) => unawaited(_openItemPreview(item)),
+        onLongPressStart: _onLongPressStart,
+        onLongPressMove: _onLongPressMove,
+        onLongPressEnd: _onLongPressEnd,
+        onLongPressCancel: _onLongPressCancel,
+        onClearSelection: () => setState(_tileGesture.clearSelection),
+        onAddTag: () => unawaited(HomeDialogs.pickTagAnd(
+          context,
+          _data.tags,
+          (tag) => _applyToSelection(GalleryActions.addTag(_tileGesture.selectedIds, tag)),
+        )),
+        onAddToFolder: () => unawaited(HomeDialogs.pickFolderAnd(
+          context,
+          _data.folders,
+          (folder) => _applyToSelection(
+            GalleryActions.addToFolder(_tileGesture.selectedIds, folder),
+          ),
+        )),
+        onUpload: () => unawaited(_handleUpload()),
+      ),
+      data: _data,
+      libraryName: ApiService.instance.libraryName ?? 'Bowerbird',
+      inboxCount: _inboxCount,
+      onOpenDrawer: () => _snapDrawer(open: !_drawerOpen),
+      onSearch: () => HomeNavigation.openSearch(context),
+      onMenuSelected: _onMenuSelected,
+      onSelectCollection: (v) => _selectSidebar(() => _data.selectCollection(v)),
+      onSelectFolder: (id) => _selectSidebar(() => _data.selectFolder(id)),
+      onSwitchLibrary: () => unawaited(
+        HomeNavigation.pickLibrary(
+          context,
+          onSwitched: () {
+            unawaited(_data.loadNavMetadata());
+            unawaited(_data.loadItems(refresh: true));
           },
-          child: Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        centerTitle: true,
-        automaticallyImplyLeading: false,
-        toolbarHeight: kToolbarHeight + 8,
-        flexibleSpace: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                theme.colorScheme.surface,
-                theme.colorScheme.surface,
-                theme.colorScheme.surface.withValues(alpha: 0),
-              ],
-              stops: const [0, 0.45, 1],
-            ),
-          ),
-        ),
-        title: Text(
-          libraryTitle,
-          style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 17),
-          overflow: TextOverflow.ellipsis,
         ),
       ),
-      body: GestureDetector(
-              onHorizontalDragUpdate: _drawerInteractable ? _onDrawerHorizontalUpdate : null,
-              onHorizontalDragEnd: _drawerInteractable ? _onDrawerHorizontalEnd : null,
-              onScaleStart: (details) {
-                if (details.pointerCount >= 2) {
-                  _pinchStartScale = _gridScale;
-                }
-              },
-              onScaleUpdate: (details) {
-                if (details.pointerCount < 2) return;
-                final next = (_pinchStartScale / details.scale).clamp(2.0, 5.0);
-                if ((next - _gridScale).abs() >= 0.15) {
-                  setState(() => _gridScale = next);
-                }
-              },
-              child: RefreshIndicator(
-        onRefresh: () => _loadItems(refresh: true),
-        child: _errorMessage != null && _items.isEmpty
-            ? Center(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(24, MediaQuery.paddingOf(context).top + kToolbarHeight, 24, 24),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_off, size: 64, color: theme.colorScheme.error),
-                      const SizedBox(height: 16),
-                      Text(
-                        _errorMessage!,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () => _loadItems(refresh: true),
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            : _items.isEmpty && !_isLoading
-                ? Center(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(32, MediaQuery.paddingOf(context).top + kToolbarHeight, 32, 32),
-                      child: Text(
-                        '资料库是空的',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: theme.colorScheme.outline,
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                  )
-                : CustomScrollView(
-                    controller: _scrollController,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      SliverToBoxAdapter(
-                        child: SizedBox(height: MediaQuery.paddingOf(context).top + kToolbarHeight),
-                      ),
-                      ...grouped.entries.expand((entry) {
-                        final monthName = entry.key;
-                        final monthItems = entry.value;
-
-                        return [
-                          // Month Section Header
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    monthName,
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                  Text(
-                                    '${monthItems.length}',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.outline,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          // 3-Column Square Grid
-                          SliverPadding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            sliver: SliverGrid(
-                              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: _crossAxisCount,
-                                crossAxisSpacing: 8,
-                                mainAxisSpacing: 8,
-                              ),
-                              delegate: SliverChildBuilderDelegate(
-                                (context, index) {
-                                  final item = monthItems[index];
-                                  final globalIndex = _items.indexOf(item);
-                                  final useAnimatedGif = item.isGif && item.size <= _gifAnimationMaxBytes;
-
-                                  final selected = _selectedIds.contains(item.id);
-                                  return GestureDetector(
-                                    onTap: () {
-                                      if (_selectedIds.isNotEmpty) {
-                                        _toggleSelected(item);
-                                      } else {
-                                        _openDetail(globalIndex);
-                                      }
-                                    },
-                                    onLongPress: () {
-                                      if (_selectedIds.isEmpty) {
-                                        _toggleSelected(item);
-                                      }
-                                    },
-                                    onVerticalDragStart: _selectedIds.isNotEmpty
-                                        ? null
-                                        : (_) {},
-                                    onVerticalDragUpdate: _selectedIds.isNotEmpty
-                                        ? null
-                                        : (details) {
-                                            if (details.delta.dy < -6) {
-                                              _openItemPreview(item, globalIndex);
-                                            }
-                                          },
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(AppRadii.card),
-                                      child: DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          border: Border.all(color: theme.dividerColor),
-                                          borderRadius: BorderRadius.circular(AppRadii.card),
-                                        ),
-                                        child: Stack(
-                                      fit: StackFit.expand,
-                                      children: [
-                                        Hero(
-                                          tag: itemPreviewHeroTag(item.id),
-                                          child: Image.network(
-                                            useAnimatedGif
-                                                ? ApiService.instance.getOriginalUrl(item.id)
-                                                : ApiService.instance.getThumbnailUrl(item.id),
-                                            fit: BoxFit.cover,
-                                            headers: ApiService.instance.authHeaders,
-                                            cacheWidth: useAnimatedGif ? 400 : null,
-                                            loadingBuilder: (context, child, progress) {
-                                              if (progress == null) return child;
-                                              return Container(
-                                                color: theme.colorScheme.surfaceContainerHighest,
-                                                child: Center(
-                                                  child: SizedBox(
-                                                    width: 20,
-                                                    height: 20,
-                                                    child: CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      value: progress.expectedTotalBytes != null
-                                                          ? progress.cumulativeBytesLoaded /
-                                                              progress.expectedTotalBytes!
-                                                          : null,
-                                                    ),
-                                                  ),
-                                                ),
-                                              );
-                                            },
-                                            errorBuilder: (context, error, stackTrace) {
-                                              return Container(
-                                                color: theme.colorScheme.surfaceContainerHighest,
-                                                child: Icon(
-                                                  Icons.broken_image_outlined,
-                                                  color: theme.colorScheme.outline,
-                                                  size: 28,
-                                                ),
-                                              );
-                                            },
-                                          ),
-                                        ),
-                                        if (item.isVideo)
-                                          Positioned(
-                                            top: 4,
-                                            right: 4,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                                              ),
-                                              child: const Icon(
-                                                Icons.play_arrow,
-                                                color: Colors.white,
-                                                size: 14,
-                                              ),
-                                            ),
-                                          ),
-                                        if (item.isGif)
-                                          Positioned(
-                                            top: 4,
-                                            left: 4,
-                                            child: Container(
-                                              padding: const EdgeInsets.symmetric(
-                                                horizontal: 4,
-                                                vertical: 1,
-                                              ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                                              ),
-                                              child: const Text(
-                                                'GIF',
-                                                style: TextStyle(
-                                                  color: Colors.white,
-                                                  fontSize: 9,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        if (item.isAudio)
-                                          Positioned(
-                                            top: 4,
-                                            right: 4,
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black54,
-                                                borderRadius: BorderRadius.circular(AppRadii.chipSmall),
-                                              ),
-                                              child: const Icon(
-                                                Icons.audiotrack,
-                                                color: Colors.white,
-                                                size: 14,
-                                              ),
-                                            ),
-                                          ),
-                                        if (ShareTagService.instance.isMarked(item.id))
-                                          const Positioned(
-                                            left: 4,
-                                            bottom: 4,
-                                            child: ShareTagBadge(),
-                                          ),
-                                        if (selected)
-                                          Container(
-                                            color: Colors.black38,
-                                            alignment: Alignment.topRight,
-                                            padding: const EdgeInsets.all(6),
-                                            child: const Icon(Icons.check_circle, color: AppColors.accent),
-                                          ),
-                                      ],
-                                    ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                                childCount: monthItems.length,
-                              ),
-                            ),
-                          ),
-                        ];
-                      }),
-
-                      // Loading More Indicator
-                      if (_isLoading && _items.isNotEmpty)
-                        const SliverToBoxAdapter(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 24),
-                            child: Center(
-                              child: SizedBox(
-                                width: 24,
-                                height: 24,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            ),
-                          ),
-                        ),
-
-                      const SliverToBoxAdapter(
-                        child: SizedBox(height: 32),
-                      ),
-                    ],
-                  ),
-      ),
-            ),
-      bottomNavigationBar: _selectedIds.isEmpty
-          ? null
-          : SafeArea(
-              child: Material(
-                color: theme.colorScheme.surface,
-                elevation: 0,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border(top: BorderSide(color: theme.dividerColor)),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Text('已选 ${_selectedIds.length}'),
-                      const Spacer(),
-                      TextButton(onPressed: () => setState(() => _selectedIds.clear()), child: const Text('取消')),
-                      FilledButton.tonal(
-                        onPressed: _pickTagForSelection,
-                        child: const Text('加标签'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: _pickFolderForSelection,
-                        child: const Text('添加到…'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'upload_fab',
-        tooltip: '上传素材到电脑',
-        onPressed: _isUploading ? null : _handleUpload,
-        child: const Icon(Icons.add_photo_alternate_rounded),
-      ),
-        ),
-        ),
-        Positioned(
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: drawerWidth,
-          child: AnimatedBuilder(
-            animation: _drawer,
-            builder: (context, child) {
-              final t = Curves.easeOutCubic.transform(_drawer.value);
-              return Transform.translate(
-                offset: Offset(drawerWidth * (t - 1), 0),
-                child: child,
-              );
-            },
-            child: GestureDetector(
-              onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
-              onHorizontalDragEnd: _onDrawerHorizontalEnd,
-              child: FolderDrawer(
-                folders: _folders,
-                selectedFolderId: _query.folder,
-                totalCount: _totalCount,
-                onSelect: _selectFolder,
-                libraryName: libraryTitle,
-                onSwitchLibrary: _showLibraryPicker,
-                onSearch: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SearchScreen()),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-        Positioned.fill(
-          child: AnimatedBuilder(
-            animation: _drawer,
-            builder: (context, _) {
-              final t = Curves.easeOutCubic.transform(_drawer.value);
-              return IgnorePointer(
-                ignoring: t <= 0,
-                child: Padding(
-                  padding: EdgeInsets.only(left: drawerWidth * t),
-                  child: GestureDetector(
-                    onTap: () => _snapDrawer(open: false),
-                    onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
-                    onHorizontalDragEnd: _onDrawerHorizontalEnd,
-                    child: ColoredBox(
-                      color: Colors.black.withValues(alpha: 0.28 * t),
-                      child: const SizedBox.expand(),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: AnimatedBuilder(
-            animation: _drawer,
-            builder: (context, child) {
-              final t = Curves.easeOutCubic.transform(_drawer.value);
-              return Transform.translate(
-                offset: Offset(drawerWidth * t, 0),
-                child: child,
-              );
-            },
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    theme.colorScheme.surface,
-                    theme.colorScheme.surface,
-                    theme.colorScheme.surface.withValues(alpha: 0),
-                  ],
-                  stops: const [0, 0.55, 1],
-                ),
-              ),
-              child: SafeArea(
-            bottom: false,
-            child: SizedBox(
-              height: kToolbarHeight + 8,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Row(
-                  children: [
-                    _roundIconButton(
-                      icon: Icons.folder_outlined,
-                      tooltip: '文件夹',
-                      onPressed: () => _snapDrawer(open: !_drawerOpen),
-                    ),
-                    const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: _roundIconButton(
-                        icon: Icons.search,
-                        tooltip: '搜索',
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const SearchScreen()),
-                          );
-                        },
-                      ),
-                    ),
-                    PopupMenuButton<String>(
-                      tooltip: '更多',
-                      offset: const Offset(0, 48),
-                      padding: EdgeInsets.zero,
-                      onSelected: (value) {
-                        switch (value) {
-                          case 'filter':
-                            _openFilterSheet();
-                          case 'inbox':
-                            Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const InboxScreen()),
-                            );
-                          case 'disconnect':
-                            _disconnect();
-                        }
-                      },
-                      itemBuilder: (context) => [
-                        PopupMenuItem(
-                          value: 'filter',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.filter_list, size: 20),
-                              const SizedBox(width: 12),
-                              const Text('筛选'),
-                              if (_query.toQueryString().isNotEmpty) ...[
-                                const Spacer(),
-                                Icon(Icons.circle, size: 8, color: theme.colorScheme.primary),
-                              ],
-                            ],
-                          ),
-                        ),
-                        PopupMenuItem(
-                          value: 'inbox',
-                          child: Row(
-                            children: [
-                              const Icon(Icons.inbox_outlined, size: 20),
-                              const SizedBox(width: 12),
-                              const Text('收件箱'),
-                              if (_inboxCount > 0) ...[
-                                const Spacer(),
-                                Text('$_inboxCount'),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const PopupMenuItem(
-                          value: 'disconnect',
-                          child: Row(
-                            children: [
-                              Icon(Icons.wifi_off_outlined, size: 20),
-                              SizedBox(width: 12),
-                              Text('断开连接'),
-                            ],
-                          ),
-                        ),
-                      ],
-                      child: Material(
-                        color: theme.colorScheme.surface,
-                        elevation: 0,
-                        shadowColor: Colors.transparent,
-                        shape: CircleBorder(
-                          side: BorderSide(color: theme.colorScheme.surfaceContainerLow),
-                        ),
-                        child: const SizedBox(
-                          width: 48,
-                          height: 48,
-                          child: Icon(Icons.more_horiz, size: 24),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            ),
-            ),
-          ),
-        ),
-      ],
-    ),
+      onCloseDrawer: () => _snapDrawer(open: false),
+      onHorizontalDragUpdate: _onDrawerHorizontalUpdate,
+      onHorizontalDragEnd: _onDrawerHorizontalEnd,
     );
   }
+
+  /// 侧边栏选择后关闭抽屉再切换视图。
+  void _selectSidebar(VoidCallback change) {
+    _snapDrawer(open: false);
+    change();
+  }
+
 }

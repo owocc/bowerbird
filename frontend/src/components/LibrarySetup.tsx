@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
+import { default as FolderPlus } from "~icons/ri/folder-add-line";
+import { default as FolderOpen } from "~icons/ri/folder-open-line";
+import { default as Folder } from "~icons/ri/folder-line";
+import { default as AlertCircle } from "~icons/ri/error-warning-line";
+import { default as ArrowLeft } from "~icons/ri/arrow-left-line";
+import { default as ArrowRight } from "~icons/ri/arrow-right-line";
+import { default as Settings } from "~icons/ri/settings-line";
+import { default as Layers3 } from "~icons/ri/apps-2-line";
 import { useTranslation } from "react-i18next";
-import {
-  FolderPlus,
-  FolderOpen,
-  Folder,
-  AlertCircle,
-  ArrowLeft,
-  ArrowRight,
-  Settings,
-  Layers3,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppMenuButton } from "@/components/AppMenuButton";
@@ -176,7 +174,10 @@ export function LibrarySetup({ onLibraryOpened }: LibrarySetupProps) {
   };
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-background flex flex-col items-center justify-center p-6 select-none wails-no-drag">
+    <div
+      data-slot="page-root"
+      className="relative h-screen w-screen overflow-hidden flex flex-col items-center justify-center p-6 select-none wails-no-drag"
+    >
       {/* Top titlebar drag area */}
       <div className="absolute top-0 left-0 right-0 h-(--titlebar-height) flex items-center px-3 z-10 wails-drag">
         <MacTrafficLightSpacer className="w-[80px] h-(--titlebar-height) shrink-0" />

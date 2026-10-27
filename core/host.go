@@ -64,6 +64,12 @@ type Host interface {
 	// colour mode ("dark", "light", or "system").
 	ApplyTheme(theme string)
 
+	// ApplyVibrancy turns the blurred material behind every window on or off.
+	// Windows show it wherever the page draws no background, which is why the
+	// frontend switches the body and sidebar fills to transparent when it is
+	// on. A host without materials (Linux) simply ignores it.
+	ApplyVibrancy(enabled bool)
+
 	// EnterLightweightMode destroys every webview window and leaves only the
 	// Go process (tray, API, capture) running.
 	EnterLightweightMode()

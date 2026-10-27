@@ -1,6 +1,9 @@
 import * as React from "react";
+import { default as Download } from "~icons/ri/download-line";
+import { default as AlertCircle } from "~icons/ri/error-warning-line";
+import { default as Sparkles } from "~icons/ri/sparkling-line";
+import { default as Loader2 } from "~icons/ri/loader-4-line";
 import { Events } from "@/lib/host-runtime";
-import { Download, AlertCircle, Sparkles, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,

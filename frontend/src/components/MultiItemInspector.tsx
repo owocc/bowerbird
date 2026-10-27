@@ -1,13 +1,11 @@
 import React, { useState, useMemo } from "react";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as X } from "~icons/ri/close-line";
 import { useTranslation } from "react-i18next";
-import {
-  Folder as FolderIcon,
-  Plus,
-  Tag as TagIcon,
-  Star,
-  Check,
-  X,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -107,7 +105,10 @@ export const MultiItemInspector = React.memo(function MultiItemInspector({
         )
       : [];
   return (
-    <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
+    <aside
+      data-slot="content-surface"
+      className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden"
+    >
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Stacked preview of the last 6 selected items in selection order */}
         <div className="relative w-full h-44 flex items-center justify-center my-1 select-none">

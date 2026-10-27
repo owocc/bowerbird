@@ -22,12 +22,32 @@ class AppColors {
   static const accentHover = Color(0xFF0D8A6D);
 
   static const error = Color(0xFFB42318);
+
+  /// 次级色（深色模式）：比页面背景（纯黑）略亮的浮层底色。
+  /// 按钮、胶囊、抽屉、弹出菜单等"浮在内容之上"的表面统一用它。
+  static const darkElevatedSurface = Color(0xFF353638);
+
+  /// 次级色（浅色模式）：与页面同色，靠阴影区分层次。
+  static const lightElevatedSurface = Color(0xFFFFFFFF);
 }
+
+/// 次级色：浮层表面（按钮 / 胶囊 / 抽屉 / 弹出菜单 / 底部弹层）的统一底色。
+///
+/// 浅色模式用页面 surface，深色模式用专用灰 #353638，与纯黑背景区分开。
+Color elevatedSurfaceColor(ThemeData theme) => theme.brightness == Brightness.dark
+    ? AppColors.darkElevatedSurface
+    : theme.colorScheme.surface;
 
 class AppRadii {
   static const pill = 9999.0;
   static const card = 12.0;
   static const cardLarge = 16.0;
+
+  /// 弹出菜单（dropdown）的圆角：比卡片更大，贴近系统浮层的观感。
+  static const menu = 26.0;
+
+  /// 底部下拉弹窗（bottom sheet）的顶部圆角：比菜单更圆，接近系统 sheet。
+  static const sheet = 36.0;
   static const chipSmall = 4.0;
   static const code = 8.0;
 }
@@ -142,10 +162,13 @@ class AppTheme {
         foregroundColor: text,
         elevation: 0,
         scrolledUnderElevation: 0,
+        // 不绘制 M3 的滚动下沿分隔线/染色
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        shape: const RoundedRectangleBorder(),
         centerTitle: true,
         titleTextStyle: textTheme.titleMedium,
         iconTheme: IconThemeData(color: text),
-        surfaceTintColor: Colors.transparent,
       ),
       chipTheme: ChipThemeData(
         shape: pillShape,
@@ -233,11 +256,16 @@ class AppTheme {
         shadowColor: Colors.black.withValues(alpha: 0.10),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: background,
-        modalBackgroundColor: background,
+        backgroundColor: brightness == Brightness.dark
+            ? AppColors.darkElevatedSurface
+            : scheme.surface,
+        modalBackgroundColor: brightness == Brightness.dark
+            ? AppColors.darkElevatedSurface
+            : scheme.surface,
         surfaceTintColor: Colors.transparent,
+        // 下拉弹窗顶部使用更大的圆角（36dp）
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.cardLarge)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadii.sheet)),
         ),
         elevation: 8,
         showDragHandle: false,
@@ -251,6 +279,23 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadii.card)),
       ),
       dividerTheme: DividerThemeData(color: divider, space: 1, thickness: 1),
+      // 展开的菜单与 header 按钮同一套视觉：同色背景、大圆角、无描边、
+      // 10% 黑色大阴影（elevation 只决定阴影扩散范围，颜色由 shadowColor 决定）。
+      popupMenuTheme: PopupMenuThemeData(
+        color: brightness == Brightness.dark
+            ? AppColors.darkElevatedSurface
+            : scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 8,
+        shadowColor: Colors.black.withValues(alpha: 0.10),
+        position: PopupMenuPosition.under,
+        // 收紧菜单外留白（默认 8，这里只留 4，配合更紧凑的行高）
+        menuPadding: const EdgeInsets.symmetric(vertical: 4),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadii.menu),
+        ),
+        labelTextStyle: WidgetStatePropertyAll(textTheme.bodyMedium),
+      ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(color: AppColors.accent),
       listTileTheme: ListTileThemeData(
         selectedColor: AppColors.accent,

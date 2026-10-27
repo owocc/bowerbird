@@ -96,6 +96,7 @@ export function SidebarProvider({
   return (
     <SidebarContext.Provider value={contextValue}>
       <div
+        data-slot="sidebar-wrapper"
         style={
           {
             "--sidebar-width": SIDEBAR_WIDTH,
@@ -133,6 +134,7 @@ export function Sidebar({
 
   return (
     <aside
+      data-slot="sidebar"
       data-state={state}
       data-collapsible={state === "collapsed" ? collapsible : ""}
       data-variant={variant}
@@ -201,6 +203,7 @@ export function SidebarRail({
 export function SidebarInset({ className, ...props }: React.ComponentProps<"main">) {
   return (
     <main
+      data-slot="sidebar-inset"
       className={cn(
         "relative flex min-h-svh flex-1 flex-col bg-background overflow-hidden",
         className

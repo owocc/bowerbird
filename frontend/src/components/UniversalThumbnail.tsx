@@ -1,14 +1,12 @@
 import React, { useState } from "react";
-import {
-  FileImage,
-  FileVideo,
-  FileAudio,
-  FileText,
-  FileArchive,
-  FileCode,
-  FileSpreadsheet,
-  File,
-} from "lucide-react";
+import { default as FileImage } from "~icons/ri/file-image-line";
+import { default as FileVideo } from "~icons/ri/file-video-line";
+import { default as FileAudio } from "~icons/ri/file-music-line";
+import { default as FileText } from "~icons/ri/file-text-line";
+import { default as FileArchive } from "~icons/ri/file-zip-line";
+import { default as FileCode } from "~icons/ri/file-code-line";
+import { default as FileSpreadsheet } from "~icons/ri/file-excel-line";
+import { default as File } from "~icons/ri/file-line";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { getFileCategory } from "@/lib/formatters";
 import type { ThumbnailQuality } from "@/lib/gallery-display";

@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { default as X } from "~icons/ri/close-line";
+import { default as Copy } from "~icons/ri/file-copy-line";
+import { default as Check } from "~icons/ri/check-line";
+import { default as FolderIcon } from "~icons/ri/folder-line";
+import { default as Plus } from "~icons/ri/add-line";
+import { default as HardDrive } from "~icons/ri/hard-drive-line";
+import { default as Star } from "~icons/ri/star-line";
+import { default as TagIcon } from "~icons/ri/price-tag-line";
+import { default as ExternalLink } from "~icons/ri/external-link-line";
+import { default as LinkIcon } from "~icons/ri/link";
+import { default as FileText } from "~icons/ri/file-text-line";
 import { useTranslation } from "react-i18next";
-import {
-  X,
-  Copy,
-  Check,
-  Folder as FolderIcon,
-  Plus,
-  HardDrive,
-  Star,
-  Tag as TagIcon,
-  ExternalLink,
-  Link as LinkIcon,
-  FileText,
-} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -102,13 +100,7 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
   usePreviewPlugins();
-  const { theme } = useTheme();
-  const isDark =
-    theme === "dark" ||
-    (theme === "system" &&
-      typeof window !== "undefined" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const resolvedTheme = isDark ? "dark" : "light";
+  const { resolvedTheme } = useTheme();
   const [copiedPath, setCopiedPath] = useState(false);
   const [copiedHex, setCopiedHex] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -170,7 +162,10 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   // Empty state: clean accordion summary without heavy cards
   if (!item) {
     return (
-      <aside className="w-full h-full border-l-0 bg-sidebar/30 flex flex-col select-none overflow-y-auto">
+      <aside
+        data-slot="content-surface"
+        className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-y-auto"
+      >
         <div className="p-4 space-y-4 flex-1 text-xs">
           <div className="flex items-center gap-2.5 py-2">
             <div className="size-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold shrink-0">
@@ -317,7 +312,10 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   );
 
   return (
-    <aside className="w-full h-full border-l-0 bg-sidebar/40 flex flex-col select-none overflow-hidden">
+    <aside
+      data-slot="content-surface"
+      className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden"
+    >
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}
         <div className="w-full flex items-center justify-center">

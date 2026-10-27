@@ -4,9 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import '../models/item.dart';
-import 'item_query.dart';
 
 class ApiService {
   static final ApiService instance = ApiService._internal();
@@ -25,6 +23,28 @@ class ApiService {
   /// null = not probed yet, false = desktop lacks /api/v1/query.
   bool? _querySupported;
   bool get queryApiSupported => _querySupported != false;
+
+  /// 解码 `{total, items}` 响应（供 extension 复用）。
+  ({int total, List<MobileItem> items}) decodeItemsPage(http.Response response) {
+    final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    final total = (json['total'] as num?)?.toInt() ?? 0;
+    final rawItems = json['items'] as List<dynamic>? ?? [];
+    final items = rawItems.map((e) => MobileItem.fromJson(e as Map<String, dynamic>)).toList();
+    return (total: total, items: items);
+  }
+
+  /// 供 extension（clipboard / upload）调用原生桥。
+  Future<T?> nativeBridgeInvoke<T>(String method, [dynamic args]) =>
+      _nativeBridge.invokeMethod<T>(method, args);
+
+  /// 供 extension（api_items / api_metadata）读写查询能力标记。
+  bool get querySupportedRaw => _querySupported != false;
+  set querySupportedRaw(bool value) => _querySupported = value;
+
+  /// 供 extension 使用的 baseUrl/token 校验。
+  void ensureConfigured() {
+    if (baseUrl == null) throw Exception('Base URL is not configured');
+  }
 
   /// Re-probes the capability after pairing or reconnecting.
   void resetQueryCapability() {
@@ -182,333 +202,28 @@ class ApiService {
       throw PairingException(PairingErrorType.unknown, '配对失败: HTTP ${response.statusCode}');
     }
   }
-
-  /// Executes a query through `POST /api/v1/query`, falling back to the legacy
-  /// `/api/v1/items` endpoint when the desktop build does not expose it.
-  Future<({int total, List<MobileItem> items})> queryItems({
-    required ItemQuery query,
-    String sort = 'desc',
-    int limit = 100,
-    int offset = 0,
-  }) async {
-    if (baseUrl == null) {
-      throw Exception('Base URL is not configured');
-    }
-
-    if (_querySupported != false) {
-      final uri = Uri.parse('$baseUrl/api/v1/query');
-      final response = await http
-          .post(
-            uri,
-            headers: authHeaders,
-            body: jsonEncode({
-              'query': query.toQueryString(),
-              'sort': sort,
-              'offset': offset,
-              'limit': limit,
-            }),
-          )
-          .timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        _querySupported = true;
-        return _decodeItemsPage(response);
-      }
-      if (response.statusCode == 404 || response.statusCode == 405) {
-        _querySupported = false;
-      } else if (response.statusCode == 401) {
-        throw Exception('Unauthorized: please reconnect or re-pair with desktop');
-      } else {
-        throw Exception('Query failed: HTTP ${response.statusCode}');
-      }
-    }
-
-    return getItems(
-      limit: limit,
-      offset: offset,
-      q: query.text,
-      tag: query.tag,
-      folder: query.folder,
-      color: query.color,
-      type: query.type,
-      orientation: query.orientation,
-    );
-  }
-
-  ({int total, List<MobileItem> items}) _decodeItemsPage(http.Response response) {
-    final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    final total = (json['total'] as num?)?.toInt() ?? 0;
-    final rawItems = json['items'] as List<dynamic>? ?? [];
-    final items = rawItems.map((e) => MobileItem.fromJson(e as Map<String, dynamic>)).toList();
-    return (total: total, items: items);
-  }
-  Future<({int total, List<MobileItem> items})> getItems({
-    int limit = 60,
-    int offset = 0,
-    String? q,
-    String? tag,
-    String? folder,
-    String? color,
-    String? type,
-    String? orientation,
-  }) async {
-    if (baseUrl == null) {
-      throw Exception('Base URL is not configured');
-    }
-
-    final queryParams = <String, String>{
-      'limit': limit.toString(),
-      'offset': offset.toString(),
-    };
-    if (q != null && q.trim().isNotEmpty) {
-      queryParams['q'] = q.trim();
-    }
-    if (tag != null && tag.trim().isNotEmpty) {
-      queryParams['tag'] = tag.trim();
-    }
-    if (folder != null && folder.trim().isNotEmpty) {
-      queryParams['folder'] = folder.trim();
-    }
-    if (color != null && color.trim().isNotEmpty) {
-      queryParams['color'] = color.trim();
-    }
-    if (type != null && type.trim().isNotEmpty) {
-      queryParams['type'] = type.trim();
-    }
-    if (orientation != null && orientation.trim().isNotEmpty) {
-      queryParams['orientation'] = orientation.trim();
-    }
-
-    final uri = Uri.parse('$baseUrl/api/v1/items').replace(queryParameters: queryParams);
-    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 15));
-
-    if (response.statusCode == 200) {
-      return _decodeItemsPage(response);
-    } else if (response.statusCode == 401) {
-      throw Exception('Unauthorized: please reconnect or re-pair with desktop');
-    } else {
-      throw Exception('Failed to load items: HTTP ${response.statusCode}');
-    }
-  }
-
-  /// Moves an item into the desktop recycle bin.
-  Future<void> deleteItem(String id) async {
+  /// 从废纸篓恢复一个素材（对应桌面端的「恢复」）。
+  Future<void> restoreItem(String id) async {
     if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/items/$id');
-    final response = await http
-        .delete(uri, headers: authHeaders)
-        .timeout(const Duration(seconds: 15));
-
-    switch (response.statusCode) {
-      case 200:
-        return;
-      case 401:
-        throw Exception('授权失效，请重新配对');
-      case 404:
-        throw Exception('素材不存在或已被删除');
-      case 409:
-        throw Exception('该素材已在废纸篓');
-      case 503:
-        throw Exception('桌面端未打开资源库');
-      default:
-        throw Exception('删除失败: HTTP ${response.statusCode}');
+    final uri = Uri.parse('$baseUrl/api/v1/items/$id/restore');
+    final response = await http.post(uri, headers: authHeaders).timeout(const Duration(seconds: 15));
+    if (response.statusCode == 200) return;
+    if (response.statusCode == 401) {
+      throw Exception('授权失效，请重新配对');
     }
+    throw Exception('恢复失败: HTTP ${response.statusCode}');
   }
 
-  static const int maxClipboardFileBytes = 500 * 1024 * 1024;
-
-  /// Downloads the original file into `cache/clipboard/` so it can be handed to
-  /// the Android FileProvider. Streams to disk; never buffers the whole file.
-  Future<File> downloadOriginalToCache(
-    MobileItem item, {
-    void Function(int received, int total)? onProgress,
-  }) async {
+  /// 清空废纸篓（对应桌面端的「清空废纸篓」）。
+  Future<void> emptyTrash() async {
     if (baseUrl == null) throw Exception('Base URL is not configured');
-    if (item.size > maxClipboardFileBytes) {
-      throw Exception('文件过大（${item.formattedSize}），请使用分享或下载');
+    final uri = Uri.parse('$baseUrl/api/v1/items/collection?name=trash');
+    final response = await http.delete(uri, headers: authHeaders).timeout(const Duration(seconds: 30));
+    if (response.statusCode == 200) return;
+    if (response.statusCode == 401) {
+      throw Exception('授权失效，请重新配对');
     }
-
-    final tempDir = await getTemporaryDirectory();
-    final clipboardDir = Directory('${tempDir.path}/clipboard');
-    if (!await clipboardDir.exists()) {
-      await clipboardDir.create(recursive: true);
-    }
-    await _pruneClipboardCache(clipboardDir);
-
-    final filename = _clipboardFileName(item);
-    final file = File('${clipboardDir.path}/$filename');
-    final partial = File('${file.path}.part');
-    final client = http.Client();
-    try {
-      final request = http.Request(
-        'GET',
-        Uri.parse(getOriginalUrl(item.id)),
-      )..headers.addAll(mediaHeaders);
-      final response = await client.send(request).timeout(
-            const Duration(seconds: 30),
-          );
-      if (response.statusCode != 200) {
-        throw Exception('下载失败: HTTP ${response.statusCode}');
-      }
-
-      final total = response.contentLength ?? item.size;
-      var received = 0;
-      final sink = partial.openWrite();
-      try {
-        await for (final chunk in response.stream) {
-          sink.add(chunk);
-          received += chunk.length;
-          onProgress?.call(received, total);
-        }
-        await sink.flush();
-      } finally {
-        await sink.close();
-      }
-
-      if (await file.exists()) await file.delete();
-      await partial.rename(file.path);
-      return file;
-    } catch (e) {
-      if (await partial.exists()) {
-        try {
-          await partial.delete();
-        } catch (_) {}
-      }
-      rethrow;
-    } finally {
-      client.close();
-    }
-  }
-
-  Future<void> _pruneClipboardCache(Directory dir) async {
-    try {
-      final cutoff = DateTime.now().subtract(const Duration(hours: 24));
-      await for (final entry in dir.list()) {
-        if (entry is File && entry.path.endsWith('.part')) continue;
-        try {
-          final stat = await entry.stat();
-          if (stat.modified.isBefore(cutoff)) {
-            await entry.delete();
-          }
-        } catch (_) {}
-      }
-    } catch (_) {}
-  }
-
-  String _clipboardFileName(MobileItem item) {
-    var name = item.filename.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-    if (name.isEmpty) name = item.id;
-    final ext = item.extension.trim();
-    if (ext.isNotEmpty && !name.toLowerCase().endsWith('.${ext.toLowerCase()}')) {
-      name = '$name.$ext';
-    }
-    return name;
-  }
-
-  /// Places a cached file URI on the Android clipboard (ClipData + FileProvider).
-  Future<void> copyFileToClipboard({
-    required String path,
-    required String mimeType,
-    required String displayName,
-  }) async {
-    try {
-      await _nativeBridge.invokeMethod('copyFileToClipboard', {
-        'path': path,
-        'mimeType': mimeType.isNotEmpty ? mimeType : 'application/octet-stream',
-        'displayName': displayName,
-      });
-    } on PlatformException catch (e) {
-      throw Exception('复制失败: ${e.message ?? e.code}');
-    }
-  }
-
-  /// Downloads [item] to the clipboard cache and hands it to the system
-  /// clipboard. Shared by the detail screen and the grid long-press menu.
-  Future<void> copyItemContent(
-    MobileItem item, {
-    void Function(int received, int total)? onProgress,
-  }) async {
-    final file = await downloadOriginalToCache(item, onProgress: onProgress);
-    final displayName = file.uri.pathSegments.isNotEmpty
-        ? file.uri.pathSegments.last
-        : item.filename;
-    await copyFileToClipboard(
-      path: file.path,
-      mimeType: item.mimeType,
-      displayName: displayName,
-    );
-  }
-
-  Future<ItemDetail> getItemDetail(String id) async {
-    if (baseUrl == null) {
-      throw Exception('Base URL is not configured');
-    }
-
-    final uri = Uri.parse('$baseUrl/api/v1/items/$id');
-    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
-
-    if (response.statusCode == 200) {
-      final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      final data = json['data'] as Map<String, dynamic>? ?? json;
-      return ItemDetail.fromJson(data);
-    } else {
-      throw Exception('Failed to load item detail: HTTP ${response.statusCode}');
-    }
-  }
-
-  Future<List<MobileTag>> getTags() async {
-    if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/tags');
-    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
-    if (response.statusCode == 200) {
-      final list = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>? ?? [];
-      return list.map((e) => MobileTag.fromJson(e as Map<String, dynamic>)).toList();
-    }
-    return [];
-  }
-
-  Future<void> addTagToItem(String itemId, String tag) async {
-    if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/items/$itemId/tags');
-    final response = await http
-        .post(uri, headers: authHeaders, body: jsonEncode({'tag': tag}))
-        .timeout(const Duration(seconds: 10));
-    if (response.statusCode != 200) {
-      throw Exception('添加标签失败: HTTP ${response.statusCode}');
-    }
-  }
-
-  Future<void> addItemToFolder(String itemId, String folderId) async {
-    if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/items/$itemId/folders');
-    final response = await http
-        .post(uri, headers: authHeaders, body: jsonEncode({'folderId': folderId}))
-        .timeout(const Duration(seconds: 10));
-    if (response.statusCode != 200) {
-      throw Exception('添加到文件夹失败: HTTP ${response.statusCode}');
-    }
-  }
-
-  Future<List<MobileFolder>> getFolders() async {
-    if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/folders');
-    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
-    if (response.statusCode == 200) {
-      final list = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>? ?? [];
-      return list.map((e) => MobileFolder.fromJson(e as Map<String, dynamic>)).toList();
-    }
-    return [];
-  }
-
-  Future<List<String>> getColors() async {
-    if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/colors');
-    final response = await http.get(uri, headers: authHeaders).timeout(const Duration(seconds: 10));
-    if (response.statusCode == 200) {
-      final list = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>? ?? [];
-      return list.map((e) => e.toString()).toList();
-    }
-    return [];
+    throw Exception('清空废纸篓失败: HTTP ${response.statusCode}');
   }
 
   Future<void> disconnect() async {
@@ -622,90 +337,4 @@ class ApiService {
       throw Exception('Failed to switch library: HTTP ${response.statusCode} - ${response.body}');
     }
   }
-
-  // --- Upload ---
-
-  /// Returns the server-side count plus the created (or deduplicated) item IDs.
-  ///
-  /// The desktop response already carries the imported items
-  /// (`core/mobile_api.go`), which is the authoritative mapping between the
-  /// uploaded file and its content-addressed item ID. IDs are empty when an
-  /// older desktop build omits the `items` array; callers may then fall back
-  /// to hashing the uploaded file locally.
-  Future<UploadResult> uploadFiles(List<String> filePaths) async {
-    if (baseUrl == null) throw Exception('Base URL is not configured');
-    final uri = Uri.parse('$baseUrl/api/v1/upload');
-    final request = http.MultipartRequest('POST', uri);
-    if (token != null && token!.isNotEmpty) {
-      request.headers['Authorization'] = 'Bearer $token';
-    }
-
-    for (final path in filePaths) {
-      final file = File(path);
-      if (await file.exists()) {
-        final multipartFile = await http.MultipartFile.fromPath('file', path);
-        request.files.add(multipartFile);
-      }
-    }
-
-    if (request.files.isEmpty) {
-      throw Exception('No valid files to upload');
-    }
-
-    final streamedResponse = await request.send().timeout(const Duration(minutes: 5));
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode == 200) {
-      try {
-        final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final count = (json['count'] as num?)?.toInt() ?? request.files.length;
-        final itemIds = <String>[];
-        final rawItems = json['items'];
-        if (rawItems is List) {
-          for (final rawItem in rawItems) {
-            if (rawItem is! Map) continue;
-            final id = rawItem['id']?.toString() ?? '';
-            if (id.isNotEmpty) itemIds.add(id);
-          }
-        }
-        return UploadResult(count: count, itemIds: itemIds);
-      } catch (_) {
-        // Upload succeeded even if the body cannot be parsed.
-        return UploadResult(count: request.files.length);
-      }
-    } else {
-      throw Exception('Upload failed: HTTP ${response.statusCode} - ${response.body}');
-    }
-  }
-
-  // --- Native Bridge (File Picker & Gallery Save) ---
-
-  Future<List<String>> pickMediaFiles() async {
-    try {
-      final List<dynamic>? paths = await _nativeBridge.invokeMethod('pickMediaFiles');
-      return paths?.map((e) => e.toString()).toList() ?? [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  Future<String> saveMediaToGallery(Uint8List bytes, String filename, String mimeType) async {
-    try {
-      final String? uri = await _nativeBridge.invokeMethod('saveMediaToGallery', {
-        'bytes': bytes,
-        'filename': filename,
-        'mimeType': mimeType,
-      });
-      return uri ?? '';
-    } catch (e) {
-      throw Exception('Failed to save to gallery: $e');
-    }
-  }
-}
-
-class UploadResult {
-  const UploadResult({required this.count, this.itemIds = const []});
-
-  final int count;
-  final List<String> itemIds;
 }

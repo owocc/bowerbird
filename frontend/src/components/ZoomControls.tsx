@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
+import { default as Check } from "~icons/ri/check-line";
+import { default as ChevronDown } from "~icons/ri/arrow-down-s-line";
 import { useTranslation } from "react-i18next";
 import { Slider } from "@/components/ui/slider";
-import { Check, ChevronDown } from "lucide-react";
 
 export interface ZoomControlsProps {
   scale: number;
