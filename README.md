@@ -1,27 +1,71 @@
-# Bowerbird — Local Asset & Design Library Manager
+<div align="center">
+  <img src="assets/branding/banner.jpg" alt="Bowerbird — a local-first asset and design library manager" width="100%">
+</div>
 
-Bowerbird is a cross-platform desktop digital asset manager built with **mygo (Go)** in webview mode and **React 19 + TypeScript + Tailwind CSS v4**. The desktop shell migrated from Wails v3 to [mygo](https://github.com/egoist/mygo) in `v1.0.0-alpha-4` (see `reports/mygo迁移实施报告.md`); an experimental native-rendering build lives in `cmd/bowerbird-native/`. Every imported asset is stored in an isolated content-addressed directory (`items/<SHA-256>/`) indexed by SQLite and backed by per-item `metadata.json` manifests.
+<h1 align="center">Bowerbird</h1>
+
+<p align="center">
+  <strong>Your design library, on your own disk.</strong><br>
+  A local-first asset manager for people who have too many files and too little patience.
+</p>
 
 ---
 
-## Core Features
+Point Bowerbird at a folder of images and video and it becomes a library: every file is hashed, thumbnailed, palette-extracted and indexed on the spot. No upload, no account, no cloud — just a portable `.library` package you can move between machines, back up, or sync however you like.
 
-1. **Content-Addressed Deduplication & Isolated Storage**
-   - SHA-256 content hashing ensures zero duplicate imports.
-   - Dual-storage model: fast relational queries via `index.db` (SQLite) + portable per-item `metadata.json` and `thumbnail.jpg`.
-2. **Automatic Color Palette & Extended Metadata Extraction**
-   - On import (and automatically in the background for existing libraries), Bowerbird extracts the **dominant color**, a **6-color perceptual palette**, color model, alpha channel presence, aspect ratio, orientation (`landscape` / `portrait` / `square`), resolution (megapixels), and JPEG EXIF camera/capture metadata.
-3. **Pluggable File Preview Architecture (`PreviewPluginRegistry`)**
-   - Built-in preview plugins for **Images** (with damped trackpad pinch-to-zoom, 2-finger pan, and >125% minimap) and **Video** (multi-engine HLS/MPEG-TS/DASH/Native player), plus **System Icon Fallback**.
-   - Built-in core plugins (`builtin.image` and `builtin.video`) are listed in the plugin store with a built-in marker and can be disabled from Settings (`800×650` sidebar layout). The internal fallback plugin remains always on.
-   - Supports both inline workspace preview (`Double-click`) and full-window QuickLook (`Space`).
-4. **Multi-Dimensional Filtering Bar**
-   - Unified dropdown filters for **File Type**, **Color Swatches** (perceptual ΔE matching against preset and library palette colors), **Tags**, **Virtual Folders**, and **Orientation**.
-5. **Precision Trackpad & Canvas Ergonomics**
-   - Two-finger trackpad pinch-to-zoom directly resizes the main justified gallery layout.
-   - Full-canvas rubber-band marquee selection works across any whitespace (padding, row gaps, trailing space) with automatic edge scrolling.
-   - Selection order is preserved as a strict FIFO queue; multi-selection preview stacks the **last 6 selected items** in exact selection order.
-   - Streamlined right inspector using collapsible **Accordion** sections and borderless adaptive previews.
+Bowerbird is a cross-platform desktop app built with **mygo (Go)** in webview mode and **React 19 + TypeScript + Tailwind CSS v4**. The desktop shell is built on [mygo](https://github.com/egoist/mygo); an experimental native-rendering build lives in `cmd/bowerbird-native/`.
+
+## Features
+
+### Import once — and never store a duplicate
+
+- **Content-addressed storage.** Every asset is hashed with SHA-256 and lives in its own isolated directory (`items/<hash>/original.<ext>`), so importing the same file twice costs nothing and two libraries can never disagree about what "the same image" means.
+- **Drag files in from anywhere.** OS-level file drop is routed into the import pipeline with progress events, whether you drop onto the window, the sidebar, or a virtual folder.
+- **Dual storage model.** Fast relational queries come from `index.db` (SQLite), while each asset keeps its own `metadata.json` and `thumbnail.jpg` beside the original — so the library stays self-describing, and the database is a cache rather than the only copy of the truth.
+
+### Find an asset by what it looks like, not what it is called
+
+- **Automatic palette extraction.** On import — and in the background for existing libraries — Bowerbird extracts the dominant color, a 6-color perceptual palette, the color model, alpha-channel presence, aspect ratio, orientation (`landscape` / `portrait` / `square`), resolution in megapixels, and JPEG EXIF camera/capture metadata.
+- **Multi-dimensional filtering.** One filter bar with dropdowns for **File Type**, **Color**, **Tags**, **Virtual Folders** and **Orientation** — and color filtering is done with perceptual ΔE matching, so "roughly this blue" actually returns roughly that blue, against both preset swatches and colors already present in your library.
+- **Virtual folders and tags.** Organize the same asset several ways at once; deleting goes through a trash flow rather than straight off the disk.
+
+### Preview everything without leaving the library
+
+- **Pluggable preview architecture** (`PreviewPluginRegistry`): built-in plugins for **images** and **video**, plus a **system icon fallback** for everything else.
+- **Images** get damped trackpad pinch-to-zoom (25%–800%), 2-finger panning while zoomed, and an interactive minimap past 125%.
+- **Video** gets a multi-engine player (hls.js + mpegts.js + dash.js + HTML5 native) covering HLS, MPEG-TS and DASH, with a shadcn control bar — 0.25x–8x speed, hover volume, ±5s seek, loop, fullscreen — and first-frame palette extraction so video thumbnails match the grid.
+- Two ways to look: inline preview on **double-click**, full-window QuickLook on **Space**.
+
+### A gallery that behaves like a native app
+
+- **Justified layout** that stays pixel-perfect as you resize, with two-finger pinch-to-zoom resizing the gallery itself rather than zooming the page.
+- **Full-canvas marquee selection** works across any whitespace — padding, row gaps, trailing space — with automatic edge scrolling.
+- **Selection order is preserved** as a strict FIFO queue, so a multi-selection preview stacks the **last 6 items in the exact order you picked them**.
+- A right-hand inspector with collapsible **Accordion** sections and borderless adaptive previews, so metadata never crowds the image.
+
+### Drag assets back out into your real workflow
+
+Dragging a file from a webview normally only publishes text formats, so Bowerbird does the platform work itself:
+
+- **Windows** (`core/drag_windows.go`) — cancels the webview drag and builds a shell data object (`SHCreateDataObject` → `CF_HDROP`) for `DoDragDrop` with `DROPEFFECT_COPY`.
+- **macOS** (`core/drag_darwin.go`) — keeps the webview drag session and rewrites its pasteboard to `public.file-url` / `NSFilenamesPboardType`.
+- In-app drop targets use a 10% opacity mask with a dashed border, so your folders stay legible while you aim at them.
+
+### Extend it
+
+- **Preview plugins are first-class.** Register a new viewer for any extension and it shows up in both the modal and the inspector — see [Registering a Custom Preview Plugin](#registering-a-custom-preview-plugin).
+- **A plugin store with a dual-channel repository** (`owocc/bowerbird-plugins`): a compact metadata index on `main`, release zips on GitHub Releases, resolved by the marketplace without a proxy in between.
+- **Built-in plugins are listed and disableable** from Settings, next to installed ones; only the internal fallback plugin is always on.
+
+### Storage you can actually hold
+
+- **A library is a portable package** — the item folders plus `index.db`, nothing more.
+- **Application state stays separate** — global UI settings, logs and installed plugins live in the platform's user data directory (`~/Library/Application Support/bowerbird/`, `%APPDATA%\bowerbird\`, `~/.config/bowerbird/`), so a library stays clean enough to hand to someone else.
+- Settings includes a **Data & Storage** section with one-click shortcuts to reveal both directories in Finder / Explorer.
+
+### Runs where you do
+
+macOS (universal arm64 + amd64), Windows (portable executable and NSIS installer with WebView2 bootstrapping) and Linux — plus a mobile app, a browser extension for capturing assets from the web, a marketplace app and a docs site in the same workspace.
 
 ---
 
