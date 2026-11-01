@@ -1,8 +1,12 @@
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
 <div align="center">
-  <img src="assets/branding/banner.jpg" alt="Bowerbird — a local-first asset and design library manager" width="100%">
+  <img src="assets/branding/banner.jpg" alt="BowerBird — a local-first asset and design library manager" width="100%">
 </div>
 
-<h1 align="center">Bowerbird</h1>
+<h1 align="center">BowerBird</h1>
 
 <p align="center">
   <strong>Your design library, on your own disk.</strong><br>
