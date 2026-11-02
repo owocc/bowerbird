@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events, isDesktopHost } from "@/lib/host-runtime";
 import { isWindows } from "@/lib/platform";
-import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
+import { ImportFiles, ImportFromBase64, ImportFromURL, GetAssetServerPort } from "../../bindings/bowerbird/core/service";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { isInternalDragActive } from "../lib/drag-state";
 import { notifySuccess, notifyError } from "@/lib/notify";
@@ -348,9 +348,56 @@ export function useFileDrop({ onRefresh, onItemsUpserted, onItemsTrashed }: UseF
     };
   }, []);
 
+  // Streaming upload for OS drops on Windows.
+  //
+  // WebView2 claims OS drags over the page, so the File objects the drop handler
+  // sees carry no disk path. Pushing those through the base64 IPC bridge means
+  // building a data URL ~1.37x the file size in the renderer and posting it as a
+  // string: a 300 MB recording froze the window and never finished importing.
+  // The local asset server takes a multipart POST instead and streams each part
+  // to disk, so the bytes never materialise in JS.
+  const uploadFilesToHost = useCallback(
+    async (files: globalThis.File[]): Promise<Item[] | null> => {
+      if (!isDesktopHost() || !isWindows() || files.length === 0) return null;
+
+      let port = 0;
+      try {
+        port = await GetAssetServerPort();
+      } catch (err) {
+        console.warn("asset server port unavailable, falling back to base64 import", err);
+        return null;
+      }
+      if (!port) return null;
+
+      const form = new FormData();
+      for (const file of files) {
+        // Explicit filename keeps the original name; the temp file on the Go
+        // side is named from it, so the item keeps its real name.
+        form.append("files", file, file.name);
+      }
+
+      const response = await fetch(`http://127.0.0.1:${port}/api/item/upload`, {
+        method: "POST",
+        body: form,
+      });
+      if (!response.ok) {
+        throw new Error(`upload failed: HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        status?: string;
+        message?: string;
+        data?: Item[];
+      };
+      if (payload.status !== "success") {
+        throw new Error(payload.message || "upload failed");
+      }
+      return payload.data ?? [];
+    },
+    []
+  );
+
   // Import single File object via FileReader and return its new Item
-  const importFileObject = useCallback(async (file: globalThis.File): Promise<Item | null> => {
-    const { promise, resolve } = Promise.withResolvers<Item | null>();
+  const importFileObject = useCallback(async (file: globalThis.File): Promise<Item | null> => {    const { promise, resolve } = Promise.withResolvers<Item | null>();
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -402,6 +449,7 @@ export function useFileDrop({ onRefresh, onItemsUpserted, onItemsTrashed }: UseF
             notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: ids.length });
             await onRefresh(ids, imported || []);
           }
+          return ids;
         } catch (err) {
           setState({
             status: "idle",
@@ -413,6 +461,36 @@ export function useFileDrop({ onRefresh, onItemsUpserted, onItemsTrashed }: UseF
           notifyError(err);
           return [];
         }
+      }
+
+      // Windows desktop: stream the bytes to the local asset server (see
+      // uploadFilesToHost). Keeps big videos out of the IPC bridge entirely.
+      try {
+        const uploaded = await uploadFilesToHost(files);
+        if (uploaded) {
+          const uploadedIds = uploaded.map((it) => it.id);
+          setState({
+            status: "success",
+            total: uploadedIds.length,
+            current: uploadedIds.length,
+            filename: "",
+            message: t("importing.importedFiles", { count: uploadedIds.length }),
+          });
+          if (uploadedIds.length > 0) {
+            notifySuccess(SuccessCodes.ITEMS_IMPORTED, { count: uploadedIds.length });
+            await onRefresh(uploadedIds, uploaded);
+          }
+          return uploadedIds;
+        }
+      } catch (err) {
+        // Fall through to the base64 path: it still works for small files, and a
+        // plain failure is better than a silent no-op.
+        logDiagnostic(
+          "warn",
+          "drag",
+          "streaming upload failed, falling back to base64",
+          String(err)
+        );
       }
 
       setState({

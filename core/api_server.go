@@ -64,6 +64,10 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/item/addFromURL", s.handleAPIItemAddFromURL)
 	mux.HandleFunc("/api/item/addFromUrl", s.handleAPIItemAddFromURL)
 	mux.HandleFunc("/api/item/addFromBase64", s.handleAPIItemAddFromBase64)
+	// Streaming upload for desktop drag-and-drop: WebView2 hands the page File
+	// objects without disk paths, so the bytes have to come over HTTP rather
+	// than the base64 IPC bridge (which froze the window on large files).
+	mux.HandleFunc("/api/item/upload", s.handleAPIItemUpload)
 	mux.HandleFunc("/api/item/addBookmark", s.handleAPIItemAddBookmark)
 	mux.HandleFunc("/api/item/addFromURLs", s.handleAPIItemAddFromURLs)
 	mux.HandleFunc("/api/items/batch", s.handleAPIItemAddFromURLs)
