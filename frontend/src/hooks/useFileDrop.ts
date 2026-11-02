@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events, isDesktopHost } from "@/lib/host-runtime";
+import { isWindows } from "@/lib/platform";
 import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { isInternalDragActive } from "../lib/drag-state";
@@ -11,6 +12,22 @@ export type DropStatus = "idle" | "dragging-over" | "importing" | "success" | "e
 
 function hostReceivesFileDrops(): boolean {
   return isDesktopHost();
+}
+
+/**
+ * Whether a drop over the webview also reaches the **native** drop handler
+ * (`appHost.attachDrop` → `Service.HandleNativeDrop`), which imports by disk path.
+ *
+ * - macOS: yes. The host view receives the drop even when the page is on top.
+ * - Windows: **no**. WebView2 claims OS drags over the page as its own HTML5 drag
+ *   (that is the default `AllowExternalDrop` behaviour), so the native
+ *   `OnFileDrop` never fires for a drop on the gallery. The page is opaque and
+ *   covers the whole window, so every drop the user makes is one WebView2 ate.
+ *   Wails/mygo does not expose `AllowExternalDrop`, so the only way to import is
+ *   from the DOM event, reading each `File` through the base64 bridge.
+ */
+function hostHandlesDropNatively(): boolean {
+  return hostReceivesFileDrops() && !isWindows();
 }
 
 /**
@@ -40,7 +57,7 @@ function extractDroppedUri(dt: DataTransfer): string {
  * them in the webview drops the import on the floor.
  */
 function isNativeOsFileDrop(dt: DataTransfer): boolean {
-  if (!hostReceivesFileDrops()) return false;
+  if (!hostHandlesDropNatively()) return false;
   const files = dt.files;
   if (!files || files.length === 0) return false;
 
