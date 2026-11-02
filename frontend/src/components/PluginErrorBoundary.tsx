@@ -5,6 +5,7 @@ import { default as EyeOff } from "~icons/ri/eye-close-line";
 import type { ErrorInfo, ReactNode } from "react";
 import { Button } from "@workspace/ui/components/button";
 import { previewRegistry } from "../plugins/preview/registry";
+import { setRemotePluginEnabled } from "../plugins/preview/remote-loader";
 
 export interface PluginErrorBoundaryProps {
   pluginId: string;
@@ -45,7 +46,21 @@ export class PluginErrorBoundary extends Component<
   };
 
   private handleDisable = () => {
-    previewRegistry.setEnabled(this.props.pluginId, false);
+    const pluginId = this.props.pluginId;
+    previewRegistry.setEnabled(pluginId, false);
+
+    // 崩溃禁用也要落盘，否则重启/扫描后会被后端 enabled=true 重新打开并再次崩溃。
+    // builtin 插件没有后端记录，调用会失败，忽略即可。
+    const target = previewRegistry.getAll().find((p) => p.id === pluginId);
+    if (target && !target.builtin) {
+      setRemotePluginEnabled(pluginId, false).catch((err) => {
+        console.warn(
+          `[PluginErrorBoundary] Failed to persist disabled state for "${pluginId}":`,
+          err
+        );
+      });
+    }
+
     this.props.onDisable?.();
   };
 

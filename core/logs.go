@@ -28,7 +28,7 @@ type LogEntry struct {
 	ID         int64  `json:"id"`
 	Timestamp  string `json:"timestamp"`
 	Level      string `json:"level"`    // "info" | "warn" | "error" | "perf"
-	Category   string `json:"category"` // "core" | "perf" | "ui" | "drag" | "asset" | "menu"
+	Category   string `json:"category"` // "core" | "perf" | "ui" | "drag" | "asset" | "menu" | "plugin"
 	Message    string `json:"message"`
 	Detail     string `json:"detail,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`

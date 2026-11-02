@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   definePlugin,
+  type GenerateCoverThumbnailContext,
+  type GeneratedCoverThumbnail,
   type PreviewInspectorProps,
   type PreviewPlugin,
   type PreviewPluginHostAPI,
@@ -479,6 +481,48 @@ function buttonStyle(isDark: boolean): React.CSSProperties {
 
 const PSD_EXTENSIONS = ["psd", "psb"];
 
+/** 画廊封面最长边：够看清楚，也不至于把 8000px 的合成图整张丢进 JPEG 编码。 */
+const MAX_COVER_EDGE = 1024;
+
+/**
+ * 为画廊生成封面缩略图。
+ *
+ * 宿主导入流水线（Go）只能用标准解码器，PSD 解不出来，所以导入后没有 thumbnail.jpg。
+ * 宿主的后台调度器会调用这个钩子，我们直接把文件里的**合成图**缩成 JPEG 交回去，
+ * 由 `api.saveCoverThumbnail` 落盘（顺带提取主色/调色板，画廊立刻有封面）。
+ */
+async function generatePsdCover(
+  ctx: GenerateCoverThumbnailContext,
+): Promise<GeneratedCoverThumbnail | null> {
+  const buffer = await ctx.api.getOriginalFile().fetchArrayBuffer();
+  const { composite, summary } = parsePsd(buffer, { withComposite: true });
+  if (!composite) return null;
+
+  const scale = Math.min(1, MAX_COVER_EDGE / Math.max(composite.width, composite.height));
+  const width = Math.max(1, Math.round(composite.width * scale));
+  const height = Math.max(1, Math.round(composite.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context2d = canvas.getContext("2d");
+  if (!context2d) return null;
+
+  // 合成图可能带透明区域，JPEG 不吃 alpha：先铺白底，避免透明处发黑
+  context2d.fillStyle = "#ffffff";
+  context2d.fillRect(0, 0, width, height);
+  context2d.imageSmoothingEnabled = true;
+  context2d.imageSmoothingQuality = "high";
+  context2d.drawImage(composite, 0, 0, width, height);
+
+  return {
+    dataUrl: canvas.toDataURL("image/jpeg", 0.86),
+    // 回填的是文档原始尺寸（画廊尺寸标签、宽高比筛选都要用）
+    width: summary.width,
+    height: summary.height,
+  };
+}
+
 const psdPreviewPlugin: PreviewPlugin = definePlugin({
   id: "official.psd-preview",
   name: "PSD Preview",
@@ -505,6 +549,7 @@ const psdPreviewPlugin: PreviewPlugin = definePlugin({
   supportsZoom: true,
   Viewport: PsdViewport,
   InspectorPreview: PsdInspectorPreview,
+  generateCoverThumbnail: generatePsdCover,
   contextMenus: [
     {
       id: "psd-copy-summary",

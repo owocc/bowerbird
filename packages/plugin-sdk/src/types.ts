@@ -208,6 +208,27 @@ export interface PluginContextMenuItem<TItem = PluginItem> {
 }
 
 export type PluginKind = "preview" | "metadata";
+
+/**
+ * Cover thumbnail produced by a plugin for a format the host cannot decode natively
+ * (PSD, AI, PDF, ...). `width` / `height` describe the ORIGINAL document dimensions,
+ * not the size of the generated image — the host uses them to backfill item metadata.
+ */
+export interface GeneratedCoverThumbnail {
+  /** data: URL of the generated image (image/jpeg or image/png) */
+  dataUrl: string;
+  /** Original document width in pixels */
+  width: number;
+  /** Original document height in pixels */
+  height: number;
+}
+
+/** Context passed to PreviewPlugin.generateCoverThumbnail. */
+export interface GenerateCoverThumbnailContext<TItem = PluginItem> {
+  item: TItem;
+  api: PreviewPluginHostAPI<TItem>;
+}
+
 export interface PreviewPlugin<TItem = PluginItem> {
   /** Unique identifier of the plugin (e.g. "official.markdown-preview") */
   id: string;
@@ -252,6 +273,14 @@ export interface PreviewPlugin<TItem = PluginItem> {
   InspectorExtension?: React.ComponentType<InspectorExtensionProps<TItem>>;
   /** Registered context menu items for file, folder, and general canvas */
   contextMenus?: PluginContextMenuItem<TItem>[];
+  /**
+   * Optional: generates a cover thumbnail for items this plugin supports but the host
+   * cannot decode natively. The host calls this in the background for items without a
+   * thumbnail, then persists the result via `api.saveCoverThumbnail`.
+   */
+  generateCoverThumbnail?: (
+    ctx: GenerateCoverThumbnailContext<TItem>
+  ) => Promise<GeneratedCoverThumbnail | null> | GeneratedCoverThumbnail | null;
   /** Dynamic context menu item contributor */
   getContextMenuItems?: (
     target: ContextMenuTarget,

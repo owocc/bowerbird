@@ -1,7 +1,7 @@
 import { AppendFrontendLog } from "../../bindings/bowerbird/core/service";
 
 export type LogLevel = "info" | "warn" | "error" | "perf";
-export type LogCategory = "core" | "perf" | "ui" | "drag" | "asset" | "menu";
+export type LogCategory = "core" | "perf" | "ui" | "drag" | "asset" | "menu" | "plugin";
 
 interface QueuedLog {
   level: LogLevel;
