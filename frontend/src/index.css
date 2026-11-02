@@ -6,6 +6,11 @@
 @source ".";
 :root {
   --titlebar-height: 54px;
+  /* Windows 在无边框窗口上把最小化/最大化/关闭画在 webview 右上角。
+     任何贴到窗口右边缘的行都要先让出这块区域，否则自己的按钮会被盖住。
+     数值与 frontend/src/lib/windows.ts 的 WINDOWS_CAPTION 保持一致。 */
+  --windows-caption-width: 138px;
+  --windows-caption-height: 44px;
 }
 
 @theme inline {
