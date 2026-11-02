@@ -53,16 +53,32 @@ export function AppsPage() {
   );
 
   const featuredPlugins = allPlugins.filter((p: MarketplacePlugin) => p.featured);
-  const heroPlugin = featuredPlugins[0] || allPlugins[0];
-  const secondHeroPlugin = featuredPlugins[1] || allPlugins[1] || heroPlugin;
-  const thirdHeroPlugin = featuredPlugins[2] || allPlugins[2] || heroPlugin;
 
+  // 首页分配：每个插件最多出现一次，插件少时不重复展示同一张卡。
+  const usedIds = new Set<string>();
+  const takeHero = (): MarketplacePlugin | undefined => {
+    const next =
+      featuredPlugins.find((p) => !usedIds.has(p.id)) ??
+      allPlugins.find((p) => !usedIds.has(p.id));
+    if (next) usedIds.add(next.id);
+    return next;
+  };
+  const takeList = (preferred: MarketplacePlugin[], limit = 5): MarketplacePlugin[] => {
+    const source = preferred.length > 0 ? preferred : allPlugins;
+    const list = source.filter((p) => !usedIds.has(p.id)).slice(0, limit);
+    for (const p of list) usedIds.add(p.id);
+    return list;
+  };
+
+  const heroPlugin = takeHero();
   // List 1: Preview Plugins
-  const previewList = previewPlugins.length > 0 ? previewPlugins.slice(0, 5) : allPlugins.slice(0, 5);
+  const previewList = takeList(previewPlugins);
+  const secondHeroPlugin = takeHero();
   // List 2: Metadata Plugins
-  const metadataList = metadataPlugins.length > 0 ? metadataPlugins.slice(0, 5) : allPlugins.slice(2, 7);
+  const metadataList = takeList(metadataPlugins);
+  const thirdHeroPlugin = takeHero();
   // List 3: Code & Data Plugins
-  const devDataList = devDataPlugins.length > 0 ? devDataPlugins.slice(0, 5) : allPlugins.slice(4, 9);
+  const devDataList = takeList(devDataPlugins);
 
   const dateString = React.useMemo(() => formatLocalizedDate(new Date(), locale), [locale]);
 
@@ -130,12 +146,13 @@ export function AppsPage() {
           {/* Row 1: Left Wide (Hero Banner 1), Right Narrow (Preview Plugins List) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {heroPlugin && (
-              <div className="lg:col-span-7 flex flex-col">
+              <div className={`flex flex-col ${previewList.length > 0 ? "lg:col-span-7" : "lg:col-span-12"}`}>
                 <HeroFeaturedCard plugin={heroPlugin} tag={t("apps.heroTag1")} />
               </div>
             )}
 
             {/* Right Narrow: Preview Plugins List (5 cols) */}
+            {previewList.length > 0 && (
             <div className="lg:col-span-5 bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border flex flex-col justify-between shadow-xs">
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -205,11 +222,14 @@ export function AppsPage() {
                 </div>
               </div>
             </div>
+            )}
           </div>
 
           {/* Row 2: Reversed! Left Narrow (Metadata Plugins List), Right Wide (Hero Banner 2) */}
+          {(secondHeroPlugin || metadataList.length > 0) && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {/* Left Narrow: Metadata Plugins List (5 cols) */}
+            {metadataList.length > 0 && (
             <div className="lg:col-span-5 bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border flex flex-col justify-between order-2 lg:order-1 shadow-xs">
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -279,24 +299,28 @@ export function AppsPage() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Right Wide: Featured Spotlight Card 2 (7 cols) */}
             {secondHeroPlugin && (
-              <div className="lg:col-span-7 flex flex-col order-1 lg:order-2">
+              <div className={`flex flex-col order-1 lg:order-2 ${metadataList.length > 0 ? "lg:col-span-7" : "lg:col-span-12"}`}>
                 <HeroFeaturedCard plugin={secondHeroPlugin} tag={t("apps.heroTag2")} />
               </div>
             )}
           </div>
+          )}
 
           {/* Row 3: Left Wide (Hero Banner 3), Right Narrow (Dev & Data Plugins List) */}
+          {(thirdHeroPlugin || devDataList.length > 0) && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {thirdHeroPlugin && (
-              <div className="lg:col-span-7 flex flex-col">
+              <div className={`flex flex-col ${devDataList.length > 0 ? "lg:col-span-7" : "lg:col-span-12"}`}>
                 <HeroFeaturedCard plugin={thirdHeroPlugin} tag={t("apps.heroTag3")} />
               </div>
             )}
 
             {/* Right Narrow: Dev & Data Plugins List (5 cols) */}
+            {devDataList.length > 0 && (
             <div className="lg:col-span-5 bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-border flex flex-col justify-between shadow-xs">
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -366,7 +390,9 @@ export function AppsPage() {
                 </div>
               </div>
             </div>
+            )}
           </div>
+          )}
         </div>
       )}
     </div>

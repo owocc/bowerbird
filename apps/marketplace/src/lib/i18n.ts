@@ -2,6 +2,12 @@ import * as React from "react";
 
 export type Locale = "zh" | "en";
 
+/** 本地存储键前缀，与 Bowerbird 主站保持一致。 */
+const STORAGE_PREFIX = "bowerbird";
+
+/** 语言偏好存储键。 */
+export const LOCALE_STORAGE_KEY = `${STORAGE_PREFIX}-web-locale`;
+
 export const MESSAGES: Record<Locale, Record<string, string>> = {
   zh: {
     // Common
@@ -23,6 +29,10 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     language: "语言",
     english: "English",
     chinese: "简体中文",
+    theme: "主题模式",
+    themeSystem: "跟随系统",
+    themeLight: "浅色模式",
+    themeDark: "深色模式",
     viewAll: "查看全部",
     view: "查看详情",
     install: "一键安装",
@@ -89,9 +99,6 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     "appDetail.ratingsCount": "{count} 次安装",
     "appDetail.ageRating": "适用版本",
     "appDetail.sizePlatform": "能力类别",
-    "appDetail.preview": "界面预览",
-    "appDetail.noPreview": "暂无预览截图",
-    "appDetail.noPreviewDesc": "开发者暂未提供此插件的界面预览截图",
     "appDetail.quickAccess": "安装与下载",
     "appDetail.launchOnline": "在线加载",
     "appDetail.aboutApp": "插件介绍与功能特点",
@@ -194,6 +201,10 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     language: "Language",
     english: "English",
     chinese: "简体中文",
+    theme: "Theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
     viewAll: "View All",
     view: "View Details",
     install: "Install",
@@ -260,9 +271,6 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
     "appDetail.ratingsCount": "{count} Installs",
     "appDetail.ageRating": "Target Version",
     "appDetail.sizePlatform": "Kind",
-    "appDetail.preview": "Interface Preview",
-    "appDetail.noPreview": "No preview available",
-    "appDetail.noPreviewDesc": "No preview screenshots have been provided for this plugin yet.",
     "appDetail.quickAccess": "Installation & Download",
     "appDetail.launchOnline": "Load Remotely",
     "appDetail.aboutApp": "Overview & Features",

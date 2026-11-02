@@ -13,20 +13,6 @@ interface Props {
 export function SearchCard({ plugin }: Props) {
   const Icon = getPluginIcon(plugin.iconName);
 
-  const screenshots =
-    plugin.screenshots && plugin.screenshots.length > 0
-      ? plugin.screenshots
-      : plugin.cover_url
-      ? [plugin.cover_url]
-      : [];
-
-  const gridColsClass =
-    screenshots.length === 1
-      ? "grid-cols-1"
-      : screenshots.length === 2
-      ? "grid-cols-2"
-      : "grid-cols-1 sm:grid-cols-3";
-
   return (
     <div className="bg-card rounded-2xl sm:rounded-3xl p-4 sm:p-5 border border-border hover:border-neutral-400/70 transition-colors flex flex-col justify-between group shadow-xs">
       {/* Top Row: Icon, Title, Rating, Install/View Button */}
@@ -65,11 +51,15 @@ export function SearchCard({ plugin }: Props) {
             </div>
 
             <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1">
-              <span className="flex items-center gap-0.5 text-[#FF9500] font-semibold">
-                <Star className="w-3 h-3 fill-[#FF9500]" />
-                {plugin.rating}
-              </span>
-              <span>•</span>
+              {plugin.rating > 0 && (
+                <>
+                  <span className="flex items-center gap-0.5 text-[#FF9500] font-semibold">
+                    <Star className="w-3 h-3 fill-[#FF9500]" />
+                    {plugin.rating}
+                  </span>
+                  <span>•</span>
+                </>
+              )}
               <span>{plugin.downloadsCount} 次安装</span>
             </div>
           </div>
@@ -81,31 +71,9 @@ export function SearchCard({ plugin }: Props) {
       </div>
 
       {/* Description */}
-      <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+      <p className="text-xs text-muted-foreground line-clamp-2">
         {plugin.description}
       </p>
-
-      {/* Bottom Showcase Screenshots */}
-      {screenshots.length > 0 && (
-        <Link
-          to="/plugins/$pluginId"
-          params={{ pluginId: plugin.id }}
-          className={`grid ${gridColsClass} gap-1.5 sm:gap-2 bg-surface p-2 rounded-xl sm:rounded-2xl border border-border/60 overflow-hidden cursor-pointer`}
-        >
-          {screenshots.map((imgUrl, i) => (
-            <div
-              key={i}
-              className="bg-card rounded-xl overflow-hidden border border-border/80 flex flex-col h-32 relative group/img"
-            >
-              <img
-                src={imgUrl}
-                alt={`${plugin.name} screenshot ${i + 1}`}
-                className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-              />
-            </div>
-          ))}
-        </Link>
-      )}
     </div>
   );
 }
