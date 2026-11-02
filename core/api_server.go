@@ -77,6 +77,7 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/plugin/install", s.handleAPIPluginInstall)
 	mux.HandleFunc("/api/plugin/confirm-install", s.handleAPIPluginConfirmInstall)
 	mux.HandleFunc("/api/plugin/uninstall", s.handleAPIPluginUninstall)
+	mux.HandleFunc("/api/plugin/enable", s.handleAPIPluginEnable)
 	mux.HandleFunc("/api/plugins/scan", s.handleAPIPluginsScan)
 	mux.HandleFunc("/api/system/paths", s.handleAPISystemPaths)
 	mux.HandleFunc("/api/system/open-user-data", s.handleAPIOpenUserData)
@@ -220,20 +221,20 @@ func (s *AssetServer) handleAPITags(w http.ResponseWriter, r *http.Request) {
 
 // ItemImportRequest models incoming payload for adding items via URL or Base64.
 type ItemImportRequest struct {
-	URL         string            `json:"url"`
-	Name        string            `json:"name"`
-	Title       string            `json:"title"`
-	Website     string            `json:"website"`
-	Annotation  string            `json:"annotation"`
-	Note        string            `json:"note"`
-	Rating      int               `json:"rating"`
-	Prompt      string            `json:"prompt"`
-	Tags        []string          `json:"tags"`
-	FolderID    string            `json:"folderId"`
-	FolderIDs   []string          `json:"folderIds"`
-	Headers     map[string]string `json:"headers"`
-	Base64      string            `json:"base64"`
-	Data        string            `json:"data"`
+	URL        string            `json:"url"`
+	Name       string            `json:"name"`
+	Title      string            `json:"title"`
+	Website    string            `json:"website"`
+	Annotation string            `json:"annotation"`
+	Note       string            `json:"note"`
+	Rating     int               `json:"rating"`
+	Prompt     string            `json:"prompt"`
+	Tags       []string          `json:"tags"`
+	FolderID   string            `json:"folderId"`
+	FolderIDs  []string          `json:"folderIds"`
+	Headers    map[string]string `json:"headers"`
+	Base64     string            `json:"base64"`
+	Data       string            `json:"data"`
 }
 
 func (req *ItemImportRequest) ToOptions() ImportItemOptions {
@@ -745,6 +746,51 @@ func (s *AssetServer) handleAPIPluginUninstall(w http.ResponseWriter, r *http.Re
 	}
 
 	writeSuccess(w, map[string]any{"uninstalled": true, "id": req.ID})
+}
+
+// handleAPIPluginEnable toggles a plugin's enabled state and persists installed.json.
+// The frontend uses this as the single write path for remote/manual plugin toggles so the
+// backend remains the source of truth across scans and app restarts.
+func (s *AssetServer) handleAPIPluginEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, ErrCodeMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		ID      string `json:"id"`
+		Enabled *bool  `json:"enabled"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" || r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if req.ID == "" {
+		req.ID = r.URL.Query().Get("id")
+	}
+	if req.ID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "id is required")
+		return
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	} else if raw := r.URL.Query().Get("enabled"); raw != "" {
+		enabled = raw != "false" && raw != "0"
+	}
+
+	if s.manager == nil || s.manager.GetPluginManager() == nil {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeUnknown, "plugin manager not initialized")
+		return
+	}
+
+	RecordLog("info", "plugin", fmt.Sprintf("Plugin enable request via API: id=%s enabled=%t", req.ID, enabled), r.RemoteAddr, 0)
+	if err := s.manager.GetPluginManager().SetPluginEnabled(req.ID, enabled); err != nil {
+		RecordLog("error", "plugin", fmt.Sprintf("Plugin enable request failed: id=%s enabled=%t", req.ID, enabled), err.Error(), 0)
+		writeError(w, http.StatusInternalServerError, ErrCodeUnknown, err.Error())
+		return
+	}
+	writeSuccess(w, map[string]any{"id": req.ID, "enabled": enabled})
 }
 
 // handleAPIPluginsCheckUpdates triggers grouped batch update check across marketplaces.

@@ -2,6 +2,7 @@ import * as React from "react";
 import * as ReactDOM from "react-dom";
 import * as JsxRuntime from "react/jsx-runtime";
 import { Events } from "@/lib/host-runtime";
+import { logDiagnostic } from "@/lib/logger";
 import * as PluginSdk from "@bowerbird/plugin-sdk";
 import type { PluginManifest } from "@bowerbird/plugin-sdk";
 import type { PreviewPlugin } from "./types";
@@ -184,6 +185,7 @@ export async function loadRemotePlugin(
   assetBaseUrl: string = DEFAULT_ASSET_BASE_URL
 ): Promise<PreviewPlugin | null> {
   initHostRuntimeBridge();
+  const startedAt = performance.now();
 
   try {
     const pluginJsUrl = `${assetBaseUrl}/asset/plugins/${encodeURIComponent(pluginId)}/index.js`;
@@ -245,9 +247,21 @@ export async function loadRemotePlugin(
     previewRegistry.register(plugin);
     loadedRemotePlugins.set(plugin.id, plugin);
     console.info(`[RemoteLoader] Successfully loaded remote plugin: ${plugin.id} (${plugin.name})`);
+    logDiagnostic(
+      "info",
+      "plugin",
+      `Remote plugin loaded: ${plugin.id} (v${plugin.version})`,
+      `name=${plugin.name} bytes=${rawCode.length} extensions=${(plugin.extensions || []).join(",")} durationMs=${Math.round(performance.now() - startedAt)}`
+    );
     return plugin;
   } catch (err) {
     console.error(`[RemoteLoader] Failed to load remote plugin ${pluginId}:`, err);
+    logDiagnostic(
+      "error",
+      "plugin",
+      `Remote plugin failed to load: ${pluginId}`,
+      normalizeErrorDetail(err)
+    );
     return null;
   }
 }
@@ -270,17 +284,68 @@ export async function loadAllInstalledPlugins(
     }
     const json = await res.json();
     const list: Array<{ id: string; name?: string; enabled?: boolean }> = json?.data || [];
+    logDiagnostic(
+      "info",
+      "plugin",
+      `Installed plugin list fetched: ${list.length}`,
+      list.map((p) => `${p.id}=${p.enabled !== false}`).join(", ")
+    );
 
     for (const item of list) {
       await loadRemotePlugin(item.id, assetBaseUrl);
-      if (item.enabled === false) {
-        previewRegistry.setEnabled(item.id, false);
-      }
+      // 后端 installed.json 是远程插件启用状态的唯一真值，双向同步：
+      // 只处理 false 会把用户刚打开的开关在下次扫描/启动时又重置回关闭
+      const wanted = item.enabled !== false;
+      const applied = previewRegistry.setEnabled(item.id, wanted);
+      logDiagnostic(
+        "info",
+        "plugin",
+        `Sync plugin state: ${item.id} enabled=${wanted}`,
+        `backendEnabled=${item.enabled ?? "<missing>"} registryApplied=${applied}`
+      );
     }
   } catch (err) {
     // Desktop API server might not be running in tests or browser dev
     console.debug("[RemoteLoader] Could not fetch installed plugins from desktop:", err);
+    logDiagnostic("warn", "plugin", "Could not fetch installed plugins from desktop", normalizeErrorDetail(err));
   }
+}
+
+/**
+ * Persists a plugin's enabled state through the desktop API so installed.json
+ * (the backend source of truth) stays in sync with the UI switch.
+ */
+export async function setRemotePluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+  assetBaseUrl: string = DEFAULT_ASSET_BASE_URL
+): Promise<void> {
+  const res = await fetch(`${assetBaseUrl}/api/plugin/enable`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: pluginId, enabled }),
+  });
+
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const json = await res.json();
+      if (json?.message) detail = `${detail}: ${json.message}`;
+    } catch {
+      // Response body was not JSON; keep the status code only
+    }
+    logDiagnostic("error", "plugin", `Failed to persist enabled=${enabled}: ${pluginId}`, detail);
+    throw new Error(`Failed to persist plugin state (${detail})`);
+  }
+
+  logDiagnostic("info", "plugin", `Persisted plugin enabled=${enabled}: ${pluginId}`, `source=api`);
+}
+
+function normalizeErrorDetail(err: unknown): string {
+  if (err instanceof Error) {
+    return `${err.message}\n${err.stack || ""}`.slice(0, 600);
+  }
+  return String(err).slice(0, 600);
 }
 
 /**

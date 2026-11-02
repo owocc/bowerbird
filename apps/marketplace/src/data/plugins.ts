@@ -350,6 +350,48 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     ],
   },
 
+  // 4.5 PSD Studio
+  {
+    id: "official.psd-preview",
+    name: "PSD Studio",
+    tagline: "Photoshop 文档合成预览、图层结构与色彩模式一览",
+    version: "1.0.0",
+    description: "Native Photoshop (.psd / .psb) preview: renders the flattened composite, reports document properties and exposes the layer tree.",
+    author: "Bowerbird Team",
+    kind: "preview",
+    category: "preview",
+    subCategory: "image",
+    priority: 95,
+    extensions: ["psd", "psb"],
+    mimePrefixes: ["image/vnd.adobe.photoshop", "image/x-photoshop"],
+    supportsZoom: true,
+    main: "index.js",
+    license: "MIT",
+    iconName: "file-image",
+    featured: true,
+    downloadsCount: 0,
+    rating: 4.9,
+    manifestUrl: "/api/plugins/official.psd-preview/manifest.json",
+    downloadUrl: "/api/plugins/official.psd-preview/download",
+    longDescription: `### 核心功能 (Key Features)
+- **合成图直读**: 直接还原 Photoshop 存在文件里的合成图，所见即设计师最终拍平的样子，不需要我们复刻图层混合。
+- **图层结构**: 读出分组、可见性与层数，方便判断眼前这份是不是被隐藏掉的那一版。
+- **文档属性**: 像素尺寸、色彩模式（RGB / CMYK / 灰度）、位深、层数与 alpha 透明。
+- **缩略图优先**: 检查器先用文件内嵌缩略图，浏览一屏 PSD 时依然跟手。
+- **缩放与拖拽**: 百分比缩放、适应窗口，走宿主统一的缩放控件。`,
+    changelog: [
+      {
+        version: "1.0.0",
+        date: "2026-11-02",
+        notes: [
+          "首发正式版，支持 .psd / .psb",
+          "合成图视口 + 图层结构与文档属性检查器",
+          "支持复制 PSD 摘要",
+        ],
+      },
+    ],
+  },
+
   // 5. EXIF & Lens Inspector
   {
     id: "official.image-exif",

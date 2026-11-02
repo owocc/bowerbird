@@ -379,11 +379,14 @@ func (pm *PluginManager) listInstalledPluginsLocked() []InstalledPlugin {
 func (pm *PluginManager) scanLocalPluginsLocked() bool {
 	entries, err := os.ReadDir(pm.baseDir)
 	if err != nil {
+		RecordLog("warn", "plugin", fmt.Sprintf("Local plugin scan aborted: cannot read %s", pm.baseDir), err.Error(), 0)
 		return false
 	}
 
 	changed := false
 	seenIDs := make(map[string]bool)
+	scanned := 0
+	RecordLog("info", "plugin", fmt.Sprintf("Local plugin scan started: %d entries under %s", len(entries), pm.baseDir), "", 0)
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -429,12 +432,15 @@ func (pm *PluginManager) scanLocalPluginsLocked() bool {
 		}
 
 		seenIDs[m.ID] = true
+		scanned++
 
 		if existing, found := pm.plugins[m.ID]; found {
 			// Update metadata if changed on disk
+			metaUpdated := false
 			if existing.Name != m.Name || existing.Version != m.Version ||
 				existing.Description != m.Description || existing.Author != m.Author ||
 				existing.Priority != m.Priority || existing.Main != m.Main || existing.Style != m.Style {
+				metaUpdated = true
 				existing.Name = m.Name
 				existing.Version = m.Version
 				existing.Description = m.Description
@@ -447,6 +453,13 @@ func (pm *PluginManager) scanLocalPluginsLocked() bool {
 				existing.Style = m.Style
 				changed = true
 			}
+
+			state := "metadata unchanged"
+			if metaUpdated {
+				state = "metadata updated"
+			}
+			// enabled 状态属于用户设置，扫描不得重置；这里把当前值记进日志便于排查
+			RecordLog("info", "plugin", fmt.Sprintf("Local plugin matched manifest: %s (v%s, %s, enabled=%t)", m.ID, m.Version, state, existing.Enabled), pluginFolder, 0)
 		} else {
 			// Newly discovered manual plugin: register as disabled by default
 			installed := &InstalledPlugin{
@@ -485,9 +498,22 @@ func (pm *PluginManager) scanLocalPluginsLocked() bool {
 	}
 
 	if changed {
-		_ = pm.saveIndexLocked()
+		if err := pm.saveIndexLocked(); err != nil {
+			RecordLog("error", "plugin", fmt.Sprintf("Failed to persist installed.json after local scan: %v", err), pm.indexPath, 0)
+		}
 	}
+	RecordLog("info", "plugin", fmt.Sprintf("Local plugin scan finished: %d folder(s) matched, %d plugin(s) in index, changed=%t", scanned, len(pm.plugins), changed), summarizePluginStates(pm.plugins), 0)
 	return changed
+}
+
+// summarizePluginStates renders an "id=enabled" summary for logs.
+func summarizePluginStates(plugins map[string]*InstalledPlugin) string {
+	parts := make([]string, 0, len(plugins))
+	for _, p := range plugins {
+		parts = append(parts, fmt.Sprintf("%s=%t", p.ID, p.Enabled))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ", ")
 }
 
 // ScanLocalPlugins scans the plugin directory for manually dropped plugins and updates the index.
@@ -495,13 +521,16 @@ func (pm *PluginManager) ScanLocalPlugins() ([]InstalledPlugin, error) {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 
+	RecordLog("info", "plugin", "Manual local plugin scan requested", fmt.Sprintf("dir=%s", pm.baseDir), 0)
 	changed := pm.scanLocalPluginsLocked()
+	list := pm.listInstalledPluginsLocked()
+	RecordLog("info", "plugin", fmt.Sprintf("Manual local plugin scan completed: %d plugin(s), changed=%t", len(list), changed), summarizePluginStates(pm.plugins), 0)
 	if changed {
 		pm.emit("plugin:changed", map[string]any{
 			"action": "scanned",
 		})
 	}
-	return pm.listInstalledPluginsLocked(), nil
+	return list, nil
 }
 
 // GetInstalledPlugin returns details of an installed plugin by ID.
@@ -1036,11 +1065,15 @@ func (pm *PluginManager) SetPluginEnabled(id string, enabled bool) error {
 
 	p, exists := pm.plugins[id]
 	if !exists {
+		RecordLog("warn", "plugin", fmt.Sprintf("Cannot set enabled=%t: plugin %q is not installed", enabled, id), "", 0)
 		return fmt.Errorf("plugin %q is not installed", id)
 	}
 
+	previous := p.Enabled
 	p.Enabled = enabled
 	if err := pm.saveIndexLocked(); err != nil {
+		p.Enabled = previous
+		RecordLog("error", "plugin", fmt.Sprintf("Failed to persist enabled=%t for plugin %q (rolled back to %t)", enabled, id, previous), fmt.Sprintf("index=%s err=%v", pm.indexPath, err), 0)
 		return fmt.Errorf("failed to update installed.json: %w", err)
 	}
 
@@ -1048,6 +1081,7 @@ func (pm *PluginManager) SetPluginEnabled(id string, enabled bool) error {
 	if !enabled {
 		action = "disabled"
 	}
+	RecordLog("info", "plugin", fmt.Sprintf("Plugin %q %s (previous=%t)", id, action, previous), fmt.Sprintf("id=%s enabled=%t index=%s", id, enabled, pm.indexPath), 0)
 	pm.emit("plugin:changed", map[string]any{
 		"action": action,
 		"id":     id,

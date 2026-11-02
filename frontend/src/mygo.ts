@@ -183,7 +183,7 @@ export interface LogEntry {
   timestamp: string;
   /** "info" | "warn" | "error" | "perf" */
   level: string;
-  /** "core" | "perf" | "ui" | "drag" | "asset" | "menu" */
+  /** "core" | "perf" | "ui" | "drag" | "asset" | "menu" | "plugin" */
   category: string;
   message: string;
   detail?: string;

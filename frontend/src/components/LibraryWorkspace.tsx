@@ -17,6 +17,8 @@ import { default as ChevronDown } from "~icons/ri/arrow-down-s-line";
 import { default as ChevronRight } from "~icons/ri/arrow-right-s-line";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
+import { backfillMissingThumbnails } from "@/plugins/preview/thumbnail-backfill";
+import { usePreviewPlugins } from "@/plugins/preview/registry";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
@@ -275,6 +277,8 @@ export function LibraryWorkspace({
     }));
   }, [layoutCollapsed, setDisplayPrefs]);
   const [items, setItems] = useState<Item[]>([]);
+  // 插件是异步加载的（远程 bundle），这里订阅注册表变化，等插件就绪后再补封面。
+  const previewPlugins = usePreviewPlugins();
   const [trashItems, setTrashItems] = useState<Item[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
@@ -708,6 +712,13 @@ export function LibraryWorkspace({
     },
     [refreshItems, scheduleActiveRefresh]
   );
+
+  // 缺少缩略图的条目（PSD/AI/PDF 等宿主解不了的格式）在后台用插件补封面，
+  // 只处理注册表里声明了 generateCoverThumbnail 的插件，幂等且限并发。
+  // 依赖 previewPlugins：远程插件可能在 items 之后才加载完成。
+  useEffect(() => {
+    backfillMissingThumbnails(items, handleItemUpdatedInPlace);
+  }, [items, previewPlugins, handleItemUpdatedInPlace]);
   // Merge newly imported or updated items directly into React state in O(N) without re-fetching 37k+ items over IPC
   const handleItemsUpsertedInPlace = useCallback(
     (upsertedList: Item[], extraFolderId?: string | null) => {

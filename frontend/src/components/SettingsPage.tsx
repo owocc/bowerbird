@@ -97,7 +97,8 @@ import type {
 import { displayAccelerator, eventToAccelerator } from "@/lib/accelerator";
 import { SHORTCUT_CATALOG, shortcutScope } from "@/lib/shortcuts";
 import { QRCodeSVG } from "qrcode.react";
-import { loadRemotePlugin, loadAllInstalledPlugins } from "@/plugins/preview/remote-loader";
+import { loadRemotePlugin, loadAllInstalledPlugins, setRemotePluginEnabled } from "@/plugins/preview/remote-loader";
+import { logDiagnostic } from "@/lib/logger";
 import { PluginInstallDialog } from "@/components/PluginInstallDialog";
 import { Events } from "@/lib/host-runtime";
 import { copyTextToClipboard } from "@/lib/clipboard";
@@ -258,15 +259,34 @@ function PluginCard({
   const handleUninstall = async (event: MouseEvent) => {
     event.stopPropagation();
     try {
-      await fetch("http://127.0.0.1:41595/api/plugin/uninstall", {
+      const res = await fetch("http://127.0.0.1:41595/api/plugin/uninstall", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: plugin.id }),
       });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const json = await res.json();
+          if (json?.message) detail = `${detail}: ${json.message}`;
+        } catch {
+          // non-JSON error body
+        }
+        throw new Error(detail);
+      }
     } catch (err) {
-      console.warn("Uninstall error:", err);
+      // 后端没删成功时不要动前端注册表，否则两边状态会永久不一致
+      logDiagnostic(
+        "error",
+        "plugin",
+        `Uninstall failed: ${plugin.id}`,
+        err instanceof Error ? err.message : String(err)
+      );
+      notifyError(err);
+      return;
     }
     previewRegistry.unregister(plugin.id);
+    logDiagnostic("info", "plugin", `Plugin uninstalled: ${plugin.id}`, `name=${displayName}`);
     notifySuccess(t("settings.plugins.uninstalledSuccess", { defaultValue: `Uninstalled ${displayName}` }));
   };
 
@@ -370,9 +390,26 @@ function PluginCard({
           <Switch
             checked={enabled}
             disabled={!canDisable}
-            onCheckedChange={(checked) =>
-              previewRegistry.setEnabled(plugin.id, checked)
-            }
+            onCheckedChange={async (checked) => {
+              const pluginId = plugin.id;
+              // 前端注册表立即生效（builtin 插件没有后端记录，只走本地状态）
+              previewRegistry.setEnabled(pluginId, checked);
+              if (plugin.builtin) return;
+              try {
+                // 远程/手动插件必须把状态持久化到后端的 installed.json，
+                // 否则扫描或重启后 loadAllInstalledPlugins 会用后端的 enabled=false 覆盖回来
+                await setRemotePluginEnabled(pluginId, checked);
+              } catch (err) {
+                previewRegistry.setEnabled(pluginId, !checked);
+                logDiagnostic(
+                  "error",
+                  "plugin",
+                  `Toggle plugin failed: ${pluginId} -> ${checked}`,
+                  err instanceof Error ? err.message : String(err)
+                );
+                notifyError(err);
+              }
+            }}
             aria-label={displayName}
           />
         </div>
@@ -676,6 +713,7 @@ export function SettingsPage() {
   };
   const handleScanLocalPlugins = async () => {
     setScanningPlugins(true);
+    logDiagnostic("info", "plugin", "Manual local plugin scan triggered from settings", "");
     try {
       let plugins: any = null;
       try {
