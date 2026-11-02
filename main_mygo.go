@@ -467,16 +467,25 @@ type dropTarget struct {
 
 func (h *appHost) attachDrop(w *mygo.Window) {
 	w.OnFileDrop(func(e *mygo.FileDropEvent) {
-		target := dropTarget{}
-		js := fmt.Sprintf(`const el = document.elementFromPoint(%d, %d);
+		// This callback runs in the WebView2 WebMessageReceived handler on the
+		// UI thread. Calling EvalAs here would deadlock: Eval waits (pumping
+		// messages in a nested loop) for the page's answer, but WebView2 only
+		// delivers that answer after this callback returns. Every RPC then
+		// stalls with it — drops, imports, settings windows.
+		paths := append([]string(nil), e.Paths...)
+		x, y := e.X, e.Y
+		go func() {
+			target := dropTarget{}
+			js := fmt.Sprintf(`const el = document.elementFromPoint(%d, %d);
 const t = el && el.closest ? el.closest("[data-file-drop-target]") : null;
-return {target: t && t.dataset ? (t.dataset.fileDropTarget || "") : "", folderId: t && t.dataset ? (t.dataset.folderId || "") : ""};`, e.X, e.Y)
-		if got, err := mygo.EvalAs[dropTarget](w.Page(), js); err == nil {
-			target = got
-		}
-		if h.svc != nil {
-			_ = h.svc.HandleNativeDrop(e.Paths, target.Target, target.FolderID)
-		}
+return {target: t && t.dataset ? (t.dataset.fileDropTarget || "") : "", folderId: t && t.dataset ? (t.dataset.folderId || "") : ""};`, x, y)
+			if got, err := mygo.EvalAs[dropTarget](w.Page(), js); err == nil {
+				target = got
+			}
+			if h.svc != nil {
+				_ = h.svc.HandleNativeDrop(paths, target.Target, target.FolderID)
+			}
+		}()
 	})
 }
 
