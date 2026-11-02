@@ -180,9 +180,13 @@ export function CategoryPage() {
                         {plugin.tagline || plugin.description}
                       </p>
                       <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-1">
-                        <Star className="w-3 h-3 fill-[#FF9500] text-[#FF9500]" />
-                        <span>{plugin.rating}</span>
-                        <span>•</span>
+                        {plugin.rating > 0 && (
+                          <>
+                            <Star className="w-3 h-3 fill-[#FF9500] text-[#FF9500]" />
+                            <span>{plugin.rating}</span>
+                            <span>•</span>
+                          </>
+                        )}
                         <span>{plugin.downloadsCount} 次</span>
                       </div>
                     </Link>
@@ -236,9 +240,13 @@ export function CategoryPage() {
                         {plugin.tagline || plugin.description}
                       </p>
                       <div className="flex items-center gap-1 text-[10px] text-muted-foreground mt-1">
-                        <Star className="w-3 h-3 fill-[#FF9500] text-[#FF9500]" />
-                        <span>{plugin.rating}</span>
-                        <span>•</span>
+                        {plugin.rating > 0 && (
+                          <>
+                            <Star className="w-3 h-3 fill-[#FF9500] text-[#FF9500]" />
+                            <span>{plugin.rating}</span>
+                            <span>•</span>
+                          </>
+                        )}
                         <span>{plugin.downloadsCount} 次</span>
                       </div>
                     </Link>

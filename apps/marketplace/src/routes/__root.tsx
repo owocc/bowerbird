@@ -7,9 +7,9 @@ import {
 } from "@tanstack/react-router";
 import * as React from "react";
 import appCss from "../styles/app.css?url";
-import { I18nContext, MESSAGES, type Locale } from "../lib/i18n";
+import { I18nContext, LOCALE_STORAGE_KEY, MESSAGES, type Locale } from "../lib/i18n";
 import { DesktopProvider } from "../lib/desktop-context";
-import { ThemeContext, type Theme } from "../components/theme-context";
+import { ThemeProvider } from "../components/theme-provider";
 import { Sidebar } from "../components/sidebar";
 import { Footer } from "../components/footer";
 
@@ -33,56 +33,21 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
-  const [theme, setThemeState] = React.useState<Theme>("dark");
-  const [resolvedTheme, setResolvedTheme] = React.useState<"light" | "dark">("dark");
   const [locale, setLocaleState] = React.useState<Locale>("zh");
 
   React.useEffect(() => {
     if (typeof window !== "undefined") {
-      const storedTheme = (localStorage.getItem("bowerbird-web-theme") ||
-        localStorage.getItem("hyakume-theme")) as Theme | null;
-      if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
-        setThemeState(storedTheme);
-      }
-
-      const storedLocale = (localStorage.getItem("bowerbird-web-locale") ||
-        localStorage.getItem("hyakume-locale")) as Locale | null;
+      const storedLocale = localStorage.getItem(LOCALE_STORAGE_KEY) as Locale | null;
       if (storedLocale === "zh" || storedLocale === "en") {
         setLocaleState(storedLocale);
       }
     }
   }, []);
 
-  React.useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    let effectiveTheme: "light" | "dark" = "dark";
-    if (theme === "system") {
-      effectiveTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    } else {
-      effectiveTheme = theme;
-    }
-
-    setResolvedTheme(effectiveTheme);
-    const root = document.documentElement;
-    root.classList.remove("light", "dark");
-    root.classList.add(effectiveTheme);
-    root.style.colorScheme = effectiveTheme;
-  }, [theme]);
-
-  const setTheme = (next: Theme) => {
-    setThemeState(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("bowerbird-web-theme", next);
-    }
-  };
-
   const setLocale = (next: Locale) => {
     setLocaleState(next);
     if (typeof window !== "undefined") {
-      localStorage.setItem("bowerbird-web-locale", next);
+      localStorage.setItem(LOCALE_STORAGE_KEY, next);
     }
   };
 
@@ -98,12 +63,12 @@ function RootComponent() {
   };
 
   return (
-    <html lang={locale} className={resolvedTheme === "dark" ? "dark" : ""}>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
       <body className="min-h-screen bg-background text-foreground selection:bg-primary selection:text-primary-foreground antialiased transition-colors duration-200">
-        <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme }}>
+        <ThemeProvider defaultTheme="system">
           <I18nContext.Provider value={{ locale, setLocale, t }}>
             <DesktopProvider>
               <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-200">
@@ -119,7 +84,7 @@ function RootComponent() {
               <Scripts />
             </DesktopProvider>
           </I18nContext.Provider>
-        </ThemeContext.Provider>
+        </ThemeProvider>
       </body>
     </html>
   );

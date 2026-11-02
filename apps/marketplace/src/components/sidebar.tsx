@@ -196,8 +196,8 @@ export function Sidebar() {
               </nav>
             </div>
 
-            {/* Desktop Connection Status */}
-            <div className="mt-auto pt-6 border-t border-border space-y-2">
+            {/* Connection Status */}
+            <div className="mt-auto pt-6 space-y-2">
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card border border-border text-xs text-muted-foreground">
                 <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`} />
                 <span className="font-medium text-foreground">
@@ -289,7 +289,7 @@ export function Sidebar() {
           </div>
 
           {/* Bottom Desktop Connection Status */}
-          <div className="pt-4 border-t border-border">
+          <div className="pt-4">
             <div className="p-3 rounded-xl bg-card border border-border text-xs space-y-1">
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`} />

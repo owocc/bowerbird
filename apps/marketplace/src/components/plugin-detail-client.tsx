@@ -68,13 +68,6 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
     }
   };
 
-  const screenshots =
-    plugin.screenshots && plugin.screenshots.length > 0
-      ? plugin.screenshots
-      : plugin.cover_url
-      ? [plugin.cover_url]
-      : [];
-
   return (
     <div className="w-full min-h-screen bg-background text-foreground transition-colors duration-200">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 space-y-8 sm:space-y-12">
@@ -121,10 +114,14 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
                 <span className="px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground font-medium border border-border">
                   {plugin.kind === "preview" ? "预览扩展" : "元数据透视"}
                 </span>
-                <span>•</span>
-                <span className="text-[#FF9500] font-semibold flex items-center gap-0.5">
-                  ★ {plugin.rating} ({plugin.downloadsCount} 次安装)
-                </span>
+                {plugin.rating > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="text-[#FF9500] font-semibold flex items-center gap-0.5">
+                      ★ {plugin.rating} ({plugin.downloadsCount} 次安装)
+                    </span>
+                  </>
+                )}
               </div>
 
               {/* Supported format badges */}
@@ -186,32 +183,6 @@ export function PluginDetailClient({ plugin, otherPlugins = [] }: Props) {
             </button>
           </div>
         </div>
-
-        {/* Screenshots Showcase */}
-        {screenshots.length > 0 && (
-          <section className="space-y-4">
-            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-foreground">
-              界面预览
-            </h2>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {screenshots.map((url, i) => (
-                <div
-                  key={i}
-                  className="rounded-2xl overflow-hidden border border-border bg-card shadow-xs group"
-                >
-                  <div className="aspect-video w-full overflow-hidden bg-muted">
-                    <img
-                      src={url}
-                      alt={`${plugin.name} preview ${i + 1}`}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* Detailed Description */}
         <section className="space-y-4">

@@ -1,77 +1,56 @@
 import * as React from "react";
-import { useTheme } from "./theme-context";
 import { Monitor, Sun, Moon } from "lucide-react";
+import { useTheme, type Theme } from "./theme-provider";
+import { useI18n } from "../lib/i18n";
 
-export function ThemeToggle() {
+const OPTIONS: {
+  value: Theme;
+  icon: React.ComponentType<{ className?: string }>;
+  labelKey: string;
+}[] = [
+  { value: "system", icon: Monitor, labelKey: "themeSystem" },
+  { value: "light", icon: Sun, labelKey: "themeLight" },
+  { value: "dark", icon: Moon, labelKey: "themeDark" },
+];
+
+/**
+ * 三态主题切换（跟随系统 / 浅色 / 深色）。
+ *
+ * 不依赖 `mounted` 之类的客户端状态，服务端即可渲染出完整控件——主题状态
+ * 由 ThemeProvider 统一持有，首个客户端渲染与 SSR 一致，随后再恢复用户选择。
+ */
+export function ThemeToggle({ className = "" }: { className?: string }) {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return (
-      <div className="inline-flex items-center p-0.5 rounded-full border border-border bg-surface/70 w-[84px] h-[28px]" />
-    );
-  }
+  const { t } = useI18n();
 
   return (
     <div
       role="radiogroup"
-      aria-label="选择主题模式"
-      className="inline-flex items-center p-0.5 rounded-full border border-border bg-surface/80 text-muted-foreground shadow-2xs"
+      aria-label={t("theme")}
+      className={`inline-flex items-center p-0.5 rounded-full border border-border bg-surface/80 text-muted-foreground shadow-2xs ${className}`}
     >
-      {/* 1. System Mode */}
-      <button
-        type="button"
-        role="radio"
-        aria-checked={theme === "system"}
-        onClick={() => setTheme("system")}
-        title="系统跟随 (System)"
-        className={`p-1.5 rounded-full transition-all duration-150 cursor-pointer ${
-          theme === "system"
-            ? "bg-card text-foreground shadow-2xs font-semibold"
-            : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
-        }`}
-      >
-        <Monitor className="w-3.5 h-3.5" />
-        <span className="sr-only">系统模式</span>
-      </button>
-
-      {/* 2. Light Mode */}
-      <button
-        type="button"
-        role="radio"
-        aria-checked={theme === "light"}
-        onClick={() => setTheme("light")}
-        title="浅色模式 (Light)"
-        className={`p-1.5 rounded-full transition-all duration-150 cursor-pointer ${
-          theme === "light"
-            ? "bg-card text-foreground shadow-2xs font-semibold"
-            : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
-        }`}
-      >
-        <Sun className="w-3.5 h-3.5" />
-        <span className="sr-only">浅色模式</span>
-      </button>
-
-      {/* 3. Dark Mode */}
-      <button
-        type="button"
-        role="radio"
-        aria-checked={theme === "dark"}
-        onClick={() => setTheme("dark")}
-        title="深色模式 (Dark)"
-        className={`p-1.5 rounded-full transition-all duration-150 cursor-pointer ${
-          theme === "dark"
-            ? "bg-card text-foreground shadow-2xs font-semibold"
-            : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
-        }`}
-      >
-        <Moon className="w-3.5 h-3.5" />
-        <span className="sr-only">深色模式</span>
-      </button>
+      {OPTIONS.map(({ value, icon: Icon, labelKey }) => {
+        const selected = theme === value;
+        const label = t(labelKey);
+        return (
+          <button
+            key={value}
+            type="button"
+            role="radio"
+            aria-checked={selected}
+            onClick={() => setTheme(value)}
+            title={label}
+            className={`p-1.5 rounded-full transition-all duration-150 cursor-pointer ${
+              selected
+                ? "bg-card text-foreground shadow-2xs font-semibold"
+                : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
+            }`}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            <span className="sr-only">{label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

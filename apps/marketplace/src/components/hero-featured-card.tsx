@@ -9,7 +9,6 @@ interface Props {
 }
 
 export function HeroFeaturedCard({ plugin, tag }: Props) {
-  const coverUrl = plugin.cover_url ? plugin.cover_url.replace(/&amp;/g, "&") : "";
   const Icon = getPluginIcon(plugin.iconName);
 
   return (
@@ -21,10 +20,10 @@ export function HeroFeaturedCard({ plugin, tag }: Props) {
         WebkitMaskImage: "-webkit-radial-gradient(white, black)",
       }}
     >
-      {/* Cover Image / Animated background */}
+      {/* 纯色封面底：不再使用插件占位预览图 */}
       <div
-        className="absolute inset-0 bg-cover bg-center group-hover:scale-105 transition-transform duration-700 pointer-events-none"
-        style={{ backgroundImage: `url(${coverUrl || "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=1200&h=800&fit=crop"})` }}
+        className="absolute inset-0 bg-[#18181b] pointer-events-none"
+        aria-hidden="true"
       />
 
       {/* Bottom Gradient + Backdrop Blur Overlays */}
@@ -77,7 +76,9 @@ export function HeroFeaturedCard({ plugin, tag }: Props) {
                 {plugin.name}
               </h3>
               <p className="text-xs text-white/70 truncate mt-0.5 drop-shadow-xs">
-                {plugin.author} • {plugin.rating}★ ({plugin.downloadsCount} 次安装)
+                {plugin.author}
+                {plugin.rating > 0 &&
+                  ` • ${plugin.rating}★ (${plugin.downloadsCount} 次安装)`}
               </p>
             </div>
           </div>
