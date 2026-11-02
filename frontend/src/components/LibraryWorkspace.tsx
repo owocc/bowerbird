@@ -44,6 +44,7 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 import { MainHeaderSafePrefix } from "@/components/MainHeaderSafePrefix";
+import { WindowsCaptionSpacer } from "@/components/WindowsCaptionSpacer";
 import { SidebarDirectoryTree } from "@/components/SidebarDirectoryTree";
 import { TagsManager } from "@/components/TagsManager";
 import { JustifiedGallery } from "@/components/JustifiedGallery";
@@ -105,6 +106,7 @@ import { getFileCategory } from "@/lib/formatters";
 import { FAVORITE_TAG } from "@/lib/favoriteTag";
 import { setInternalDragActive } from "@/lib/drag-state";
 import { isDesktopHost } from "@/lib/host-runtime";
+import { isWindows } from "@/lib/platform";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   useWorkspaceSearch,
@@ -190,6 +192,15 @@ export function LibraryWorkspace({
     [setDisplayPrefs]
   );
   const inspectorOpen = displayPrefs.showInspector;
+
+  // Windows 把系统窗口按钮（最小化/最大化/关闭）直接画在 webview 右上角，因为窗口是
+  // 无边框 + 内容铺满（main_mygo.go 的 TitleBarHiddenInset）。
+  //
+  // - inspector 展开：右边缘被 inspector 占住，由它自己让出顶部（见 ItemDetailPanel /
+  //   MultiItemInspector 的 topInsetClass）。
+  // - inspector 折叠：主内容一直铺到窗口右边缘，标题行的搜索框和设置按钮正好落在窗口按钮
+  //   底下。这里给这一行末尾补一块 Windows 专属留白，把操作按钮推离窗口按钮。
+  const reserveWindowsCaption = isWindows() && !inspectorOpen;
 
   // The sidebar used to share a ResizablePanelGroup with the inspector. The tag
   // manager hides the inspector, which changes the set of panels and makes the
@@ -2656,6 +2667,8 @@ export function LibraryWorkspace({
                       <Settings className="size-3.5" />
                     </button>
                   </div>
+
+                  {reserveWindowsCaption && <WindowsCaptionSpacer />}
                 </div>
 
                 {/* Row 2: Multi-dimensional FilterBar dropdowns & Sort controls */}

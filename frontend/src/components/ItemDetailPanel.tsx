@@ -10,6 +10,7 @@ import { default as TagIcon } from "~icons/ri/price-tag-line";
 import { default as ExternalLink } from "~icons/ri/external-link-line";
 import { default as LinkIcon } from "~icons/ri/link";
 import { default as FileText } from "~icons/ri/file-text-line";
+import { useIsWindows, WINDOWS_CAPTION } from "@/lib/windows";
 import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -99,6 +100,10 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   onItemUpdated,
 }: ItemDetailPanelProps) {
   const { t } = useTranslation();
+  // Windows 会把系统窗口按钮画在 webview 右上角；inspector 贴着窗口右边缘，
+  // 所以它的第一行（预览 + 标题）必须整体下移让位。
+  const onWindows = useIsWindows();
+  const windowsCaptionInset = onWindows ? WINDOWS_CAPTION.topInsetClass : "";
   usePreviewPlugins();
   const { resolvedTheme } = useTheme();
   const [copiedPath, setCopiedPath] = useState(false);
@@ -164,7 +169,7 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
     return (
       <aside
         data-slot="content-surface"
-        className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-y-auto"
+        className={`w-full h-full border-l-0 bg-background flex flex-col select-none overflow-y-auto ${windowsCaptionInset}`}
       >
         <div className="p-4 space-y-4 flex-1 text-xs">
           <div className="flex items-center gap-2.5 py-2">
@@ -314,7 +319,7 @@ export const ItemDetailPanel = React.memo(function ItemDetailPanel({
   return (
     <aside
       data-slot="content-surface"
-      className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden"
+      className={`w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden ${windowsCaptionInset}`}
     >
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Borderless, centered adaptive preview powered by PreviewPlugin */}

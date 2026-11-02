@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MacTrafficLightSpacer } from "@/components/MacTrafficLightSpacer";
+import { WindowsCaptionSpacer } from "@/components/WindowsCaptionSpacer";
 import {
   GetLogs,
   ClearLogs,
@@ -294,7 +295,6 @@ export function LogsPage() {
             <FolderOpen className="size-3" />
             <span>{t("logs.revealFile")}</span>
           </Button>
-
           <Button
             type="button"
             variant="outline"
@@ -306,6 +306,9 @@ export function LogsPage() {
             <span>{t("logs.clear")}</span>
           </Button>
         </div>
+
+        {/* Windows 的窗口按钮画在 webview 右上角，这排按钮贴着右边缘，必须先让位。 */}
+        <WindowsCaptionSpacer />
       </header>
 
       {/* Filter & Search Bar */}

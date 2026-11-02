@@ -6,6 +6,7 @@ import { default as Star } from "~icons/ri/star-line";
 import { default as Check } from "~icons/ri/check-line";
 import { default as X } from "~icons/ri/close-line";
 import { useTranslation } from "react-i18next";
+import { useIsWindows, WINDOWS_CAPTION } from "@/lib/windows";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -59,6 +60,9 @@ export const MultiItemInspector = React.memo(function MultiItemInspector({
   onBatchRemoveTag,
 }: MultiItemInspectorProps) {
   const { t } = useTranslation();
+  // 同 ItemDetailPanel： inspector 贴着窗口右边缘，顶部要给 Windows 窗口按钮让位。
+  const onWindows = useIsWindows();
+  const windowsCaptionInset = onWindows ? WINDOWS_CAPTION.topInsetClass : "";
   const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [tagPopoverOpen, setTagPopoverOpen] = useState(false);
   const [tagSearch, setTagSearch] = useState("");
@@ -107,7 +111,7 @@ export const MultiItemInspector = React.memo(function MultiItemInspector({
   return (
     <aside
       data-slot="content-surface"
-      className="w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden"
+      className={`w-full h-full border-l-0 bg-background flex flex-col select-none overflow-hidden ${windowsCaptionInset}`}
     >
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 text-xs">
         {/* Stacked preview of the last 6 selected items in selection order */}
