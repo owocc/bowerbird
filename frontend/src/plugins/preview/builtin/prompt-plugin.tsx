@@ -14,6 +14,15 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { notifySuccess } from "@/lib/notify";
 import { SuccessCodes } from "@/lib/error-codes";
 
+/**
+ * Legacy in-app (host-internal) implementation of the AI Prompt metadata extension.
+ *
+ * The shipping implementation is the remote metadata plugin in
+ * `plugins/prompt-metadata` (`official.prompt-metadata`), which cannot import
+ * host components and therefore ships its own expanded-prompt dialog. This file
+ * is kept as the reference implementation for host-internal plugins and is NOT
+ * part of the default registry (see `registry.ts`).
+ */
 function PromptInspectorExtension({
   item,
   isTrashView,
