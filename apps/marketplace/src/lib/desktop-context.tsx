@@ -18,6 +18,15 @@ export interface DesktopContextValue {
   installViaAPI: (plugin: MarketplacePlugin) => Promise<boolean>;
 }
 
+// The marketplace is served from Cloudflare Workers in production. During SSR
+// there is no window to read the real origin from, so fall back to the deployed
+// Worker URL instead of a local dev server.
+const MARKETPLACE_ORIGIN =
+  import.meta.env.VITE_MARKETPLACE_URL ||
+  (import.meta.env.DEV
+    ? "http://localhost:3000"
+    : "https://bowerbird-marketplace.owocc.workers.dev");
+
 export const DesktopContext = React.createContext<DesktopContextValue>({
   connected: false,
   checking: true,
@@ -87,7 +96,7 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
   };
 
   const installViaProtocol = React.useCallback((plugin: MarketplacePlugin) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+    const origin = typeof window !== "undefined" ? window.location.origin : MARKETPLACE_ORIGIN;
     const installUrl = getInstallUrl(plugin, origin);
     const uri = `bowerbird://plugin/install?manifest=${encodeURIComponent(installUrl)}&id=${encodeURIComponent(plugin.id)}&version=${encodeURIComponent(plugin.version)}`;
     if (typeof window !== "undefined") {
@@ -99,7 +108,7 @@ export function DesktopProvider({ children }: { children: React.ReactNode }) {
     async (plugin: MarketplacePlugin): Promise<boolean> => {
       setInstallingId(plugin.id);
       try {
-        const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+        const origin = typeof window !== "undefined" ? window.location.origin : MARKETPLACE_ORIGIN;
         const installUrl = getInstallUrl(plugin, origin);
         const res = await fetch(`${DESKTOP_API_BASE}/api/plugin/install`, {
           method: "POST",

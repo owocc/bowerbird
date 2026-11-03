@@ -236,7 +236,13 @@ function PluginIcon({ pluginId, className }: { pluginId: string; className?: str
   }
 }
 
-const MARKETPLACE_BASE_URL = "http://localhost:3000";
+// The marketplace is deployed as a Cloudflare Worker. VITE_MARKETPLACE_URL
+// overrides it, and the dev server runs on localhost:3000.
+const MARKETPLACE_BASE_URL =
+  import.meta.env.VITE_MARKETPLACE_URL ||
+  (import.meta.env.DEV
+    ? "http://localhost:3000"
+    : "https://bowerbird-marketplace.owocc.workers.dev");
 
 function PluginCard({
   item,
