@@ -240,7 +240,7 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     id: "official.prompt-metadata",
     name: "AI Prompt Metadata",
     tagline: "全库记录并检索 Midjourney、SD 与大模型生图提示词",
-    version: "1.0.0",
+    version: "1.0.1",
     description: "Extends asset metadata with a dedicated Prompt field for recording and searching AI generation prompts.",
     author: "Bowerbird Team",
     kind: "metadata",
@@ -259,10 +259,22 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     downloadUrl: "/api/plugins/official.prompt-metadata/download",
     longDescription: `### 核心功能 (Key Features)
 - **专属生图 Prompt 字段**: 为 Midjourney、Stable Diffusion、DALL-E、ComfyUI 或大模型生成的素材资产记录完整正反向提示词与生成参数。
-- **一键精准剪贴板复制**: 快速提取长提示词文本，附带字符数与词数即时统计。
-- **无缝嵌入检视器侧边栏**: 在 Bowerbird 右侧属性栏无缝渲染轻量优雅的折叠面板，即输即存。
+- **限高滚动预览**: 长提示词收纳在固定高度的滚动阅读区内，右侧属性栏不再被超长文本撑爆。
+- **弹窗展开全文**: 一键在独立大弹窗中查看与编辑完整提示词（Esc 或点击遮罩关闭），弹窗内同样支持复制。
+- **一键精准剪贴板复制**: 标题栏常驻复制按钮，附带“已复制”反馈与降级剪贴板兜底，随时提取整段提示词。
+- **无缝嵌入检视器侧边栏**: 在 Bowerbird 右侧属性栏无缝渲染轻量优雅的折叠面板，失焦即存，⌘/Ctrl + Enter 保存、Esc 取消。
 - **全库索引关键字搜索**: 记录的 Prompt 将同步写入资产清单，支持在主界面通过任意词汇全局秒搜素材。`,
     changelog: [
+      {
+        version: "1.0.1",
+        date: "2026-11-03",
+        notes: [
+          "去除属性标题左侧图标与字符数徽章，标题行更紧凑清爽",
+          "提示词阅读区限制最大高度并支持滚动，新增弹窗展开全文",
+          "复制按钮改为纯图标，悬停提示 / 图标切换给出复制反馈，保留剪贴板兜底",
+          "内联编辑支持失焦自动保存、⌘/Ctrl + Enter 保存与 Esc 取消",
+        ],
+      },
       {
         version: "1.0.0",
         date: "2026-10-18",
