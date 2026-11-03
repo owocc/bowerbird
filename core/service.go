@@ -647,11 +647,16 @@ func (s *Service) UpgradePlugin(id string) (*InstalledPlugin, error) {
 	return s.mgr.GetPluginManager().UpgradePlugin(id)
 }
 
+// defaultMarketplaceURL is the hosted plugin store. BOWERBIRD_MARKETPLACE_URL
+// overrides it, which is how local development points at the marketplace dev
+// server instead of the deployed Worker.
+const defaultMarketplaceURL = "https://bowerbird-marketplace.owocc.workers.dev"
+
 // OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
 func (s *Service) OpenMarketplace() error {
-	targetURL := os.Getenv("BOWERBIRD_MARKETPLACE_URL")
+	targetURL := strings.TrimSpace(os.Getenv("BOWERBIRD_MARKETPLACE_URL"))
 	if targetURL == "" {
-		targetURL = "http://localhost:3000"
+		targetURL = defaultMarketplaceURL
 	}
 	return OpenExternalURL(targetURL)
 }
