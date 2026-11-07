@@ -24,6 +24,12 @@ import (
 //go:embed assets/branding/app-icon.png
 var appIcon []byte
 
+// trayIconTemplate is the macOS menu bar icon: black shapes on transparent,
+// 18pt (36px @2x), so the system can tint it for light and dark menu bars.
+//
+//go:embed assets/branding/tray-icon.png
+var trayIconTemplate []byte
+
 // appHost is the mygo implementation of core.Host. It owns the native shell:
 // windows, events, dialogs, clipboard and the main-thread hop.
 type appHost struct {
@@ -615,6 +621,17 @@ func keepWindowTitle(w *mygo.Window) {
 	w.Page().OnPageTitleUpdated(func(e *mygo.TitleEvent) { e.PreventDefault() })
 }
 
+// trayIcon returns the menu bar / notification area icon. macOS treats it as a
+// template image, so it must stay black-on-transparent to follow the menu bar's
+// appearance. Windows and Linux draw the icon verbatim and have no template
+// support, so they use the colored app icon instead.
+func trayIcon() []byte {
+	if runtime.GOOS == "darwin" {
+		return trayIconTemplate
+	}
+	return trayIconPNG()
+}
+
 // trayIconPNG downsizes the 1024px app icon to a 32px tray icon.
 func trayIconPNG() []byte {
 	src, _, err := image.Decode(bytes.NewReader(appIcon))
@@ -783,9 +800,10 @@ func main() {
 		}
 
 		tray, err := mygo.NewTray(mygo.TrayOptions{
-			Icon:    trayIconPNG(),
-			ToolTip: "Bowerbird",
-			Menu:    host.buildTrayMenu(coreService.GetLanguage() == "zh", coreService.GetShortcutSettings()),
+			Icon:           trayIcon(),
+			IconIsTemplate: runtime.GOOS == "darwin",
+			ToolTip:        "Bowerbird",
+			Menu:           host.buildTrayMenu(coreService.GetLanguage() == "zh", coreService.GetShortcutSettings()),
 		})
 		if err != nil {
 			log.Printf("[Tray] %v", err)
