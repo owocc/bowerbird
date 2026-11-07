@@ -120,6 +120,51 @@ export interface OriginalFileHandle {
   fetchText?: (rangeHeader?: string) => Promise<string>;
 }
 
+/** Options for fetching a remote URL through the desktop HTTP bridge. */
+export interface UrlFetchOptions {
+  headers?: Record<string, string>;
+  /** Maximum number of response bytes to return. Defaults to 4 MiB. */
+  maxBytes?: number;
+  /** Request timeout in milliseconds. Defaults to 20000. */
+  timeoutMs?: number;
+}
+
+/** Raw text response returned by the host URL fetch bridge. */
+export interface UrlFetchResult {
+  /** Final URL after redirects */
+  url: string;
+  statusCode: number;
+  contentType: string;
+  body: string;
+}
+
+/**
+ * Host capabilities available to plugin URL resolvers. The host performs the
+ * actual network request (bypassing WebView CORS/mixed-content restrictions),
+ * while the plugin owns all site-specific parsing.
+ */
+export interface UrlResolveContext {
+  fetchText: (url: string, options?: UrlFetchOptions) => Promise<UrlFetchResult>;
+}
+
+/** Result returned by a plugin URL resolver. */
+export interface PluginUrlResolution {
+  /** Preferred direct media URL. */
+  url?: string;
+  /** Additional media URLs to try in order when `url` is unavailable. */
+  candidates?: string[];
+  /** Page/source URL to store on the imported item. */
+  sourceUrl?: string;
+  name?: string;
+  tags?: string[];
+}
+
+/** Plugin-provided URL resolver (Pinterest, Twitter, Instagram, ...). */
+export type PluginUrlResolver = (
+  url: string,
+  context: UrlResolveContext
+) => Promise<PluginUrlResolution | null> | PluginUrlResolution | null;
+
 export type ThemeMode = "dark" | "light";
 
 /**
@@ -281,6 +326,12 @@ export interface PreviewPlugin<TItem = PluginItem> {
   generateCoverThumbnail?: (
     ctx: GenerateCoverThumbnailContext<TItem>
   ) => Promise<GeneratedCoverThumbnail | null> | GeneratedCoverThumbnail | null;
+  /**
+   * Optional URL resolver. The host asks enabled plugins in priority order
+   * whether they recognize a pasted/dropped URL and can resolve it to a direct
+   * media URL (or a list of candidates). Site-specific parsing stays in plugins.
+   */
+  resolveUrl?: PluginUrlResolver;
   /** Dynamic context menu item contributor */
   getContextMenuItems?: (
     target: ContextMenuTarget,

@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Events, isDesktopHost } from "@/lib/host-runtime";
 import { isWindows } from "@/lib/platform";
-import { ImportFiles, ImportFromBase64, ImportFromURL } from "../../bindings/bowerbird/core/service";
+import {
+  ImportFiles,
+  ImportFromBase64,
+  ImportFromURL,
+  ImportFromURLWithOptions,
+} from "../../bindings/bowerbird/core/service";
+import { previewRegistry } from "@/plugins/preview/registry";
 import type { Item } from "../../bindings/bowerbird/core/models";
 import { isInternalDragActive } from "../lib/drag-state";
 import { notifySuccess, notifyError } from "@/lib/notify";
@@ -484,7 +490,10 @@ export function useFileDrop({ onRefresh, onItemsUpserted, onItemsTrashed }: UseF
     [importFileObject, onRefresh, t]
   );
 
-  // Import from network URL via Go backend
+  // Import from network URL. Site-specific URL parsing is delegated to enabled
+  // plugins first (Pinterest, etc.); the desktop core only performs the generic
+  // download. If no plugin recognizes the URL we fall back to the existing
+  // generic import path.
   const importFromURL = useCallback(
     async (url: string) => {
       clearTimer();
@@ -497,7 +506,38 @@ export function useFileDrop({ onRefresh, onItemsUpserted, onItemsTrashed }: UseF
       });
 
       try {
-        const item = await ImportFromURL(url);
+        const resolved = await previewRegistry.resolveUrl(url);
+        const resolution = resolved?.resolution;
+        const candidates = resolution
+          ? resolution.candidates && resolution.candidates.length > 0
+            ? resolution.candidates
+            : resolution.url
+              ? [resolution.url]
+              : []
+          : [];
+
+        let item: Item | null = null;
+        if (candidates.length > 0) {
+          let lastError: unknown = null;
+          for (const candidate of candidates) {
+            try {
+              item = await ImportFromURLWithOptions(candidate, {
+                url: resolution?.sourceUrl || url,
+                name: resolution?.name,
+                tags: resolution?.tags,
+              });
+              if (item) break;
+            } catch (err) {
+              lastError = err;
+            }
+          }
+          if (!item) {
+            throw lastError instanceof Error ? lastError : new Error(String(lastError || "URL resolution failed"));
+          }
+        } else {
+          item = await ImportFromURL(url);
+        }
+
         if (item) {
           setState({
             status: "success",

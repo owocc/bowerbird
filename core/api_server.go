@@ -84,6 +84,7 @@ func (s *AssetServer) registerAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/system/open-plugins", s.handleAPIOpenPlugins)
 	mux.HandleFunc("/api/network/settings", s.handleAPINetworkSettings)
 	mux.HandleFunc("/api/network/test", s.handleAPINetworkTest)
+	mux.HandleFunc("/api/url/fetch", s.handleAPIURLFetch)
 }
 
 // handleAPIPing provides a lightweight check to determine if the desktop application is running.

@@ -62,3 +62,43 @@ export default plugin;
 ## License
 
 MIT
+
+## URL Resolver Plugins
+
+Plugins can take ownership of site-specific URL parsing. The host exposes a
+generic HTTP bridge (`/api/url/fetch`) so plugins can read remote pages without
+worrying about WebView CORS rules, then return direct media candidates through
+the `resolveUrl` hook.
+
+```ts
+import { definePlugin, type PluginUrlResolution, type UrlResolveContext } from "@bowerbird/plugin-sdk";
+
+async function resolve(url: string, ctx: UrlResolveContext): Promise<PluginUrlResolution | null> {
+  if (!url.includes("example.com/item/")) return null;
+
+  const page = await ctx.fetchText(url);
+  const match = page.body.match(/https:\/\/cdn\.example\.com\/original\/[^"']+/);
+  if (!match) return null;
+
+  return {
+    url: match[0],
+    candidates: [match[0]],
+    sourceUrl: url,
+    tags: ["example"],
+  };
+}
+
+export default definePlugin({
+  id: "myorg.example-resolver",
+  name: "Example URL Resolver",
+  kind: "metadata",
+  priority: 55,
+  extensions: [],
+  resolveUrl: resolve,
+});
+```
+
+The host asks enabled plugins in priority order. The first non-null resolution is
+used; each candidate is imported in order until one succeeds. This keeps the
+desktop core completely site-agnostic — adding support for another service only
+requires a plugin update.

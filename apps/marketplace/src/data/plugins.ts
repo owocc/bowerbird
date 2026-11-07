@@ -331,6 +331,48 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     ],
   },
 
+  // 4.75 Pinterest
+  {
+    id: "official.pinterest",
+    name: "Pinterest",
+    tagline: "粘贴 Pin 链接，自动保存 /originals/ 原图",
+    version: "1.0.0",
+    description:
+      "Parse Pinterest pin URLs and save the original image into your Bowerbird library.",
+    author: "Bowerbird Team",
+    kind: "metadata",
+    category: "metadata",
+    subCategory: "media",
+    priority: 55,
+    extensions: [],
+    supportsZoom: false,
+    main: "index.js",
+    license: "MIT",
+    iconName: "image",
+    featured: true,
+    downloadsCount: 0,
+    rating: 0,
+    manifestUrl: "/api/plugins/official.pinterest/manifest.json",
+    downloadUrl: "/api/plugins/official.pinterest/download",
+    longDescription: `### 核心功能 (Key Features)
+- **Pin 链接导入**: 支持各地区 Pinterest 域名以及 pin.it 短链接，粘贴后直接保存对应图片。
+- **原图还原**: 自动解析 Pin 页面，优先下载 \`i.pinimg.com/originals/...\`，原图不存在时才回退最大可用尺寸。
+- **保留来源页**: 素材的 source URL 仍然是 Pin 页面，方便回溯原收藏。
+- **检视器快捷操作**: 当素材来源 URL 是 Pin 链接时，侧边栏提供一键 **Save image**。
+- **右键菜单**: 在画布空白处右键，从插件动作中选择 **Save Pinterest Pin…** 即可粘贴链接保存。`,
+    changelog: [
+      {
+        version: "1.0.0",
+        date: "2026-11-07",
+        notes: [
+          "首发正式版",
+          "支持 Pin 页面解析为 /originals/ 原图并导入资料库",
+          "支持 pin.it 短链接与 i.pinimg.com 直链",
+        ],
+      },
+    ],
+  },
+
   // 5. EXIF & Lens Inspector
 
   // 6. Source Code QuickLook
