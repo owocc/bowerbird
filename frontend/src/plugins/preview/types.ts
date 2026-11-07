@@ -24,6 +24,10 @@ import type {
   PluginContextMenuContext,
   PluginContextMenuItem,
   PluginContextMenuFolder,
+  PluginUrlResolution,
+  UrlFetchOptions,
+  UrlFetchResult,
+  UrlResolveContext,
 } from "@bowerbird/plugin-sdk";
 
 export type {
@@ -37,6 +41,10 @@ export type {
   PluginContextMenuContext,
   PluginContextMenuItem,
   PluginContextMenuFolder,
+  PluginUrlResolution,
+  UrlFetchOptions,
+  UrlFetchResult,
+  UrlResolveContext,
 };
 export type PreviewPluginHostAPI = BasePreviewPluginHostAPI<Item>;
 

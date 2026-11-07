@@ -5,6 +5,8 @@ import type {
   ContextMenuTarget,
   PluginContextMenuContext,
   PluginContextMenuItem,
+  PluginUrlResolution,
+  UrlResolveContext,
 } from "./types";
 import { ImagePreviewPlugin } from "./builtin/image-plugin";
 import { VideoPreviewPlugin } from "./builtin/video-plugin";
@@ -43,6 +45,46 @@ export interface PreviewPluginStatus {
   plugin: PreviewPlugin;
   enabled: boolean;
   canDisable: boolean;
+}
+
+export const DEFAULT_PLUGIN_API_BASE_URL = "http://127.0.0.1:41595";
+
+/**
+ * Builds the host context handed to plugin URL resolvers. Network access goes
+ * through the desktop HTTP bridge so plugins do not need to care about WebView
+ * CORS rules; parsing remains the plugin's responsibility.
+ */
+export function createPluginUrlResolveContext(
+  apiBaseUrl: string = DEFAULT_PLUGIN_API_BASE_URL
+): UrlResolveContext {
+  return {
+    fetchText: async (url, options) => {
+      const response = await fetch(`${apiBaseUrl}/api/url/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          headers: options?.headers,
+          maxBytes: options?.maxBytes,
+          timeoutMs: options?.timeoutMs,
+        }),
+      });
+      let payload: {
+        status?: string;
+        message?: string;
+        data?: { url: string; statusCode: number; contentType: string; body: string };
+      } | null = null;
+      try {
+        payload = await response.json();
+      } catch {
+        // Fall through to the HTTP status message.
+      }
+      if (!response.ok || payload?.status !== "success" || !payload.data) {
+        throw new Error(payload?.message || `URL fetch failed: HTTP ${response.status}`);
+      }
+      return payload.data;
+    },
+  };
 }
 
 export class PreviewPluginRegistry {
@@ -312,6 +354,31 @@ export class PreviewPluginRegistry {
     }
 
     return matched;
+  }
+
+  /**
+   * Asks enabled plugins, in priority order, to resolve a pasted/dropped URL to
+   * a direct media URL. Site-specific URL parsing lives in plugins, never in the
+   * desktop core.
+   */
+  async resolveUrl(
+    url: string,
+    context?: UrlResolveContext,
+    apiBaseUrl?: string
+  ): Promise<{ plugin: PreviewPlugin; resolution: PluginUrlResolution } | null> {
+    const ctx = context || createPluginUrlResolveContext(apiBaseUrl);
+    for (const plugin of this.plugins) {
+      if (!plugin.resolveUrl || !this.isEnabled(plugin.id)) continue;
+      try {
+        const resolution = await plugin.resolveUrl(url, ctx);
+        if (resolution && (resolution.url || (resolution.candidates && resolution.candidates.length > 0))) {
+          return { plugin, resolution };
+        }
+      } catch (err) {
+        console.warn(`[PluginRegistry] URL resolver failed for ${plugin.id}:`, err);
+      }
+    }
+    return null;
   }
 
   /**
