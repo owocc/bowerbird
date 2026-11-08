@@ -407,6 +407,55 @@ func TestFilterQueryStringIncludesAllCriteria(t *testing.T) {
 	}
 }
 
+func TestLibraryPickerKeepsStableOrderAndFilters(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+	a := seededApp(t)
+	a.recent = []core.LibraryRef{
+		{ID: "b", Path: "/tmp/Blue.library"},
+		{ID: "lib", Path: a.library.Path},
+		{ID: "c", Path: "/tmp/Charcoal.library"},
+	}
+	a.prefs.LibraryOrder = []string{"c", "b", "lib"}
+
+	got := a.libraryRefsInOrder()
+	var ids []string
+	for _, ref := range got {
+		ids = append(ids, ref.ID)
+	}
+	if strings.Join(ids, ",") != "c,b,lib" {
+		t.Fatalf("library order = %v, want c,b,lib", ids)
+	}
+
+	a.librarySearch = "blue"
+	filtered := a.filteredLibraryRefs(got)
+	if len(filtered) != 2 || filtered[0].ID != "b" || filtered[1].ID != "lib" {
+		t.Fatalf("filtered libraries = %+v, want Blue and active library", filtered)
+	}
+
+	a.reorderLibraries([]int{0}, 3)
+	if strings.Join(a.prefs.LibraryOrder, ",") != "b,lib,c" {
+		t.Fatalf("reordered libraries = %v, want b,lib,c", a.prefs.LibraryOrder)
+	}
+}
+
+func TestLibraryPickerRendersSearchAndActions(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+	a := seededApp(t)
+	a.recent = []core.LibraryRef{
+		{ID: "lib", Path: a.library.Path},
+		{ID: "blue", Path: "/tmp/Blue.library"},
+	}
+	a.libraryPickerOpen = true
+	tester := ui.NewTester(a.viewMain, 1280, 800)
+	tester.Frame()
+	if !tester.HasText(a.t("sidebar.createLibrary.action")) || !tester.HasText(a.t("sidebar.openLibrary")) {
+		t.Fatal("library picker is missing its actions")
+	}
+	if !tester.HasText("Blue") {
+		t.Fatal("library picker is missing a recent library")
+	}
+}
+
 func TestSettingsSectionLabelsAreTranslated(t *testing.T) {
 	a := seededApp(t)
 	for _, label := range a.settingsSectionLabels() {

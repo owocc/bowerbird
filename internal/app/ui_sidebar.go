@@ -1,7 +1,6 @@
 package app
 
 import (
-	"path/filepath"
 	"time"
 
 	"bowerbird/core"
@@ -44,86 +43,6 @@ func (a *App) viewSidebar(c *ui.Context) {
 			}
 			if count == 0 {
 				ui.Text(c, a.t("sidebar.noFolders")).FontSize(11).TextColor(p.faint).Padding(12, 6)
-			}
-		})
-	})
-}
-
-func (a *App) sidebarLibrarySwitcher(c *ui.Context) {
-	p := paletteFor(c.Theme())
-	this := a.t("library.switcher")
-	ui.Box(c).Padding(10, 12, 4, 12).Children(func() {
-		ui.Row(c).Height(34).Width(sidebarWidth - 24).PaddingX(8).Radius(8).Background(p.hover).AlignItems(ui.Center).Gap(8).Children(func() {
-			ui.Icon(c, iconLibrary).Size(16, 16).TextColor(p.muted)
-			labels := make([]string, 0, len(a.recent)+1)
-			paths := make([]string, 0, len(a.recent)+1)
-			current := ""
-			if a.library != nil {
-				current = a.library.Name
-			}
-			seen := map[string]bool{}
-			for _, ref := range a.recent {
-				name := filepath.Base(ref.Path)
-				if name == "" || seen[name] {
-					continue
-				}
-				seen[name] = true
-				labels = append(labels, name)
-				paths = append(paths, ref.Path)
-				if a.library != nil && ref.ID == a.library.ID {
-					current = name
-				}
-			}
-			if current == "" {
-				current = a.t("sidebar.noLibrary")
-			}
-			_ = this
-			if len(labels) == 0 {
-				labels = []string{current}
-				paths = []string{""}
-			}
-			chosen := current
-			sel := ui.Select(c.Key("library-switch"), &chosen, labels).FontSize(12).Grow(1).Shrink(1)
-			if sel.Changed() {
-				for i, label := range labels {
-					if label == chosen && paths[i] != "" && (a.library == nil || paths[i] != a.library.Path) {
-						path := paths[i]
-						go func() {
-							_, err := a.svc.OpenLibrary(path)
-							a.post(func() {
-								if err != nil {
-									a.showToast(err.Error())
-								}
-								a.refreshAll()
-							})
-						}()
-						break
-					}
-				}
-			}
-		})
-		ui.Row(c).Height(30).Gap(4).Children(func() {
-			a.iconButton(c, "library-new", iconPlus, false, a.t("sidebar.createLibrary"), func() {
-				a.dialog = dialogNewLibrary
-				a.dialogValue = ""
-				a.dialogError = ""
-			})
-			a.iconButton(c, "library-open", iconFolder, false, a.t("sidebar.openLibrary"), func() {
-				go func() {
-					path, err := a.svc.SelectLibraryDialog()
-					if err != nil || path == "" {
-						return
-					}
-					if _, err := a.svc.OpenLibrary(path); err != nil {
-						a.post(func() { a.showToast(err.Error()) })
-						return
-					}
-					a.post(func() { a.refreshAll() })
-				}()
-			})
-			ui.Box(c).Grow(1)
-			if a.total > 0 {
-				ui.Textf(c, "%d", a.total).FontSize(10).TextColor(p.faint).FontFeatures("tnum")
 			}
 		})
 	})

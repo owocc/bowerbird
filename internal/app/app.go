@@ -71,6 +71,7 @@ type Prefs struct {
 	RowHeight     float64  `json:"rowHeight"`
 	IncludeSubs   bool     `json:"includeSubfolders"`
 	PinnedFilters []string `json:"pinnedFilters"`
+	LibraryOrder  []string `json:"libraryOrder,omitempty"`
 }
 
 func defaultPrefs() Prefs {
@@ -112,8 +113,15 @@ type App struct {
 	setupWin    *mygo.Window
 
 	// Library and workspace.
-	library    *core.LibraryInfo
-	recent     []core.LibraryRef
+	library *core.LibraryInfo
+	recent  []core.LibraryRef
+
+	// Library picker state.
+	libraryPickerOpen bool
+	librarySearch     string
+	librarySearchBox  ui.Handle
+	libraryList       ui.ListState
+
 	folders    []core.Folder
 	tags       []core.Tag
 	stats      core.WorkspaceStats
