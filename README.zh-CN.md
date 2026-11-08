@@ -17,7 +17,7 @@
 
 把 BowerBird 指向一个装着图片和视频的文件夹，它就会变成一个素材库：每个文件当场计算哈希、生成缩略图、提取配色并建立索引。不需要上传，不需要注册，也不经过任何云端——得到的只是一个可以随手搬走、备份或自行同步的 `.library` 包。
 
-BowerBird 是一个跨平台桌面应用，使用 **mygo（Go）** 的 webview 模式与 **React 19 + TypeScript + Tailwind CSS v4** 构建。桌面外壳基于 [mygo](https://github.com/egoist/mygo)；实验性的原生渲染版本位于 `cmd/bowerbird-native/`。
+BowerBird 是一个跨平台桌面应用，使用 **mygo（Go）的 GPU 原生 UI（`mygo/ui`）** 构建，不再包含 WebView、React 或 Vite 前端工程。所有界面由 Go 在 `internal/app/` 中声明式绘制，插件采用免构建的 `plugin.json + index.js` 沙箱格式；浏览器扩展与插件市场仍独立维护。
 
 ## 功能
 
@@ -219,8 +219,7 @@ BowerBird 在 **用户素材库** 与 **应用状态数据** 之间执行严格�
 > `scripts/mygo.mjs` 路由，会在所有平台上强制 `CGO_ENABLED=1`。
 
 ```bash
-pnpm dev                 # mygo 开发模式（Go 后端 + Vite HMR，经由 mygo devCommand）
-pnpm dev:frontend        # 仅启动 Vite 开发服务器（前端）
+pnpm dev                 # mygo 原生窗口开发模式（纯 Go，无 WebView）
 pnpm dev:marketplace     # 插件市场（apps/marketplace）开发服务器
 pnpm dev:docs            # 文档站点（apps/docs）开发服务器
 pnpm dev:extension       # 浏览器扩展开发（Chrome）；另有 :firefox 变体
@@ -229,16 +228,13 @@ pnpm dev:extension       # 浏览器扩展开发（Chrome）；另有 :firefox �
 ### 构建
 
 ```bash
-pnpm build               # 插件 + 前端打包（mygo build 消费的产物）
-pnpm build:release       # 插件 + 前端 + mygo 构建
+pnpm build               # mygo 原生应用构建
 pnpm build:app           # mygo 构建（当前平台）
 pnpm build:app:macos     # macOS 通用包（arm64 + amd64）
 pnpm build:app:windows   # Windows amd64（便携 exe + NSIS 安装包）
 pnpm build:app:linux     # Linux amd64
 
-pnpm build:packages      # 工作区包（@bowerbird/plugin-sdk、@workspace/ui）
-pnpm build:plugins       # scripts/build-plugins.mjs -> dist/plugins/*.zip + index.min.json
-pnpm build:frontend      # 类型检查 + 生产环境前端打包
+pnpm build:packages      # 市场/扩展共用的 TypeScript 类型包
 pnpm build:extension     # 浏览器扩展（Chrome）；另有 :firefox / :edge / :safari 变体
 pnpm build:marketplace   # 插件市场应用
 pnpm build:docs          # 文档站点
@@ -251,7 +247,7 @@ pnpm build:all           # 所有 JS/TS 工作区目标
 pnpm test                # go test ./...
 pnpm test:watch          # go test -count=1 -v ./...
 pnpm typecheck           # 在所有定义了类型检查的包中执行 tsc / astro check
-pnpm clean               # 清理构建产物（frontend/dist、dist、build/mygo 等）
+pnpm clean               # 清理构建产物（dist、build/mygo 等）
 ```
 
 等价的原始命令，供参考：

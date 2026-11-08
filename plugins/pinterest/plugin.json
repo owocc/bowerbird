@@ -1,0 +1,16 @@
+{
+  "id": "official.pinterest",
+  "name": "Pinterest",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "main": "index.js",
+  "description": "Resolve Pinterest pin links to the original image without a build step.",
+  "author": "Bowerbird Team",
+  "permissions": {
+    "network": ["pinterest.com", "*.pinterest.com", "pin.it", "i.pinimg.com", "i-*.pinimg.com"],
+    "process": []
+  },
+  "settings": [
+    { "key": "cookie", "label": "Session Cookie (optional)", "help": "For private boards; sent only to pinterest.com." }
+  ]
+}

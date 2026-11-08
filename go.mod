@@ -1,12 +1,11 @@
 module bowerbird
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/coder/websocket v1.8.14
-	github.com/egoist/mygo v0.5.5
+	github.com/egoist/mygo v0.7.4
 	github.com/grandcat/zeroconf v1.0.0
-	github.com/wailsapp/wails/v3 v3.0.0-beta.28
 	golang.org/x/image v0.46.0
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.60.1
@@ -18,6 +17,7 @@ require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

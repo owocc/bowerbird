@@ -17,7 +17,7 @@
 
 Point Bowerbird at a folder of images and video and it becomes a library: every file is hashed, thumbnailed, palette-extracted and indexed on the spot. No upload, no account, no cloud — just a portable `.library` package you can move between machines, back up, or sync however you like.
 
-Bowerbird is a cross-platform desktop app built with **mygo (Go)** in webview mode and **React 19 + TypeScript + Tailwind CSS v4**. The desktop shell is built on [mygo](https://github.com/egoist/mygo); an experimental native-rendering build lives in `cmd/bowerbird-native/`.
+Bowerbird is a cross-platform desktop app built entirely with **mygo's GPU-native UI (`mygo/ui`)**. It contains no WebView, React or Vite frontend: every screen is declared in Go under `internal/app/`, and plugins use a zero-build `plugin.json + index.js` sandbox. The browser extension and marketplace are maintained separately.
 
 ## Features
 
@@ -218,8 +218,7 @@ All dev/build commands live in the root `package.json` `scripts` block — run t
 > through `scripts/mygo.mjs`, which forces `CGO_ENABLED=1` on every platform.
 
 ```bash
-pnpm dev                 # mygo dev mode (Go backend + Vite HMR via mygo devCommand)
-pnpm dev:frontend        # Vite dev server only (frontend)
+pnpm dev                 # native mygo window (pure Go, no WebView)
 pnpm dev:marketplace     # Marketplace (apps/marketplace) dev server
 pnpm dev:docs            # Docs site (apps/docs) dev server
 pnpm dev:extension       # Web extension dev (Chrome); :firefox variant available
@@ -228,16 +227,13 @@ pnpm dev:extension       # Web extension dev (Chrome); :firefox variant availabl
 ### Build
 
 ```bash
-pnpm build               # plugins + frontend bundle (what mygo build consumes)
-pnpm build:release       # plugins + frontend + mygo build
+pnpm build               # native mygo application build
 pnpm build:app           # mygo build (current platform)
 pnpm build:app:macos     # macOS universal (arm64 + amd64)
 pnpm build:app:windows   # Windows amd64 (portable exe + NSIS installer)
 pnpm build:app:linux     # Linux amd64
 
-pnpm build:packages      # workspace packages (@bowerbird/plugin-sdk, @workspace/ui)
-pnpm build:plugins       # scripts/build-plugins.mjs -> dist/plugins/*.zip + index.min.json
-pnpm build:frontend      # typecheck + production frontend bundle
+pnpm build:packages      # shared TypeScript types for the marketplace/extension
 pnpm build:extension     # web extension (Chrome); :firefox / :edge / :safari variants
 pnpm build:marketplace   # marketplace app
 pnpm build:docs          # docs site
@@ -250,7 +246,7 @@ pnpm build:all           # every JS/TS workspace target
 pnpm test                # go test ./...
 pnpm test:watch          # go test -count=1 -v ./...
 pnpm typecheck           # tsc / astro check across every package that defines one
-pnpm clean               # remove build outputs (frontend/dist, dist, build/mygo, ...)
+pnpm clean               # remove build outputs (dist, build/mygo, ...)
 ```
 
 Equivalent raw commands, for reference:

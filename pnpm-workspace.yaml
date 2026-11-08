@@ -1,6 +1,5 @@
 packages:
   - "packages/*"
-  - "frontend"
   - "extension"
   - "apps/*"
   - "plugins/*"

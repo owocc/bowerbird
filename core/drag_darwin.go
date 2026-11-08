@@ -1,4 +1,4 @@
-//go:build darwin && !ios
+//go:build darwin && !ios && cgo
 
 package core
 
@@ -279,10 +279,13 @@ static void onLibraryLoaded(void) {
     installNativeDragHook();
 }
 
-static bool doNativeFileDrag(void* windowPtr, const char* cPath) {
+static void freeCString(char* s) { free(s); }
+static void freeCharPtr(char** s) { free(s); }
+
+static bool doNativeFileDrag(unsigned long windowPtr, const char* cPath) {
     if (!windowPtr || !cPath) return false;
     @autoreleasepool {
-        NSWindow *window = (__bridge NSWindow*)windowPtr;
+        NSWindow *window = (__bridge NSWindow*)(void*)windowPtr;
         NSView *view = [window contentView];
         NSString *filePath = [NSString stringWithUTF8String:cPath];
         NSFileManager *fm = [NSFileManager defaultManager];
@@ -461,8 +464,8 @@ func (m *LibraryManager) StartDrag(id string) error {
 	var success bool
 	host.RunOnMain(func() {
 		cPath := C.CString(filePath)
-		defer C.free(unsafe.Pointer(cPath))
-		success = bool(C.doNativeFileDrag(unsafe.Pointer(handle), cPath))
+		defer C.freeCString(cPath)
+		success = bool(C.doNativeFileDrag(C.ulong(handle), cPath))
 	})
 
 	if !success {
@@ -499,7 +502,7 @@ func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
 	cPaths := make([]*C.char, len(paths))
 	for i, p := range paths {
 		cPaths[i] = C.CString(p)
-		defer C.free(unsafe.Pointer(cPaths[i]))
+		defer C.freeCString(cPaths[i])
 	}
 
 	ok := C.copyFilesToGeneralPasteboard((**C.char)(&cPaths[0]), C.int(len(paths)))
@@ -517,7 +520,7 @@ func AugmentPasteboardForTesting(paths []string) ([]string, error) {
 	cPaths := make([]*C.char, len(paths))
 	for i, p := range paths {
 		cPaths[i] = C.CString(p)
-		defer C.free(unsafe.Pointer(cPaths[i]))
+		defer C.freeCString(cPaths[i])
 	}
 
 	var outFilenames **C.char
@@ -526,14 +529,14 @@ func AugmentPasteboardForTesting(paths []string) ([]string, error) {
 	if ret != 0 {
 		return nil, errors.New("pasteboard augmentation failed")
 	}
-	defer C.free(unsafe.Pointer(outFilenames))
+	defer C.freeCharPtr(outFilenames)
 
 	count := int(outCount)
 	result := make([]string, count)
 	cSlice := (*[1 << 20]*C.char)(unsafe.Pointer(outFilenames))[:count:count]
 	for i := 0; i < count; i++ {
 		result[i] = C.GoString(cSlice[i])
-		C.free(unsafe.Pointer(cSlice[i]))
+		C.freeCString(cSlice[i])
 	}
 	return result, nil
 }

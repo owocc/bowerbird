@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"bowerbird/core"
+	"bowerbird/internal/app"
 
 	"github.com/egoist/mygo"
 	xdraw "golang.org/x/image/draw"
@@ -43,6 +44,7 @@ type appHost struct {
 	tray        *mygo.Tray
 
 	svc      *core.Service
+	views    *app.App
 	quitting atomic.Bool
 
 	idleMu     sync.Mutex
@@ -57,6 +59,7 @@ func newAppHost(svc *core.Service) *appHost {
 		windows: map[string]*mygo.Window{},
 		events:  map[string]*mygo.Event[any]{},
 		svc:     svc,
+		views:   app.New(svc),
 	}
 }
 
@@ -75,6 +78,9 @@ func (h *appHost) event(name string) *mygo.Event[any] {
 }
 
 func (h *appHost) Emit(name string, payload any) {
+	if h.views != nil {
+		h.views.HandleEvent(name, payload)
+	}
 	if name == core.LanguageChangedEvent || name == core.ShortcutsChangedEvent {
 		h.rebuildTrayMenu()
 		if runtime.GOOS == "darwin" {
@@ -110,8 +116,17 @@ func (h *appHost) window(name string) *mygo.Window {
 // host lock.
 func (h *appHost) newWindow(spec core.WindowSpec) *mygo.Window {
 	w := mygo.NewWindow(h.windowOptions(spec))
-	keepWindowTitle(w)
 	h.attachDrop(w)
+	switch spec.Name {
+	case "main":
+		h.views.SetMainWindow(w)
+	case "settings":
+		h.views.SetSettingsWindow(w)
+	case "logs":
+		h.views.SetLogsWindow(w)
+	case "setup":
+		h.views.SetSetupWindow(w)
+	}
 	return w
 }
 
@@ -217,6 +232,7 @@ func (h *appHost) CloseMainWindow() {
 func (h *appHost) OpenMainWindow() {
 	h.CancelLightweightIdle()
 	h.liteActive.Store(false)
+	h.views.Notify(true)
 	h.mu.Lock()
 	if h.main != nil {
 		h.mu.Unlock()
@@ -256,8 +272,8 @@ func (h *appHost) createMainWindow() *mygo.Window {
 		MinHeight:      600,
 		TitleBarHidden: true,
 	}))
-	keepWindowTitle(w)
 	h.attachDrop(w)
+	h.views.SetMainWindow(w)
 	w.OnClose(func(e *mygo.CloseEvent) {
 		if h.quitting.Load() {
 			return
@@ -381,7 +397,6 @@ func (h *appHost) windowOptions(spec core.WindowSpec) mygo.WindowOptions {
 	vibrant := svc != nil && svc.GetVibrancyEnabled()
 	opts := mygo.WindowOptions{
 		Title:           spec.Title,
-		URL:             spec.URL,
 		Width:           spec.Width,
 		Height:          spec.Height,
 		MinWidth:        spec.MinWidth,
@@ -389,8 +404,21 @@ func (h *appHost) windowOptions(spec core.WindowSpec) mygo.WindowOptions {
 		Transparent:     vibrant,
 		BackgroundColor: windowBackgroundColor,
 	}
+	switch spec.Name {
+	case "settings":
+		opts.Content = h.views.SettingsContent()
+	case "logs":
+		opts.Content = h.views.LogsContent()
+	case "setup":
+		opts.Content = h.views.SetupContent()
+	default:
+		opts.Content = h.views.MainContent()
+	}
 	if spec.TitleBarHidden {
-		opts.TitleBarStyle = mygo.TitleBarHiddenInset
+		opts.TitleBarStyle = mygo.TitleBarHidden
+		if runtime.GOOS == "darwin" {
+			opts.TrafficLightPosition = &mygo.Point{X: 20, Y: 20}
+		}
 	}
 	if vibrant {
 		opts.Vibrancy = windowVibrancyMaterial
@@ -465,33 +493,21 @@ func (h *appHost) ApplyTheme(theme string) {
 	}
 }
 
-// dropTarget is the DOM target resolved under a native drop.
-type dropTarget struct {
-	Target   string `json:"target"`
-	FolderID string `json:"folderId"`
-}
-
 func (h *appHost) attachDrop(w *mygo.Window) {
 	w.OnFileDrop(func(e *mygo.FileDropEvent) {
-		// This callback runs in the WebView2 WebMessageReceived handler on the
-		// UI thread. Calling EvalAs here would deadlock: Eval waits (pumping
-		// messages in a nested loop) for the page's answer, but WebView2 only
-		// delivers that answer after this callback returns. Every RPC then
-		// stalls with it — drops, imports, settings windows.
 		paths := append([]string(nil), e.Paths...)
-		x, y := e.X, e.Y
-		go func() {
-			target := dropTarget{}
-			js := fmt.Sprintf(`const el = document.elementFromPoint(%d, %d);
-const t = el && el.closest ? el.closest("[data-file-drop-target]") : null;
-return {target: t && t.dataset ? (t.dataset.fileDropTarget || "") : "", folderId: t && t.dataset ? (t.dataset.folderId || "") : ""};`, x, y)
-			if got, err := mygo.EvalAs[dropTarget](w.Page(), js); err == nil {
-				target = got
-			}
-			if h.svc != nil {
-				_ = h.svc.HandleNativeDrop(paths, target.Target, target.FolderID)
-			}
-		}()
+		if h.views != nil {
+			h.views.HandleDrop(paths)
+			return
+		}
+		if h.svc != nil {
+			go func() { _ = h.svc.HandleNativeDrop(paths, "", "") }()
+		}
+	})
+	w.OnHide(func() {
+		if h.views != nil {
+			h.views.Notify(false)
+		}
 	})
 }
 
@@ -615,12 +631,6 @@ func (h *appHost) registerGlobalShortcuts() {
 	}
 }
 
-// keepWindowTitle keeps the native title the app set, instead of following
-// the page's <title> (all routes share the same document title).
-func keepWindowTitle(w *mygo.Window) {
-	w.Page().OnPageTitleUpdated(func(e *mygo.TitleEvent) { e.PreventDefault() })
-}
-
 // trayIcon returns the menu bar / notification area icon. macOS treats it as a
 // template image, so it must stay black-on-transparent to follow the menu bar's
 // appearance. Windows and Linux draw the icon verbatim and have no template
@@ -686,8 +696,6 @@ func main() {
 	coreService := core.NewService(nil)
 	host := newAppHost(coreService)
 	core.AttachHost(coreService, host)
-	mygo.Bind(&GreetService{})
-	mygo.Bind(coreService)
 
 	var (
 		coreMgr    *core.LibraryManager

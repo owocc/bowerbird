@@ -1,10 +1,11 @@
-//go:build (!darwin && !windows) || ios
+//go:build (!darwin && !windows) || ios || (darwin && !cgo)
 
 package core
 
 import (
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 )
 
@@ -41,8 +42,21 @@ func (m *LibraryManager) StartDragItems(ids []string) error {
 }
 
 // AugmentPasteboardForTesting exercises pasteboard file extraction logic for test harnesses.
+// Without cgo there is no AppKit pasteboard, so it validates the same file
+// list and returns it unchanged.
 func AugmentPasteboardForTesting(paths []string) ([]string, error) {
-	return paths, nil
+	out := make([]string, 0, len(paths))
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.IsDir() {
+			return nil, fmt.Errorf("%s is a directory", path)
+		}
+		out = append(out, path)
+	}
+	return out, nil
 }
 
 // CopyItemsToClipboard writes the given library items to the system clipboard.
