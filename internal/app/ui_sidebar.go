@@ -37,12 +37,12 @@ func (a *App) viewSidebar(c *ui.Context) {
 					a.dialogValue = ""
 				})
 			})
-			count := 0
-			for i := range a.folders {
-				count += a.folderRow(c, a.folders[i], 0)
-			}
-			if count == 0 {
+			if len(a.folders) == 0 {
 				ui.Text(c, a.t("sidebar.noFolders")).FontSize(11).TextColor(p.faint).Padding(12, 6)
+			} else {
+				for _, f := range a.folderRoots() {
+					a.folderRow(c, f, 0)
+				}
 			}
 		})
 	})
@@ -71,16 +71,10 @@ func (a *App) navRow(c *ui.Context, nav Nav, icon *ui.SVG, label string, count i
 	}
 }
 
-func (a *App) folderRow(c *ui.Context, f core.Folder, depth int) int {
+func (a *App) folderRow(c *ui.Context, f core.Folder, depth int) {
 	p := paletteFor(c.Theme())
-	count := 1
 	open := a.expanded[f.ID]
-	children := a.foldersChildren(f.ID)
-	if len(children) > 0 && open {
-		for i := range children {
-			count += a.folderRow(c, children[i], depth+1)
-		}
-	}
+	children := childFolders(a.folders, f.ID)
 	active := a.nav == NavFolder && a.folderID == f.ID
 	b := ui.ButtonBase(c.Key("folder-" + f.ID)).FillWidth().Height(28).PaddingStart(float32(8 + depth*14)).PaddingEnd(8).Radius(7).FocusRing(false).AlignItems(ui.Center).Gap(6)
 	bg := ui.Transparent
@@ -94,8 +88,13 @@ func (a *App) folderRow(c *ui.Context, f core.Folder, depth int) int {
 		a.dropFolderID = f.ID
 	}
 	b.Children(func() {
+		ui.Icon(c, iconFolder).Size(14, 14).TextColor(p.muted)
+		ui.Text(c, f.Name).FontSize(12.5).Grow(1).Shrink(1).MinWidth(0).SingleLine().TextColor(p.text)
+		if f.ItemCount > 0 {
+			ui.Textf(c, "%d", f.ItemCount).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
+		}
 		if len(children) > 0 {
-			arrow := ui.ButtonBase(c.Key("fold-arrow-"+f.ID)).Size(14, 14).Radius(3).FocusRing(false).AlignItems(ui.Center).Justify(ui.Center)
+			arrow := ui.ButtonBase(c.Key("fold-arrow-"+f.ID)).Size(18, 18).Radius(4).FocusRing(false).AlignItems(ui.Center).Justify(ui.Center)
 			arrow.Children(func() {
 				ic := iconChevronR
 				if open {
@@ -106,13 +105,6 @@ func (a *App) folderRow(c *ui.Context, f core.Folder, depth int) int {
 			if arrow.Clicked() {
 				a.expanded[f.ID] = !open
 			}
-		} else {
-			ui.Box(c).Size(14, 14)
-		}
-		ui.Icon(c, iconFolder).Size(14, 14).TextColor(p.muted)
-		ui.Text(c, f.Name).FontSize(12.5).Grow(1).Shrink(1).MinWidth(0).SingleLine().TextColor(p.text)
-		if f.ItemCount > 0 {
-			ui.Textf(c, "%d", f.ItemCount).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
 		}
 	})
 	if b.Clicked() {
@@ -145,15 +137,27 @@ func (a *App) folderRow(c *ui.Context, f core.Folder, depth int) int {
 			a.folderID = f.ID
 		}
 	})
-	return count
-}
-
-func (a *App) foldersChildren(parent string) []core.Folder {
-	var out []core.Folder
-	for _, f := range a.folders {
-		if f.ParentID == parent {
-			out = append(out, f)
+	if len(children) > 0 && open {
+		for i := range children {
+			a.folderRow(c, children[i], depth+1)
 		}
 	}
-	return out
+}
+
+// folderRoots returns folders shown at the top of the sidebar tree. A folder
+// whose parent is no longer present stays visible as a root instead of
+// disappearing from the tree.
+func (a *App) folderRoots() []core.Folder {
+	all := flattenFolders(a.folders)
+	known := make(map[string]bool, len(all))
+	for _, f := range all {
+		known[f.ID] = true
+	}
+	roots := make([]core.Folder, 0, len(a.folders))
+	for _, f := range all {
+		if f.ParentID == "" || !known[f.ParentID] {
+			roots = append(roots, f)
+		}
+	}
+	return roots
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"bowerbird/core"
+	"bowerbird/internal/plugin"
 
 	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
@@ -357,6 +358,50 @@ func TestGalleryContextMenuTogglesSidebarAndInspector(t *testing.T) {
 	}
 }
 
+func TestEmptyGalleryKeepsDefaultContextMenu(t *testing.T) {
+	a := seededApp(t)
+	a.items = nil
+	a.folders = nil
+	a.total = 0
+	a.totalSize = 0
+	a.activeItem = nil
+	a.activeItemID = ""
+	a.selected = map[string]bool{}
+	a.rebuildRows()
+
+	tester := ui.NewTester(a.viewMain, 1100, 760)
+	tester.Frame()
+	tester.RightClickAt(600, 650)
+	tester.Frame()
+	if !contains(tester.Menu(), a.t("workspace.includeSubfolders")) {
+		t.Fatalf("empty gallery context menu is missing subfolder toggle: %v", tester.Menu())
+	}
+	if err := tester.ChooseMenuItem(a.t("workspace.includeSubfolders")); err != nil {
+		t.Fatalf("choose subfolder toggle: %v", err)
+	}
+	if !a.prefs.IncludeSubs {
+		t.Fatal("subfolder toggle did not update the preference")
+	}
+}
+
+func TestClearWorkspaceSelectionResetsInspector(t *testing.T) {
+	a := seededApp(t)
+	a.activeItem = &a.items[0]
+	a.activeItemID = a.items[0].ID
+	a.selected = map[string]bool{a.items[0].ID: true}
+	a.selectedOrder = []string{a.items[0].ID}
+	a.inspectSections = []plugin.InspectSection{{Title: "stale"}}
+	a.previewOpen = true
+
+	a.clearWorkspaceSelection()
+	if a.activeItem != nil || a.activeItemID != "" || len(a.selected) != 0 || len(a.selectedOrder) != 0 {
+		t.Fatalf("selection was not cleared: item=%v id=%q selected=%v order=%v", a.activeItem, a.activeItemID, a.selected, a.selectedOrder)
+	}
+	if len(a.inspectSections) != 0 || a.previewOpen {
+		t.Fatal("inspector or preview state survived a library switch")
+	}
+}
+
 func TestFilterBarPinnedAndActiveCriteria(t *testing.T) {
 	a := seededApp(t)
 
@@ -404,6 +449,78 @@ func TestFilterQueryStringIncludesAllCriteria(t *testing.T) {
 	a.filters.Unrated = true
 	if got := a.queryString(); contains([]string{got}, "rating:") {
 		t.Fatalf("unrated must not emit a rating token: %q", got)
+	}
+}
+
+func TestSidebarFolderTreeRendersChildrenAfterParent(t *testing.T) {
+	a := seededApp(t)
+	a.folders = []core.Folder{{
+		ID: "root-folder", Name: "RootFolder", ItemCount: 4,
+		Children: []core.Folder{{
+			ID: "child-folder", Name: "ChildFolder", ParentID: "root-folder", ItemCount: 2,
+			Children: []core.Folder{
+				{ID: "grand-folder", Name: "GrandFolder", ParentID: "child-folder"},
+			},
+		}},
+	}}
+	a.expanded = map[string]bool{"root-folder": true, "child-folder": true}
+	tester := ui.NewTester(a.viewMain, 1100, 760)
+	tester.Frame()
+	root, okRoot := tester.Find("RootFolder")
+	child, okChild := tester.Find("ChildFolder")
+	grand, okGrand := tester.Find("GrandFolder")
+	if !okRoot || !okChild || !okGrand {
+		t.Fatalf("folder tree rows missing: root=%v child=%v grand=%v", okRoot, okChild, okGrand)
+	}
+	if !(root.Y < child.Y && child.Y < grand.Y) {
+		t.Fatalf("folder tree order root=%v child=%v grand=%v", root.Y, child.Y, grand.Y)
+	}
+	if !(root.X < child.X && child.X < grand.X) {
+		t.Fatalf("folder tree indentation root=%v child=%v grand=%v", root.X, child.X, grand.X)
+	}
+
+	a.expanded = map[string]bool{"root-folder": true}
+	tester.Frame()
+	if tester.HasText("GrandFolder") {
+		t.Fatal("collapsed child folder still renders its descendants")
+	}
+}
+
+func TestGalleryShowsSubfoldersBeforeItems(t *testing.T) {
+	a := seededApp(t)
+	a.nav = NavFolder
+	a.folderID = "parent-folder"
+	a.folders = []core.Folder{{
+		ID:   "parent-folder",
+		Name: "ParentFolder",
+		Children: []core.Folder{
+			{ID: "child-folder", Name: "ChildFolder", ParentID: "parent-folder", ItemCount: 7},
+		},
+	}}
+	a.folderPreviews = map[string]core.FolderPreview{
+		"child-folder": {Total: 7},
+	}
+	a.rebuildRows()
+	if len(a.rows) < 2 || !a.rows[0][0].folderHeader || a.rows[1][0].folderID != "child-folder" {
+		t.Fatalf("folder section was not placed first: %+v", a.rows[:min(len(a.rows), 2)])
+	}
+
+	tester := ui.NewTester(a.viewMain, 1100, 760)
+	tester.Frame()
+	folderRect, okFolder := tester.Find("ChildFolder")
+	itemRect, okItem := tester.Find("Alpha")
+	if !okFolder || !okItem {
+		t.Fatalf("gallery missing folder or item: folder=%v item=%v", okFolder, okItem)
+	}
+	if folderRect.Y >= itemRect.Y {
+		t.Fatalf("folder card Y=%v is not above item Y=%v", folderRect.Y, itemRect.Y)
+	}
+
+	a.subfoldersCollapsed = true
+	a.rebuildRows()
+	tester.Frame()
+	if tester.HasText("ChildFolder") {
+		t.Fatal("collapsed subfolder section still shows folder cards")
 	}
 }
 

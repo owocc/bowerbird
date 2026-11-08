@@ -144,10 +144,8 @@ func (a *App) viewSearchField(c *ui.Context) {
 }
 
 func (a *App) folderDisplayName(id string) string {
-	for _, f := range a.folders {
-		if f.ID == id {
-			return f.Name
-		}
+	if f, ok := findFolder(a.folders, id); ok {
+		return f.Name
 	}
 	return ""
 }

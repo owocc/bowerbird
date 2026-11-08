@@ -122,23 +122,25 @@ type App struct {
 	librarySearchBox  ui.Handle
 	libraryList       ui.ListState
 
-	folders    []core.Folder
-	tags       []core.Tag
-	stats      core.WorkspaceStats
-	trashCount int
-	nav        Nav
-	folderID   string
-	expanded   map[string]bool
-	query      string
-	filters    Filters
-	sortOrder  string
-	items      []core.Item
-	total      int
-	totalSize  int64
-	loading    bool
-	loadSeq    uint64
-	history    []historyEntry
-	historyAt  int
+	folders             []core.Folder
+	folderPreviews      map[string]core.FolderPreview
+	subfoldersCollapsed bool
+	tags                []core.Tag
+	stats               core.WorkspaceStats
+	trashCount          int
+	nav                 Nav
+	folderID            string
+	expanded            map[string]bool
+	query               string
+	filters             Filters
+	sortOrder           string
+	items               []core.Item
+	total               int
+	totalSize           int64
+	loading             bool
+	loadSeq             uint64
+	history             []historyEntry
+	historyAt           int
 
 	// Selection and the active item.
 	selected        map[string]bool
@@ -260,9 +262,11 @@ type App struct {
 }
 
 type galleryCell struct {
-	index  int
-	width  int
-	height int
+	index        int
+	width        int
+	height       int
+	folderID     string
+	folderHeader bool
 }
 
 type dialogKind int
@@ -493,6 +497,8 @@ func (a *App) refreshAll() {
 	a.loading = true
 	a.loadSeq++
 	seq := a.loadSeq
+	previewNav, previewFolder := a.nav, a.folderID
+	previewSort, previewIncludeSubs := a.sortOrder, a.prefs.IncludeSubs
 	go func() {
 		lib, _ := a.svc.GetActiveLibrary()
 		folders, _ := a.svc.GetFolders()
@@ -509,13 +515,37 @@ func (a *App) refreshAll() {
 		if a.svc != nil {
 			logs = a.svc.GetLogs()
 		}
+		var folderPreviews map[string]core.FolderPreview
+		if previewNav == NavFolder && previewFolder != "" {
+			children := childFolders(folders, previewFolder)
+			if len(children) > 0 {
+				groups := make([][]string, len(children))
+				for i, child := range children {
+					groups[i] = folderGroupIDs(folders, child.ID, previewIncludeSubs)
+				}
+				if previews, previewErr := a.svc.GetFolderPreviews(groups, previewSort); previewErr == nil {
+					folderPreviews = make(map[string]core.FolderPreview, len(children))
+					for i, child := range children {
+						if i < len(previews) {
+							folderPreviews[child.ID] = previews[i]
+						}
+					}
+				}
+			}
+		}
 		items, total, totalSize, active, err := a.fetchItems()
 		a.post(func() {
 			if seq != a.loadSeq {
 				return
 			}
+			libChanged := (a.library == nil) != (lib == nil) ||
+				(a.library != nil && lib != nil && a.library.ID != lib.ID)
+			if libChanged {
+				a.clearWorkspaceSelection()
+			}
 			a.library = lib
 			a.folders = folders
+			a.folderPreviews = folderPreviews
 			a.tags = tags
 			a.stats = stats
 			a.trashCount = trash
@@ -524,7 +554,7 @@ func (a *App) refreshAll() {
 			a.total = total
 			a.totalSize = totalSize
 			a.loading = false
-			if active != nil {
+			if active != nil && !libChanged {
 				a.activeItem = active
 			}
 			a.plugins = a.pluginRows(plugins)
@@ -652,20 +682,66 @@ func (a *App) folderScope() []string {
 	if a.nav != NavFolder || a.folderID == "" {
 		return nil
 	}
-	if !a.prefs.IncludeSubs {
-		return []string{a.folderID}
+	return folderGroupIDs(a.folders, a.folderID, a.prefs.IncludeSubs)
+}
+
+// flattenFolders returns a folder tree's roots and all descendants in
+// depth-first order.
+func flattenFolders(folders []core.Folder) []core.Folder {
+	out := make([]core.Folder, 0, len(folders))
+	var walk func([]core.Folder)
+	walk = func(list []core.Folder) {
+		for _, f := range list {
+			out = append(out, f)
+			walk(f.Children)
+		}
 	}
-	out := []string{a.folderID}
-	var walk func(children []core.Folder)
-	walk = func(children []core.Folder) {
-		for _, f := range children {
-			if f.ParentID == a.folderID || contains(out, f.ParentID) {
+	walk(folders)
+	return out
+}
+
+func childFolders(folders []core.Folder, parentID string) []core.Folder {
+	all := flattenFolders(folders)
+	out := make([]core.Folder, 0, len(all))
+	for _, f := range all {
+		if f.ParentID == parentID {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func findFolder(folders []core.Folder, id string) (core.Folder, bool) {
+	for _, f := range flattenFolders(folders) {
+		if f.ID == id {
+			return f, true
+		}
+	}
+	return core.Folder{}, false
+}
+
+// folderGroupIDs returns a folder and, when includeSubs is set, all of its
+// descendants, for scoped queries and folder-card previews.
+func folderGroupIDs(folders []core.Folder, rootID string, includeSubs bool) []string {
+	if rootID == "" {
+		return nil
+	}
+	if !includeSubs {
+		return []string{rootID}
+	}
+	all := flattenFolders(folders)
+	out := []string{rootID}
+	seen := map[string]bool{rootID: true}
+	for progress := true; progress; {
+		progress = false
+		for _, f := range all {
+			if seen[f.ParentID] && !seen[f.ID] {
+				seen[f.ID] = true
 				out = append(out, f.ID)
-				walk(f.Children)
+				progress = true
 			}
 		}
 	}
-	walk(a.folders)
 	return out
 }
 
@@ -676,6 +752,26 @@ func contains(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// clearWorkspaceSelection forgets the selected and active item. It runs when
+// the active library changes so the inspector can never keep showing an item
+// from the previous library.
+func (a *App) clearWorkspaceSelection() {
+	a.selected = map[string]bool{}
+	a.selectedOrder = nil
+	a.selectedAt = -1
+	a.activeItemID = ""
+	a.activeItem = nil
+	a.renameValue = ""
+	a.ratingDraft = 0
+	a.noteDraft = ""
+	a.promptDraft = ""
+	a.urlDraft = ""
+	a.inspectSections = nil
+	a.detailSeq++
+	a.inspectSeq++
+	a.closePreview()
 }
 
 // navigate switches the workspace scope and reloads.
@@ -755,9 +851,6 @@ func (a *App) goHistory(delta int) {
 // widths fill the content width.
 func (a *App) rebuildRows() {
 	a.rows = nil
-	if len(a.items) == 0 {
-		return
-	}
 	width := 900
 	if a.win != nil {
 		if w, _ := a.win.ContentSize(); w > 0 {
@@ -774,6 +867,10 @@ func (a *App) rebuildRows() {
 	}
 	if width < 240 {
 		width = 240
+	}
+	a.rows = a.folderSectionRows(width)
+	if len(a.items) == 0 {
+		return
 	}
 	target := a.rowHeight
 	if target < 90 {

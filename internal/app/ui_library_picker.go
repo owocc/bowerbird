@@ -306,6 +306,7 @@ func (a *App) openLibraryRef(ref core.LibraryRef) {
 				a.showToast(err.Error())
 				return
 			}
+			a.clearWorkspaceSelection()
 			a.refreshAll()
 		})
 	}()

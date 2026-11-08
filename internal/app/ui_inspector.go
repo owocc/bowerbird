@@ -96,7 +96,7 @@ func (a *App) viewLibraryInspector(c *ui.Context) {
 			a.inspectorDivider(c)
 			a.metaRow(c, a.t("settings.storage.items"), fmt.Sprintf("%d", a.stats.Total))
 			a.metaRow(c, a.t("inspector.storageUsed"), formatBytes(a.stats.TotalSize))
-			a.metaRow(c, a.t("sidebar.folders"), fmt.Sprintf("%d", len(a.folders)))
+			a.metaRow(c, a.t("sidebar.folders"), fmt.Sprintf("%d", len(flattenFolders(a.folders))))
 			a.metaRow(c, a.t("sidebar.tags"), fmt.Sprintf("%d", len(a.tags)))
 			a.metaRow(c, a.t("inspector.createdAt"), formatDate(lib.CreatedAt))
 		})
@@ -560,7 +560,7 @@ func (a *App) viewMultiInspector(c *ui.Context) {
 			}
 		})
 		a.sectionLabel(c, a.t("inspector.batchMove"))
-		for _, f := range a.folders {
+		for _, f := range flattenFolders(a.folders) {
 			f := f
 			if ui.Button(c.Key("batch-move-"+f.ID), f.Name).Clicked() {
 				go func() {

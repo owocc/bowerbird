@@ -17,17 +17,21 @@ import (
 // builds exist; each row builds only its own cards, so tens of thousands of
 // items scroll at display refresh.
 func (a *App) viewGallery(c *ui.Context) {
-	if a.loading && len(a.items) == 0 {
-		ui.Column(c).Fill().Center().Children(func() {
-			ui.Spinner(c)
+	a.rebuildRows()
+	if len(a.rows) == 0 {
+		container := ui.Box(c.Key("gallery-container")).Fill().Clip()
+		container.ContextMenu(a.viewContextMenu)
+		container.Children(func() {
+			if a.loading {
+				ui.Column(c).Fill().Center().Children(func() {
+					ui.Spinner(c)
+				})
+			} else {
+				a.emptyState(c, iconImage, a.t("gallery.empty"), a.t("gallery.emptyHint"))
+			}
 		})
 		return
 	}
-	if len(a.items) == 0 {
-		a.emptyState(c, iconImage, a.t("gallery.empty"), a.t("gallery.emptyHint"))
-		return
-	}
-	a.rebuildRows()
 	top := float32(mainHeaderHeight + galleryTopPadding)
 	bottom := float32(24)
 	p := paletteFor(c.Theme())
@@ -38,8 +42,9 @@ func (a *App) viewGallery(c *ui.Context) {
 		case ui.InputPointerDown:
 			if ev.Button == 0 {
 				// 卡片自身负责单击选中、双击预览和原生拖拽。只有从空白处
-				// 按下时才由容器接管，开始橡皮筋框选。
-				if a.itemAtPoint(ev.X, ev.Y, top) >= 0 {
+				// 按下时才由容器接管，开始橡皮筋框选；文件夹卡片和标题行
+				// 也在这里让出 presses。
+				if a.itemAtPoint(ev.X, ev.Y, top) != -1 {
 					return false
 				}
 				a.marqueeActive = true
@@ -274,15 +279,174 @@ func (a *App) galleryRow(c *ui.Context, row []galleryCell) {
 	if len(row) == 0 {
 		return
 	}
+	if row[0].folderHeader {
+		a.folderSectionHeader(c, row[0].width)
+		return
+	}
 	height := float32(row[0].height)
 	ui.Row(c).FillWidth().Height(height).Gap(8).PassThrough().Children(func() {
 		for _, cell := range row {
+			if cell.folderID != "" {
+				a.folderCard(c, cell.folderID, float32(cell.width), float32(cell.height))
+				continue
+			}
 			if cell.index < 0 || cell.index >= len(a.items) {
 				continue
 			}
 			a.itemCard(c, a.items[cell.index], cell.index, float32(cell.width), float32(cell.height))
 		}
 	})
+}
+
+// folderSectionRows puts the current folder's children ahead of its items.
+// The rows take part in the gallery's normal list layout, so folder cards
+// scroll and virtualize with the rest of the workspace.
+func (a *App) folderSectionRows(width int) [][]galleryCell {
+	if a.nav != NavFolder || a.folderID == "" {
+		return nil
+	}
+	children := childFolders(a.folders, a.folderID)
+	if len(children) == 0 {
+		return nil
+	}
+	rows := [][]galleryCell{{
+		{index: -2, width: width, height: 32, folderHeader: true},
+	}}
+	if a.subfoldersCollapsed {
+		return rows
+	}
+	const gap = 8
+	const targetW = 170
+	const cardH = 168
+	cols := (width + gap) / (targetW + gap)
+	if cols < 1 {
+		cols = 1
+	}
+	colW := (width - (cols-1)*gap) / cols
+	if colW < 120 {
+		colW = 120
+	}
+	var row []galleryCell
+	for _, f := range children {
+		row = append(row, galleryCell{index: -2, width: colW, height: cardH, folderID: f.ID})
+		if len(row) == cols {
+			rows = append(rows, row)
+			row = nil
+		}
+	}
+	if len(row) > 0 {
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func (a *App) folderSectionHeader(c *ui.Context, width int) {
+	p := paletteFor(c.Theme())
+	children := childFolders(a.folders, a.folderID)
+	b := ui.ButtonBase(c.Key("subfolders-toggle")).Width(float32(width)).Height(30).PaddingX(4).Radius(6).FocusRing(false).AlignItems(ui.Center).Gap(6)
+	bg := ui.Transparent
+	if b.Hovered() {
+		bg = p.hover
+	}
+	b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+	b.Children(func() {
+		ic := iconChevron
+		if a.subfoldersCollapsed {
+			ic = iconChevronR
+		}
+		ui.Icon(c, ic).Size(13, 13).TextColor(p.muted)
+		ui.Text(c, a.tf("workspace.subfoldersCount", map[string]any{"count": len(children)})).FontSize(12).FontWeight(650).TextColor(p.text)
+	})
+	if b.Clicked() {
+		a.subfoldersCollapsed = !a.subfoldersCollapsed
+	}
+}
+
+func (a *App) folderCard(c *ui.Context, folderID string, w, h float32) {
+	f, ok := findFolder(a.folders, folderID)
+	if !ok {
+		return
+	}
+	p := paletteFor(c.Theme())
+	card := ui.ButtonBase(c.Key("folder-card-"+f.ID)).Width(w).Height(h).Padding(6).Radius(10).Border(1, p.hairline).FocusRing(false).Column().Gap(6)
+	bg := p.surface
+	if card.Hovered() {
+		bg = p.hover
+		a.dropFolderID = f.ID
+	}
+	card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
+	card.Children(func() {
+		preview := a.folderPreviews[f.ID]
+		thumbH := h - 44
+		if thumbH < 60 {
+			thumbH = 60
+		}
+		ui.Box(c).FillWidth().Height(thumbH).Radius(7).Background(p.surface2).Clip().Children(func() {
+			switch len(preview.Items) {
+			case 0:
+				ui.Column(c).Fill().Center().Children(func() {
+					ui.Icon(c, iconFolder).Size(28, 28).TextColor(p.accent)
+				})
+			case 1:
+				a.folderPreviewImage(c, preview.Items[0], int(w*2))
+			default:
+				ui.Column(c).Fill().Gap(1).Children(func() {
+					for r := 0; r < 2; r++ {
+						ui.Row(c).FillWidth().Grow(1).Gap(1).Children(func() {
+							for col := 0; col < 2; col++ {
+								idx := r*2 + col
+								slot := ui.Box(c).Grow(1).Shrink(1).FillHeight().Background(p.hover)
+								slot.Children(func() {
+									if idx < len(preview.Items) {
+										a.folderPreviewImage(c, preview.Items[idx], int(w))
+									} else {
+										ui.Column(c).Fill().Center().Children(func() {
+											ui.Icon(c, iconFolder).Size(14, 14).TextColor(p.faint.Alpha(0.55))
+										})
+									}
+								})
+							}
+						})
+					}
+				})
+			}
+		})
+		count := f.ItemCount
+		if preview.Total > 0 {
+			count = preview.Total
+		}
+		ui.Row(c).FillWidth().Height(20).AlignItems(ui.Center).Gap(6).PaddingX(2).Children(func() {
+			ui.Icon(c, iconFolder).Size(14, 14).TextColor(p.muted)
+			ui.Text(c, f.Name).FontSize(12).FontWeight(550).TextColor(p.text).Grow(1).Shrink(1).MinWidth(0).SingleLine()
+			ui.Textf(c, "%d", count).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
+		})
+	})
+	if card.Clicked() {
+		a.navigate(NavFolder, f.ID)
+	}
+}
+
+func (a *App) folderPreviewImage(c *ui.Context, item core.Item, targetPx int) {
+	if bmp := a.itemThumbBitmap(item, targetPx); bmp != nil {
+		ui.Image(c, bmp).Fill().Fit(ui.Cover)
+		return
+	}
+	ui.Column(c).Fill().Center().Children(func() {
+		ui.Icon(c, categoryIcon(item)).Size(16, 16).TextColor(paletteFor(c.Theme()).faint)
+	})
+}
+
+func (a *App) itemThumbBitmap(item core.Item, targetPx int) *ui.Bitmap {
+	path := ""
+	if item.HasThumbnail {
+		path = filepath.Join(item.ItemPath, "thumbnail.jpg")
+	} else if categoryOf(item) == "image" {
+		path = item.FilePath
+	}
+	if path == "" {
+		return nil
+	}
+	return a.thumbs.get(path, targetPx)
 }
 
 func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
@@ -713,6 +877,11 @@ func (a *App) viewContextMenu(m *ui.Menu) {
 	if m.Item(a.t("contextMenu.showSidebar")).Checked(a.prefs.SidebarOpen).Chosen() {
 		a.toggleSidebar()
 	}
+	if m.Item(a.t("workspace.includeSubfolders")).Checked(a.prefs.IncludeSubs).Chosen() {
+		a.prefs.IncludeSubs = !a.prefs.IncludeSubs
+		a.savePrefs()
+		a.refreshAll()
+	}
 	if m.Item(a.t("contextMenu.showInspector")).Checked(a.prefs.InspectorOpen).Chosen() {
 		a.prefs.InspectorOpen = !a.prefs.InspectorOpen
 		a.savePrefs()
@@ -778,7 +947,7 @@ func (a *App) itemContextMenu(m *ui.Menu, item core.Item) {
 		a.refreshAll()
 	}
 	m.Submenu(a.t("contextMenu.addToFolder"), func(sub *ui.Menu) {
-		for _, f := range a.folders {
+		for _, f := range flattenFolders(a.folders) {
 			id := f.ID
 			if sub.Item(f.Name).Chosen() {
 				for _, itemID := range a.selectedIDs() {

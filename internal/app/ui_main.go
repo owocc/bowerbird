@@ -80,6 +80,7 @@ func (a *App) viewMain(c *ui.Context) {
 // paints the body, so no extra fill is needed.
 func (a *App) mainBodySurface(c *ui.Context, body func()) {
 	e := ui.Box(c).FillWidth().Grow(1).Shrink(1)
+	e.ContextMenu(a.viewContextMenu)
 	if c.Vibrancy() && a.backdropMode == "transparent" {
 		// The workspace fills the whole column, including the strip behind
 		// the floating header. Leaving that strip unpainted made the top of
