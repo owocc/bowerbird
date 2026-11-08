@@ -46,26 +46,31 @@ const (
 // Filters carries the non-text query facets the toolbar edits.
 type Filters struct {
 	Types        []string
+	Colors       []string
+	Folders      []string
 	Ratings      []int
 	Orientations []string
 	Sizes        []string
 	Has          []string
+	No           []string
+	Unrated      bool
 }
 
 // Prefs are the native-only appearance preferences that used to live in
 // localStorage.
 type Prefs struct {
-	BackdropMode  string  `json:"backdropMode"`
-	BackdropSolid string  `json:"backdropSolid"`
-	BackdropSeed  int     `json:"backdropSeed"`
-	InspectorOpen bool    `json:"inspectorOpen"`
-	SidebarOpen   bool    `json:"sidebarOpen"`
-	ShowNames     bool    `json:"showNames"`
-	ShowExt       bool    `json:"showExt"`
-	LayoutMode    string  `json:"layoutMode"`
-	SortOrder     string  `json:"sortOrder"`
-	RowHeight     float64 `json:"rowHeight"`
-	IncludeSubs   bool    `json:"includeSubfolders"`
+	BackdropMode  string   `json:"backdropMode"`
+	BackdropSolid string   `json:"backdropSolid"`
+	BackdropSeed  int      `json:"backdropSeed"`
+	InspectorOpen bool     `json:"inspectorOpen"`
+	SidebarOpen   bool     `json:"sidebarOpen"`
+	ShowNames     bool     `json:"showNames"`
+	ShowExt       bool     `json:"showExt"`
+	LayoutMode    string   `json:"layoutMode"`
+	SortOrder     string   `json:"sortOrder"`
+	RowHeight     float64  `json:"rowHeight"`
+	IncludeSubs   bool     `json:"includeSubfolders"`
+	PinnedFilters []string `json:"pinnedFilters"`
 }
 
 func defaultPrefs() Prefs {
@@ -79,6 +84,7 @@ func defaultPrefs() Prefs {
 		LayoutMode:    "justified",
 		SortOrder:     "desc",
 		RowHeight:     190,
+		PinnedFilters: append([]string(nil), defaultPinnedFilterCriteria...),
 	}
 }
 
@@ -139,8 +145,8 @@ type App struct {
 	inspectSeq      uint64
 
 	// Gallery layout.
-	rows        [][]galleryCell
-	rowHeight   int
+	rows          [][]galleryCell
+	rowHeight     int
 	galleryList   ui.ListState
 	galleryScroll ui.ScrollState
 	scrollTop     float32
@@ -551,7 +557,7 @@ func (a *App) fetchItems() ([]core.Item, int, int64, *core.Item, error) {
 	}
 	query := a.queryString()
 	scope := a.folderScope()
-	onlyUnrated := a.nav == NavUntagged
+	onlyUnrated := a.nav == NavUntagged || a.filters.Unrated
 	if a.nav == NavTrash {
 		items, err := a.svc.GetTrashItems(query, a.sortOrder)
 		return items, len(items), 0, nil, err
@@ -595,6 +601,12 @@ func (a *App) queryString() string {
 	for _, t := range a.filters.Types {
 		parts = append(parts, "type:"+t)
 	}
+	for _, c := range a.filters.Colors {
+		parts = append(parts, "color:"+c)
+	}
+	for _, f := range a.filters.Folders {
+		parts = append(parts, "folder:"+f)
+	}
 	for _, r := range a.filters.Ratings {
 		parts = append(parts, fmt.Sprintf("rating:%d", r))
 	}
@@ -606,6 +618,9 @@ func (a *App) queryString() string {
 	}
 	for _, h := range a.filters.Has {
 		parts = append(parts, "has:"+h)
+	}
+	for _, n := range a.filters.No {
+		parts = append(parts, "no:"+n)
 	}
 	return strings.Join(parts, " ")
 }
@@ -676,10 +691,14 @@ func (a *App) recordHistory() {
 func cloneFilters(f Filters) Filters {
 	return Filters{
 		Types:        append([]string(nil), f.Types...),
+		Colors:       append([]string(nil), f.Colors...),
+		Folders:      append([]string(nil), f.Folders...),
 		Ratings:      append([]int(nil), f.Ratings...),
 		Orientations: append([]string(nil), f.Orientations...),
 		Sizes:        append([]string(nil), f.Sizes...),
 		Has:          append([]string(nil), f.Has...),
+		No:           append([]string(nil), f.No...),
+		Unrated:      f.Unrated,
 	}
 }
 
@@ -940,6 +959,9 @@ func (a *App) loadPrefs() {
 	if p.RowHeight <= 0 {
 		p.RowHeight = 190
 	}
+	if p.PinnedFilters == nil {
+		p.PinnedFilters = append([]string(nil), defaultPinnedFilterCriteria...)
+	}
 	a.prefs = p
 	a.sortOrder = p.SortOrder
 	a.rowHeight = int(p.RowHeight)
@@ -961,7 +983,9 @@ func (a *App) appendLog(entry core.LogEntry) {
 // SetDropFolder records the folder a native drop should land in.
 func (a *App) SetDropFolder(id string) { a.dropFolderID = id }
 
-// HandleDrop imports native files at the recorded target.
+// HandleDrop imports native files at the recorded target. Paths that already
+// belong to the active library are ignored by the service; they must not show
+// an import toast or trigger another import pass.
 func (a *App) HandleDrop(paths []string) {
 	if a.svc == nil || len(paths) == 0 {
 		return
@@ -969,19 +993,27 @@ func (a *App) HandleDrop(paths []string) {
 	folder := a.dropFolderID
 	a.dropFolderID = ""
 	go func() {
-		var err error
+		var (
+			result core.NativeDropResult
+			err    error
+		)
 		if folder != "" {
-			err = a.svc.HandleNativeDrop(paths, "folder", folder)
+			result, err = a.svc.HandleNativeDropWithResult(paths, "folder", folder)
 		} else {
-			err = a.svc.HandleNativeDrop(paths, "", "")
+			result, err = a.svc.HandleNativeDropWithResult(paths, "", "")
 		}
 		a.post(func() {
 			if err != nil {
 				a.showToast(err.Error())
-			} else {
-				a.showToast(a.tf("dropzone.importing", map[string]any{"count": len(paths)}))
+				a.refreshAll()
+				return
 			}
-			a.refreshAll()
+			if result.Importing {
+				a.showToast(a.tf("dropzone.importing", map[string]any{"count": result.External}))
+			}
+			if result.Importing || result.Internal > 0 {
+				a.refreshAll()
+			}
 		})
 	}()
 }

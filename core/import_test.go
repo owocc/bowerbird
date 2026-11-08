@@ -179,3 +179,89 @@ func TestConcurrentFolderImportAndMillisecondSearch(t *testing.T) {
 	}
 	t.Logf("Imported %d files across %d folders in %v; GetItems=%v; Search=%v", totalFiles, subFolders, importElapsed, queryElapsed, searchElapsed)
 }
+
+// Importing a file that is already the active library's own payload is a
+// no-op: no hashing, no copy, and no duplicate row.
+func TestImportSkipsActiveLibraryPayload(t *testing.T) {
+	mgr := newRaceLibrary(t, "SelfDrop")
+
+	src := filepath.Join(t.TempDir(), "asset.txt")
+	if err := os.WriteFile(src, []byte("unique-self-drop-payload"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	imported, err := mgr.ImportFiles([]string{src})
+	if err != nil || len(imported) != 1 {
+		t.Fatalf("ImportFiles = %d items, err=%v", len(imported), err)
+	}
+
+	again, err := mgr.ImportFiles([]string{imported[0].FilePath})
+	if err != nil {
+		t.Fatalf("re-import own payload: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("own payload imported again: %d items", len(again))
+	}
+	items, err := mgr.GetItems("", "desc")
+	if err != nil {
+		t.Fatalf("GetItems: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items after self-drop, want 1", len(items))
+	}
+}
+
+// A native drop of an item path inside the app routes as an internal item
+// (or skips it), never as an external import that shows another import pass.
+func TestNativeDropSkipsCurrentLibraryItem(t *testing.T) {
+	mgr := newRaceLibrary(t, "NativeSelfDrop")
+	svc := core.NewService(mgr)
+
+	src := filepath.Join(t.TempDir(), "asset.txt")
+	if err := os.WriteFile(src, []byte("native-self-drop-payload"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	imported, err := mgr.ImportFiles([]string{src})
+	if err != nil || len(imported) != 1 {
+		t.Fatalf("ImportFiles = %d items, err=%v", len(imported), err)
+	}
+
+	for _, dropped := range []string{imported[0].FilePath, imported[0].FileURL} {
+		result, err := svc.HandleNativeDropWithResult([]string{dropped}, "", "")
+		if err != nil {
+			t.Fatalf("HandleNativeDrop(%q): %v", dropped, err)
+		}
+		if result.Importing || result.External != 0 {
+			t.Fatalf("self-drop %q started an import: %+v", dropped, result)
+		}
+	}
+	items, err := mgr.GetItems("", "desc")
+	if err != nil {
+		t.Fatalf("GetItems: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items after native self-drop, want 1", len(items))
+	}
+}
+
+// Loose files inside the active library are also its own data and are skipped
+// before the import pipeline starts.
+func TestNativeDropSkipsLooseFileInActiveLibrary(t *testing.T) {
+	mgr := newRaceLibrary(t, "LooseSelfDrop")
+	svc := core.NewService(mgr)
+	lib := mgr.GetActiveLibrary()
+	if lib == nil {
+		t.Fatal("GetActiveLibrary: no active library")
+	}
+
+	loose := filepath.Join(lib.Path, "notes.txt")
+	if err := os.WriteFile(loose, []byte("library bookkeeping"), 0o644); err != nil {
+		t.Fatalf("write loose file: %v", err)
+	}
+	result, err := svc.HandleNativeDropWithResult([]string{loose}, "", "")
+	if err != nil {
+		t.Fatalf("HandleNativeDrop: %v", err)
+	}
+	if result.External != 0 || result.Importing || result.Skipped != 1 {
+		t.Fatalf("loose library file was not skipped: %+v", result)
+	}
+}

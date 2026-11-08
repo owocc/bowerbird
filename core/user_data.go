@@ -21,9 +21,10 @@ type UserData struct {
 	// LightweightModeEnabled, when true, destroys webview windows after the
 	// main window has been hidden for a minute (or immediately from the tray).
 	LightweightModeEnabled bool `json:"lightweightModeEnabled,omitempty"`
-	// VibrancyEnabled, when true, puts a blurred material behind every window
-	// and lets the page draw no background of its own.
-	VibrancyEnabled bool                `json:"vibrancyEnabled,omitempty"`
+	// VibrancyEnabled puts a blurred material behind the window and lets the
+	// native UI draw its header without an opaque background. nil means the
+	// untouched default: on.
+	VibrancyEnabled *bool               `json:"vibrancyEnabled,omitempty"`
 	Network         NetworkSettings     `json:"network,omitempty"`
 	Mobile          *MobileSettings     `json:"mobile,omitempty"`
 	Shortcuts       *ShortcutSettings   `json:"shortcuts,omitempty"`
@@ -197,11 +198,15 @@ func (s *UserDataStore) SetLightweightModeEnabled(enabled bool) error {
 }
 
 // GetVibrancyEnabled returns whether windows show a blurred material behind a
-// transparent page.
+// transparent page. A preference that was never written defaults to on, so
+// the native header material is enabled for new and existing profiles.
 func (s *UserDataStore) GetVibrancyEnabled() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.data.VibrancyEnabled
+	if s.data.VibrancyEnabled == nil {
+		return true
+	}
+	return *s.data.VibrancyEnabled
 }
 
 // SetVibrancyEnabled persists the vibrancy preference.
@@ -209,7 +214,7 @@ func (s *UserDataStore) SetVibrancyEnabled(enabled bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.data.VibrancyEnabled = enabled
+	s.data.VibrancyEnabled = &enabled
 	s.data.UpdatedAt = time.Now().Unix()
 	return s.saveLocked()
 }

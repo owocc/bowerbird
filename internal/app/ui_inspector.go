@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"bowerbird/core"
 	"bowerbird/internal/player"
 	"bowerbird/internal/plugin"
 
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -87,7 +87,10 @@ func (a *App) viewSingleInspector(c *ui.Context, item core.Item) {
 		if h < 80 {
 			h = 80
 		}
-		hero := ui.Box(c).FillWidth().Height(h).Radius(10).Background(p.surface2).Clip()
+		hero := ui.Box(c).FillWidth().Height(h).Radius(10).Background(p.surface2).Clip().Cursor(ui.CursorPointer)
+		// The hero is also a drag source, like a gallery card: drag the
+		// active item (or the whole selection) out to Finder or another app.
+		hero.DragDataFrom(func() transfer.Data { return a.itemDragData(item) })
 		path := ""
 		if item.HasThumbnail {
 			path = filepath.Join(item.ItemPath, "thumbnail.jpg")
@@ -105,16 +108,10 @@ func (a *App) viewSingleInspector(c *ui.Context, item core.Item) {
 			}
 		})
 		if hero.DoubleClicked() {
+			a.clearItemClick()
 			a.openPreview(item.ID, "inline")
-		} else if hero.Clicked() {
-			now := time.Now()
-			if a.lastClickID == item.ID && now.Sub(a.lastClickTime) < 350*time.Millisecond {
-				a.lastClickID = ""
-				a.openPreview(item.ID, "inline")
-			} else {
-				a.lastClickID = item.ID
-				a.lastClickTime = now
-			}
+		} else if hero.Clicked() && a.itemClickCompletesDouble(item.ID) {
+			a.openPreview(item.ID, "inline")
 		}
 
 		// File name, edited inline.
@@ -588,5 +585,3 @@ func (a *App) inspectorAudio(c *ui.Context, item core.Item) {
 		})
 	})
 }
-
-var _ = time.Second

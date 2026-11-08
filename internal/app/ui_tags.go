@@ -35,7 +35,7 @@ func (a *App) viewTags(c *ui.Context) {
 		sort.SliceStable(tags, func(i, j int) bool { return strings.ToLower(tags[i].Name) < strings.ToLower(tags[j].Name) })
 	}
 
-	ui.Column(c).Fill().Padding(24, 28, 24, 24).Gap(16).Children(func() {
+	ui.Column(c).Fill().Padding(24, mainHeaderHeight+28, 24, 24).Gap(16).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 			ui.Column(c).Gap(2).Children(func() {
 				ui.Text(c, a.t("tags.title")).FontSize(24).FontWeight(700).TextColor(p.text)

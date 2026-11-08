@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,42 @@ func extractInternalItemID(filePath string) string {
 	return ""
 }
 
+// NativeDropResult summarizes the routing decision for one native drop.
+type NativeDropResult struct {
+	// Internal is the number of paths recognized as items of a library.
+	Internal int
+	// External is the number of paths accepted for import.
+	External int
+	// Skipped is the number of paths rejected because they already belong to
+	// the active library or are empty.
+	Skipped int
+	// Importing reports whether an external import was started in the
+	// background.
+	Importing bool
+}
+
+// normalizeDropPath turns a shell drop path into a filesystem path. Some
+// platforms hand over file:// URLs (percent-encoded), while native UI drops
+// usually hand over plain paths.
+func normalizeDropPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(raw), "file:") {
+		if u, err := url.Parse(raw); err == nil && strings.EqualFold(u.Scheme, "file") {
+			p := u.Path
+			if p == "" {
+				p = u.Opaque
+			}
+			if p != "" {
+				raw = p
+			}
+		}
+	}
+	return filepath.Clean(raw)
+}
+
 // HandleNativeDrop routes files dropped on a window by the desktop shell.
 // targetType and targetFolderID come from the DOM element under the drop,
 // resolved by the host (data-file-drop-target / data-folder-id); empty values
@@ -29,32 +66,50 @@ func extractInternalItemID(filePath string) string {
 // through the import-* events, as they did when the Wails entry point handled
 // the drop.
 func (s *Service) HandleNativeDrop(paths []string, targetType string, targetFolderID string) error {
+	_, err := s.HandleNativeDropWithResult(paths, targetType, targetFolderID)
+	return err
+}
+
+// HandleNativeDropWithResult is HandleNativeDrop with the routing counts the
+// caller uses to avoid showing an import toast for an ignored self-drop.
+func (s *Service) HandleNativeDropWithResult(paths []string, targetType string, targetFolderID string) (NativeDropResult, error) {
+	var result NativeDropResult
 	if s.mgr == nil {
-		return ErrCoreNotInitialized
+		return result, ErrCoreNotInitialized
 	}
 
 	activeLib := s.mgr.GetActiveLibrary()
-	var internalItemIDs, externalFiles []string
-	for _, f := range paths {
-		f = strings.TrimSpace(f)
-		if f == "" {
-			continue
-		}
-		if id := extractInternalItemID(f); id != "" {
-			internalItemIDs = append(internalItemIDs, id)
-			continue
-		}
-		if activeLib != nil && activeLib.Path != "" {
-			cleanFile := filepath.Clean(f)
-			cleanLibPath := filepath.Clean(activeLib.Path)
-			if strings.HasPrefix(strings.ToLower(cleanFile), strings.ToLower(cleanLibPath)) {
-				continue
-			}
-		}
-		externalFiles = append(externalFiles, f)
+	activePath := ""
+	if activeLib != nil {
+		activePath = filepath.Clean(activeLib.Path)
 	}
 
-	LogDragTrace("native-drop-routing", fmt.Sprintf("target=%s folderID=%s internal=%d external=%d", targetType, targetFolderID, len(internalItemIDs), len(externalFiles)))
+	var internalItemIDs, externalFiles []string
+	for _, raw := range paths {
+		f := normalizeDropPath(raw)
+		if f == "" {
+			result.Skipped++
+			continue
+		}
+		// Content-addressed item paths are the library's own payload: a
+		// drop inside the app must be routed as a move, never as a new
+		// import.
+		if id := extractInternalItemID(f); id != "" {
+			internalItemIDs = append(internalItemIDs, id)
+			result.Internal++
+			continue
+		}
+		// Any other path inside the active library is also its own data
+		// (manifest, database, cache, loose files). Never import it again.
+		if pathIsWithin(activePath, f) {
+			result.Skipped++
+			continue
+		}
+		externalFiles = append(externalFiles, f)
+		result.External++
+	}
+
+	LogDragTrace("native-drop-routing", fmt.Sprintf("target=%s folderID=%s internal=%d external=%d skipped=%d", targetType, targetFolderID, result.Internal, result.External, result.Skipped))
 
 	// 1. Internal items: move to a folder, the trash, or the root.
 	if len(internalItemIDs) > 0 {
@@ -91,15 +146,16 @@ func (s *Service) HandleNativeDrop(paths []string, targetType string, targetFold
 		default:
 			LogDragTrace("native-drop", fmt.Sprintf("internal items dropped on non-folder target (%s), ignored", targetType))
 		}
-		return nil
+		return result, nil
 	}
 
 	if len(externalFiles) == 0 {
-		return nil
+		return result, nil
 	}
 
+	result.Importing = true
 	go s.importDroppedFiles(externalFiles, targetType, targetFolderID)
-	return nil
+	return result, nil
 }
 
 func (s *Service) importDroppedFiles(files []string, targetType, targetFolderID string) {

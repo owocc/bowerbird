@@ -39,6 +39,7 @@ func (a *App) filteredLogs() []core.LogEntry {
 // viewLogs is the standalone virtualized log viewer.
 func (a *App) viewLogs(c *ui.Context) {
 	p := paletteFor(c.Theme())
+	a.applyVibrancyRoot(c)
 	entries := a.filteredLogs()
 	a.logsList.FollowEnd = a.logsAutoScroll
 	ui.Column(c).Fill().Children(func() {

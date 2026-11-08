@@ -347,10 +347,10 @@
       "autoDescription": "自动匹配系统外观"
     },
     "vibrancy": {
-      "title": "窗口模糊 (Vibrancy)",
-      "description": "让窗口背后使用系统半透明模糊材质。是否看得见取决于「背景」设置：只有把背景设为「透明」时，模糊才会透出来。",
-      "enable": "启用窗口模糊",
-      "enableDescription": "关闭后窗口使用不透明底色，「透明」背景一并恢复为「默认」。"
+      "title": "系统模糊材质",
+      "description": "在 Header 等透明区域后方使用系统模糊材质。默认开启；关闭后所有区域都不再显示模糊。",
+      "enable": "启用系统模糊",
+      "enableDescription": "统一控制所有模糊；关闭后 Header 与其他区域都使用不透明底色。"
     },
     "lightweight": {
       "title": "轻量模式",
@@ -674,7 +674,7 @@
     "themeDark": "深色",
     "themeLight": "浅色",
     "themeSystem": "跟随系统",
-    "vibrancyHelp": "在窗口后方显示半透明系统材质"
+    "vibrancyHelp": "在 Header 后方使用系统模糊材质，此开关控制全部模糊"
   },
   "setup": {
     "back": "返回",

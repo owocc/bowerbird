@@ -28,7 +28,7 @@ func (a *App) viewGallery(c *ui.Context) {
 		return
 	}
 	a.rebuildRows()
-	top := float32(10)
+	top := float32(mainHeaderHeight + galleryTopPadding)
 	bottom := float32(24)
 	p := paletteFor(c.Theme())
 
@@ -37,6 +37,11 @@ func (a *App) viewGallery(c *ui.Context) {
 		switch ev.Kind {
 		case ui.InputPointerDown:
 			if ev.Button == 0 {
+				// 卡片自身负责单击选中、双击预览和原生拖拽。只有从空白处
+				// 按下时才由容器接管，开始橡皮筋框选。
+				if a.itemAtPoint(ev.X, ev.Y, top) >= 0 {
+					return false
+				}
 				a.marqueeActive = true
 				a.marqueeStartX, a.marqueeStartY = ev.X, ev.Y
 				a.marqueeCurX, a.marqueeCurY = ev.X, ev.Y
@@ -117,7 +122,7 @@ func (a *App) viewGallery(c *ui.Context) {
 				return
 			}
 			a.galleryRow(c, a.rows[row])
-		}).FillWidth().Grow(1).Shrink(1).TrackScroll(&a.galleryScroll).Gap(8).Padding(top, 12, bottom, 12).ScrollbarInsets(top, 0, bottom, 0)
+		}).FillWidth().Grow(1).Shrink(1).TrackScroll(&a.galleryScroll).Gap(8).Padding(top, gallerySidePadding, bottom, gallerySidePadding).ScrollbarInsets(top, 0, bottom, 0)
 		if list.Clicked() && len(a.selected) > 0 {
 			a.clearSelection()
 			if a.win != nil {
@@ -125,34 +130,7 @@ func (a *App) viewGallery(c *ui.Context) {
 			}
 		}
 	})
-	container.ContextMenu(func(m *ui.Menu) {
-		m.Submenu(a.t("contextMenu.layout"), func(sub *ui.Menu) {
-			if sub.Item(a.t("contextMenu.layoutJustified")).Radio(a.prefs.LayoutMode == "" || a.prefs.LayoutMode == "justified").Chosen() {
-				a.prefs.LayoutMode = "justified"
-				a.savePrefs()
-				a.rebuildRows()
-			}
-			if sub.Item(a.t("contextMenu.layoutGrid")).Radio(a.prefs.LayoutMode == "grid").Chosen() {
-				a.prefs.LayoutMode = "grid"
-				a.savePrefs()
-				a.rebuildRows()
-			}
-			if sub.Item(a.t("contextMenu.layoutList")).Radio(a.prefs.LayoutMode == "list").Chosen() {
-				a.prefs.LayoutMode = "list"
-				a.savePrefs()
-				a.rebuildRows()
-			}
-		})
-		m.Submenu(a.t("contextMenu.thumbnail"), func(sub *ui.Menu) {
-			for _, r := range []int{120, 190, 280, 360} {
-				r := r
-				label := fmt.Sprintf("%d px", r)
-				if sub.Item(label).Radio(a.rowHeight == r).Chosen() {
-					a.setRowHeight(r)
-				}
-			}
-		})
-	})
+	container.ContextMenu(a.viewContextMenu)
 
 	container.DrawOver(func(pt *ui.Painter, r ui.Rect) {
 		if !a.marqueeActive {
@@ -175,7 +153,7 @@ func (a *App) viewGallery(c *ui.Context) {
 func (a *App) itemAtPoint(x, y, padTop float32) int {
 	targetY := y
 	const gap = float32(8)
-	padLeft := float32(12)
+	padLeft := float32(gallerySidePadding)
 	curY := padTop - a.galleryScroll.Y
 
 	for _, row := range a.rows {
@@ -216,7 +194,7 @@ func (a *App) updateMarqueeSelection(padTop float32) {
 
 	hit := make(map[string]bool)
 	const gap = float32(8)
-	padLeft := float32(12)
+	padLeft := float32(gallerySidePadding)
 	curY := padTop - a.galleryScroll.Y
 
 	for _, row := range a.rows {
@@ -323,26 +301,7 @@ func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
 	bg := ui.Transparent
 	card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
 	// Native drag out: advertises the file list to Finder and other apps.
-	card.DragDataFrom(func() transfer.Data {
-		ids := []string{item.ID}
-		if len(a.selected) > 1 && a.selected[item.ID] {
-			ids = ids[:0]
-			for _, it := range a.items {
-				if a.selected[it.ID] {
-					ids = append(ids, it.ID)
-				}
-			}
-		}
-		urls := make([]string, 0, len(ids))
-		for _, it := range a.items {
-			for _, id := range ids {
-				if it.ID == id && it.FileURL != "" {
-					urls = append(urls, it.FileURL)
-				}
-			}
-		}
-		return transfer.New(transfer.NewItem(transfer.Bytes(transfer.FileList, []byte(strings.Join(urls, "\r\n")))))
-	})
+	card.DragDataFrom(func() transfer.Data { return a.itemDragData(item) })
 
 	// Resolve thumbnail or system file icon
 	path := ""
@@ -492,17 +451,10 @@ func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
 			a.openPreview(item.ID, "full")
 		}
 	} else if card.DoubleClicked() {
+		a.clearItemClick()
 		a.openPreview(item.ID, "inline")
 	} else if card.Clicked() {
-		now := time.Now()
-		if a.lastClickID == item.ID && now.Sub(a.lastClickTime) < 350*time.Millisecond {
-			a.lastClickID = ""
-			a.openPreview(item.ID, "inline")
-		} else {
-			a.lastClickID = item.ID
-			a.lastClickTime = now
-			a.chooseItem(index, 0)
-		}
+		a.handleItemClick(item, index)
 	}
 	card.ContextMenu(func(m *ui.Menu) {
 		if !a.selected[item.ID] {
@@ -510,6 +462,60 @@ func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
 		}
 		a.itemContextMenu(m, item)
 	})
+}
+
+// itemDragData builds the native file-list drag for a gallery card or the
+// inspector hero. Dragging a member of a multi-selection carries the whole
+// selection; dragging any other item carries just that item.
+func (a *App) itemDragData(item core.Item) transfer.Data {
+	ids := []string{item.ID}
+	if len(a.selected) > 1 && a.selected[item.ID] {
+		ids = ids[:0]
+		for _, it := range a.items {
+			if a.selected[it.ID] {
+				ids = append(ids, it.ID)
+			}
+		}
+	}
+	urls := make([]string, 0, len(ids))
+	for _, it := range a.items {
+		for _, id := range ids {
+			if it.ID == id && it.FileURL != "" {
+				urls = append(urls, it.FileURL)
+			}
+		}
+	}
+	return transfer.New(transfer.NewItem(transfer.Bytes(transfer.FileList, []byte(strings.Join(urls, "\r\n")))))
+}
+
+// clearItemClick forgets the click that may start a manual double click.
+func (a *App) clearItemClick() {
+	a.lastClickID = ""
+	a.lastClickTime = time.Time{}
+}
+
+// itemClickCompletesDouble records a click and reports whether it completes
+// a quick second click on the same item. It is the fallback for platforms
+// that do not report click counts; the native DoubleClicked is preferred.
+func (a *App) itemClickCompletesDouble(id string) bool {
+	now := time.Now()
+	if a.lastClickID == id && now.Sub(a.lastClickTime) < 350*time.Millisecond {
+		a.clearItemClick()
+		return true
+	}
+	a.lastClickID = id
+	a.lastClickTime = now
+	return false
+}
+
+// handleItemClick selects a card, with a manual double-click fallback for
+// platforms that do not report click counts.
+func (a *App) handleItemClick(item core.Item, index int) {
+	if a.itemClickCompletesDouble(item.ID) {
+		a.openPreview(item.ID, "inline")
+		return
+	}
+	a.chooseItem(index, 0)
 }
 
 func (a *App) chooseItem(index int, mods ui.Modifiers) {
@@ -597,7 +603,7 @@ func (a *App) moveGallerySelection(dx, dy int) {
 	curCol := -1
 	curCenterX := float32(0)
 	for rIdx, r := range a.rows {
-		curX := float32(12)
+		curX := float32(gallerySidePadding)
 		for cIdx, c := range r {
 			w := float32(c.width)
 			if c.index == currentIdx {
@@ -651,7 +657,7 @@ func (a *App) moveGallerySelection(dx, dy int) {
 	// For justified layout, find cell in target row whose horizontal center is closest to curCenterX
 	bestIdx := -1
 	bestDist := float32(1e9)
-	curX := float32(12)
+	curX := float32(gallerySidePadding)
 	for _, c := range targetCells {
 		w := float32(c.width)
 		centerX := curX + w*0.5
@@ -691,6 +697,54 @@ func (a *App) selectedIDs() []string {
 	return out
 }
 
+// toggleSidebar shows or hides the sidebar and relayouts the gallery.
+func (a *App) toggleSidebar() {
+	a.prefs.SidebarOpen = !a.prefs.SidebarOpen
+	a.savePrefs()
+	a.rebuildRows()
+	if a.win != nil {
+		a.win.Invalidate()
+	}
+}
+
+// viewContextMenu appends the workspace view controls shared by the empty
+// gallery and item context menus.
+func (a *App) viewContextMenu(m *ui.Menu) {
+	if m.Item(a.t("contextMenu.showSidebar")).Checked(a.prefs.SidebarOpen).Chosen() {
+		a.toggleSidebar()
+	}
+	if m.Item(a.t("contextMenu.showInspector")).Checked(a.prefs.InspectorOpen).Chosen() {
+		a.prefs.InspectorOpen = !a.prefs.InspectorOpen
+		a.savePrefs()
+	}
+	m.Submenu(a.t("contextMenu.layout"), func(sub *ui.Menu) {
+		if sub.Item(a.t("contextMenu.layoutJustified")).Radio(a.prefs.LayoutMode == "" || a.prefs.LayoutMode == "justified").Chosen() {
+			a.prefs.LayoutMode = "justified"
+			a.savePrefs()
+			a.rebuildRows()
+		}
+		if sub.Item(a.t("contextMenu.layoutGrid")).Radio(a.prefs.LayoutMode == "grid").Chosen() {
+			a.prefs.LayoutMode = "grid"
+			a.savePrefs()
+			a.rebuildRows()
+		}
+		if sub.Item(a.t("contextMenu.layoutList")).Radio(a.prefs.LayoutMode == "list").Chosen() {
+			a.prefs.LayoutMode = "list"
+			a.savePrefs()
+			a.rebuildRows()
+		}
+	})
+	m.Submenu(a.t("contextMenu.thumbnail"), func(sub *ui.Menu) {
+		for _, r := range []int{120, 190, 280, 360} {
+			r := r
+			label := fmt.Sprintf("%d px", r)
+			if sub.Item(label).Radio(a.rowHeight == r).Chosen() {
+				a.setRowHeight(r)
+			}
+		}
+	})
+}
+
 func (a *App) itemContextMenu(m *ui.Menu, item core.Item) {
 	if a.nav == NavTrash {
 		if m.Item(a.t("contextMenu.restore")).Chosen() {
@@ -699,6 +753,8 @@ func (a *App) itemContextMenu(m *ui.Menu, item core.Item) {
 		if m.Item(a.t("contextMenu.deletePermanently")).Chosen() {
 			a.deleteSelectedPermanently()
 		}
+		m.Separator()
+		a.viewContextMenu(m)
 		return
 	}
 	if m.Item(a.t("contextMenu.fullPreview")).Chosen() {
@@ -732,32 +788,8 @@ func (a *App) itemContextMenu(m *ui.Menu, item core.Item) {
 			}
 		}
 	})
-	m.Submenu(a.t("contextMenu.thumbnail"), func(sub *ui.Menu) {
-		for _, r := range []int{120, 190, 280, 360} {
-			r := r
-			label := fmt.Sprintf("%d px", r)
-			if sub.Item(label).Radio(a.rowHeight == r).Chosen() {
-				a.setRowHeight(r)
-			}
-		}
-	})
-	m.Submenu(a.t("contextMenu.layout"), func(sub *ui.Menu) {
-		if sub.Item(a.t("contextMenu.layoutJustified")).Radio(a.prefs.LayoutMode == "" || a.prefs.LayoutMode == "justified").Chosen() {
-			a.prefs.LayoutMode = "justified"
-			a.savePrefs()
-			a.rebuildRows()
-		}
-		if sub.Item(a.t("contextMenu.layoutGrid")).Radio(a.prefs.LayoutMode == "grid").Chosen() {
-			a.prefs.LayoutMode = "grid"
-			a.savePrefs()
-			a.rebuildRows()
-		}
-		if sub.Item(a.t("contextMenu.layoutList")).Radio(a.prefs.LayoutMode == "list").Chosen() {
-			a.prefs.LayoutMode = "list"
-			a.savePrefs()
-			a.rebuildRows()
-		}
-	})
+	m.Separator()
+	a.viewContextMenu(m)
 	actions := a.pluginHost.Actions(pluginContext(a.selectedItems(), a.folderID))
 	if len(actions) > 0 {
 		m.Separator()

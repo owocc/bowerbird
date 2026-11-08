@@ -2,7 +2,6 @@ package app
 
 import (
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"bowerbird/core"
@@ -16,11 +15,13 @@ func (a *App) viewSidebar(c *ui.Context) {
 	p := paletteFor(c.Theme())
 	a.dropFolderID = ""
 	ui.Column(c).Width(sidebarWidth).FillHeight().Background(p.sidebar).Children(func() {
-		top := float32(8)
-		if runtime.GOOS == "darwin" {
-			top = 34
-		}
-		ui.Box(c).Height(top).FillWidth().DragWindow()
+		// The sidebar header matches the main header's first row, so the
+		// toggle and the main toolbar controls share one vertical line. The
+		// toggle stays just right of the traffic lights, inside the safe area.
+		bar := c.TitleBar()
+		ui.Row(c).Height(headerHeight).FillWidth().Padding(0, 8, 0, bar.Left+gallerySidePadding).AlignItems(ui.Center).DragWindow().Children(func() {
+			a.iconButton(c, "sidebar-toggle", iconSidebar, true, a.t("common.toggleSidebar"), a.toggleSidebar)
+		})
 		a.sidebarLibrarySwitcher(c)
 		ui.Scroll(c).Grow(1).Shrink(1).Padding(4, 10, 12, 10).Children(func() {
 			a.navRow(c, NavAll, iconAll, a.t("sidebar.allItems"), a.stats.Total)

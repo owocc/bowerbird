@@ -12,6 +12,7 @@ import (
 // core opens the main window.
 func (a *App) viewSetup(c *ui.Context) {
 	p := paletteFor(c.Theme())
+	a.applyVibrancyRoot(c)
 	root := ui.Box(c).Fill()
 	a.applyBackdrop(root, c.Theme())
 	root.Children(func() {

@@ -6,6 +6,15 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// applyVibrancyRoot clears the view root's default theme background so the
+// window material can show through transparent areas. The view's own backdrop
+// then paints only the surfaces that should stay opaque.
+func (a *App) applyVibrancyRoot(c *ui.Context) {
+	if c.Vibrancy() {
+		c.Root().Background(ui.Transparent)
+	}
+}
+
 // applyBackdrop paints the window's environment layer: the base fill plus, for
 // the gradient mode, two soft radial glows derived from the library's palette.
 // mygo has no CSS, so this is a GPU painter callback on the root element, before

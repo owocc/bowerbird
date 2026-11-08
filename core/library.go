@@ -1059,9 +1059,16 @@ func (m *LibraryManager) importFilesWithProgress(sourcePaths []string, onProgres
 
 	_ = m.ensureCacheLoaded()
 
-	// 1. Flatten directories to count total files for accurate progress
+	// 1. Flatten directories to count total files for accurate progress.
+	// Files already inside the active library are never imported again: they
+	// are the library's own payload, not a new source. This check runs before
+	// hashing/copying so a self-drop costs no I/O at all.
+	activePath := filepath.Clean(active.Path)
 	var allFiles []string
 	for _, srcPath := range sourcePaths {
+		if pathIsWithin(activePath, srcPath) {
+			continue
+		}
 		info, err := os.Stat(srcPath)
 		if err != nil {
 			continue
@@ -1073,6 +1080,9 @@ func (m *LibraryManager) importFilesWithProgress(sourcePaths []string, onProgres
 					return nil
 				}
 				if d.IsDir() {
+					if pathIsWithin(activePath, path) {
+						return filepath.SkipDir
+					}
 					if path != srcPath && strings.HasPrefix(d.Name(), ".") {
 						return filepath.SkipDir
 					}
@@ -1086,14 +1096,14 @@ func (m *LibraryManager) importFilesWithProgress(sourcePaths []string, onProgres
 				// re-import every items/<HEX>/metadata.json as a new asset, which
 				// then generated another metadata.json — a self-feeding loop that
 				// filled libraries with empty "metadata" items.
-				if isLibraryBookkeeping(path) {
+				if isLibraryBookkeeping(path) || pathIsWithin(activePath, path) {
 					return nil
 				}
 				allFiles = append(allFiles, path)
 				return nil
 			})
 		} else {
-			if isLibraryBookkeeping(srcPath) {
+			if isLibraryBookkeeping(srcPath) || pathIsWithin(activePath, srcPath) {
 				continue
 			}
 			allFiles = append(allFiles, srcPath)
@@ -1367,6 +1377,26 @@ const (
 	itemMetadataName    = "metadata.json"
 )
 
+// pathIsWithin reports whether target is base itself or below it, using
+// path components rather than a raw string prefix, so /lib does not match
+// /library.
+func pathIsWithin(base, target string) bool {
+	if base == "" || target == "" {
+		return false
+	}
+	base = filepath.Clean(base)
+	target = filepath.Clean(target)
+	if runtime.GOOS == "windows" {
+		base = strings.ToLower(base)
+		target = strings.ToLower(target)
+	}
+	rel, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
 // isLibraryBookkeeping reports whether path is one of the library's own
 // management files or sits inside a .library container's structural folders
 // (items/<HEX>/...), so it must never be imported as an asset.
@@ -1461,6 +1491,12 @@ func (m *LibraryManager) prepareSingleFileImport(job importJob) preparedImportRe
 
 	if active == nil || db == nil {
 		return preparedImportResult{index: job.index, srcPath: srcPath, err: errors.New("no active library")}
+	}
+	// The single-file fast path and direct import calls bypass the bulk
+	// filter above; never re-import a file that is already the active
+	// library's own payload.
+	if pathIsWithin(active.Path, srcPath) {
+		return preparedImportResult{index: job.index, srcPath: srcPath}
 	}
 
 	stat, err := os.Stat(srcPath)
@@ -3527,11 +3563,15 @@ func (m *LibraryManager) ImportFoldersRecursivelyWithProgress(dirPaths []string,
 
 	_ = m.ensureCacheLoaded()
 
+	activePath := filepath.Clean(active.Path)
 	var created []Folder
 	var jobs []importJob
 
 	var walkDir func(currentPath string, currentFolderID string)
 	walkDir = func(currentPath string, currentFolderID string) {
+		if pathIsWithin(activePath, currentPath) {
+			return
+		}
 		entries, err := os.ReadDir(currentPath)
 		if err != nil {
 			return
@@ -3542,6 +3582,9 @@ func (m *LibraryManager) ImportFoldersRecursivelyWithProgress(dirPaths []string,
 				continue
 			}
 			fullPath := filepath.Join(currentPath, entryName)
+			if pathIsWithin(activePath, fullPath) {
+				continue
+			}
 			if entry.IsDir() {
 				subFolder, err := m.CreateFolder(entryName, currentFolderID)
 				if err == nil && subFolder != nil {
@@ -3558,6 +3601,9 @@ func (m *LibraryManager) ImportFoldersRecursivelyWithProgress(dirPaths []string,
 	}
 
 	for _, p := range dirPaths {
+		if pathIsWithin(activePath, p) {
+			continue
+		}
 		stat, err := os.Stat(p)
 		if err != nil || !stat.IsDir() {
 			continue

@@ -347,10 +347,10 @@
       "autoDescription": "Follow the system"
     },
     "vibrancy": {
-      "title": "Window vibrancy",
-      "description": "Show a translucent, blurred system material behind the window. Whether it is visible depends on Background: only a Transparent background lets the blur through.",
-      "enable": "Enable window blur",
-      "enableDescription": "When off the window uses an opaque fill, and a Transparent background falls back to Default."
+      "title": "Native blur material",
+      "description": "Use the system's blurred material behind the header and other transparent surfaces. It is on by default; turning it off makes every surface opaque.",
+      "enable": "Enable native blur",
+      "enableDescription": "Controls all blur: when off, the header and every other surface use an opaque fill."
     },
     "lightweight": {
       "title": "Lightweight mode",
@@ -674,7 +674,7 @@
     "themeDark": "Dark",
     "themeLight": "Light",
     "themeSystem": "System",
-    "vibrancyHelp": "Show a translucent system material behind the window"
+    "vibrancyHelp": "Use the system material behind the header; this switch controls every blur"
   },
   "setup": {
     "back": "Back",

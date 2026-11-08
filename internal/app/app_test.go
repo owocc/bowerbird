@@ -2,10 +2,12 @@ package app
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"bowerbird/core"
 
+	"github.com/egoist/mygo/transfer"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -98,7 +100,6 @@ func TestArrowKeySelectionNavigation(t *testing.T) {
 	}
 }
 
-
 func TestSidebarModesRender(t *testing.T) {
 	a := seededApp(t)
 	for _, nav := range []Nav{NavAll, NavTags, NavTrash} {
@@ -158,7 +159,7 @@ func TestHeaderSitsAtTopAndGalleryScrolls(t *testing.T) {
 	if !ok {
 		t.Fatal("header is missing")
 	}
-	if rect.Y > 60 {
+	if rect.Y > float32(headerHeight+42) {
 		t.Fatalf("header is not at the top: y=%v", rect.Y)
 	}
 	if !tester.HasText("Item 0") {
@@ -246,5 +247,181 @@ func TestSpaceKeyOpensFullWindowPreview(t *testing.T) {
 	tester.Frame()
 	if a.previewOpen {
 		t.Fatal("pressing Space again should close the preview")
+	}
+}
+
+func TestGalleryClickAndDoubleClickCards(t *testing.T) {
+	a := seededApp(t)
+	tester := ui.NewTester(a.viewMain, 1280, 800)
+	tester.Frame()
+
+	// Gamma is not the active item, so its label is unique to the gallery.
+	r, ok := tester.Find("Gamma")
+	if !ok {
+		t.Fatal("Gamma card not found")
+	}
+	x, y := r.X+r.W/2, r.Y+r.H/2
+
+	tester.ClickAt(x, y)
+	tester.Frame()
+	if !a.selected["c"] || len(a.selected) != 1 || a.activeItemID != "c" {
+		t.Fatalf("click selected %v, active %q; want only c", a.selected, a.activeItemID)
+	}
+	if a.previewOpen {
+		t.Fatal("single click must not open the preview")
+	}
+
+	tester.ClickAt(x, y)
+	tester.Frame()
+	if !a.previewOpen || a.previewMode != "inline" {
+		t.Fatalf("double click should open inline preview, got open=%v mode=%v", a.previewOpen, a.previewMode)
+	}
+}
+
+func TestItemDragDataFollowsSelection(t *testing.T) {
+	a := seededApp(t)
+	a.items[0].FileURL = "file:///tmp/a.jpg"
+	a.items[1].FileURL = "file:///tmp/b.png"
+	a.items[2].FileURL = "file:///tmp/c.mp3"
+
+	readList := func(item core.Item) string {
+		data := a.itemDragData(item)
+		b, err := data.Read(transfer.FileList)
+		if err != nil {
+			t.Fatalf("read file list: %v", err)
+		}
+		return string(b)
+	}
+
+	// A single selection drags only the pressed item.
+	if got := readList(a.items[0]); got != "file:///tmp/a.jpg" {
+		t.Fatalf("single drag = %q, want a.jpg", got)
+	}
+
+	// Dragging a member of a multi-selection drags the whole selection.
+	a.selected = map[string]bool{"a": true, "b": true}
+	a.selectedOrder = []string{"a", "b"}
+	if got := readList(a.items[1]); got != "file:///tmp/a.jpg\r\nfile:///tmp/b.png" {
+		t.Fatalf("multi drag = %q, want a then b", got)
+	}
+
+	// Dragging an item outside the selection carries only that item.
+	if got := readList(a.items[2]); got != "file:///tmp/c.mp3" {
+		t.Fatalf("outside drag = %q, want c.mp3", got)
+	}
+}
+
+func TestGalleryContextMenuTogglesSidebarAndInspector(t *testing.T) {
+	a := seededApp(t)
+	tester := ui.NewTester(a.viewMain, 1280, 800)
+	tester.Frame()
+
+	// Right-click the empty part of the gallery.
+	tester.RightClickAt(600, 700)
+	tester.Frame()
+	if !tester.HasText(a.t("contextMenu.showSidebar")) && !contains(tester.Menu(), a.t("contextMenu.showSidebar")) {
+		t.Fatalf("context menu is missing sidebar toggle: %v", tester.Menu())
+	}
+	if err := tester.ChooseMenuItem(a.t("contextMenu.showSidebar")); err != nil {
+		t.Fatalf("choose sidebar toggle: %v", err)
+	}
+	if a.prefs.SidebarOpen {
+		t.Fatal("sidebar toggle did not hide the sidebar")
+	}
+	tester.Frame()
+
+	tester.RightClickAt(600, 700)
+	tester.Frame()
+	if err := tester.ChooseMenuItem(a.t("contextMenu.showInspector")); err != nil {
+		t.Fatalf("choose inspector toggle: %v", err)
+	}
+	if a.prefs.InspectorOpen {
+		t.Fatal("inspector toggle did not hide the inspector")
+	}
+}
+
+func TestFilterBarPinnedAndActiveCriteria(t *testing.T) {
+	a := seededApp(t)
+
+	// The old web default keeps type, color, folder and orientation pinned.
+	want := []string{filterCriterionType, filterCriterionColor, filterCriterionFolder, filterCriterionOrientation}
+	if got := a.visibleFilterCriteria(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("default visible filters = %v, want %v", got, want)
+	}
+
+	// An active unpinned criterion stays visible so it can be changed/cleared.
+	a.filters.Sizes = []string{"small"}
+	want = append(want, filterCriterionSize)
+	if got := a.visibleFilterCriteria(); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("visible filters with active size = %v, want %v", got, want)
+	}
+
+	// Unpinning removes the criterion unless it is active.
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+	a.toggleFilterPin(filterCriterionType)
+	if got := a.visibleFilterCriteria(); contains(got, filterCriterionType) {
+		t.Fatalf("unpinned inactive type is still visible: %v", got)
+	}
+}
+
+func TestFilterQueryStringIncludesAllCriteria(t *testing.T) {
+	a := seededApp(t)
+	a.query = "sunset"
+	a.filters = Filters{
+		Types:        []string{"image"},
+		Colors:       []string{"#EF4444"},
+		Folders:      []string{"f1"},
+		Ratings:      []int{5},
+		Orientations: []string{"landscape"},
+		Sizes:        []string{"small"},
+		Has:          []string{"url"},
+		No:           []string{"note"},
+	}
+	want := "sunset type:image color:#EF4444 folder:f1 rating:5 orientation:landscape size:small has:url no:note"
+	if got := a.queryString(); got != want {
+		t.Fatalf("queryString = %q, want %q", got, want)
+	}
+
+	// Unrated is an additive query flag, not a rating:0 token.
+	a.filters.Ratings = nil
+	a.filters.Unrated = true
+	if got := a.queryString(); contains([]string{got}, "rating:") {
+		t.Fatalf("unrated must not emit a rating token: %q", got)
+	}
+}
+
+func TestSettingsSectionLabelsAreTranslated(t *testing.T) {
+	a := seededApp(t)
+	for _, label := range a.settingsSectionLabels() {
+		if strings.HasPrefix(label, "settings.") {
+			t.Fatalf("settings navigation shows a raw translation key: %q", label)
+		}
+	}
+	for _, title := range []string{
+		a.t("settings.vibrancy.title"),
+		a.t("settings.vibrancy.enable"),
+		a.t("settings.backdrop.title"),
+		a.t("settings.shortcuts.title"),
+		a.t("settings.language.title"),
+	} {
+		if strings.HasPrefix(title, "settings.") {
+			t.Fatalf("settings shows a raw translation key: %q", title)
+		}
+	}
+}
+
+func TestHeaderBlurStartsWhenContentReachesHeader(t *testing.T) {
+	a := seededApp(t)
+	a.galleryScroll.Y = 0
+	if a.headerHasContentUnder() {
+		t.Fatal("header blurred before the gallery reached it")
+	}
+	a.galleryScroll.Y = galleryTopPadding
+	if a.headerHasContentUnder() {
+		t.Fatal("header blurred while content only reached its bottom edge")
+	}
+	a.galleryScroll.Y = galleryTopPadding + 1
+	if !a.headerHasContentUnder() {
+		t.Fatal("header did not blur once content scrolled under it")
 	}
 }

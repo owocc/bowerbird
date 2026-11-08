@@ -12,9 +12,13 @@ import (
 )
 
 const (
-	sidebarWidth   = 224
-	inspectorWidth = 304
-	headerHeight   = 52
+	sidebarWidth          = 224
+	inspectorWidth        = 304
+	headerHeight          = 52
+	headerSecondRowHeight = 38
+	mainHeaderHeight      = headerHeight + headerSecondRowHeight
+	galleryTopPadding     = 10
+	gallerySidePadding    = 10
 )
 
 // palette is the app's semantic colour set. It is derived from the window theme
@@ -117,7 +121,6 @@ func (a *App) iconButtonMenu(c *ui.Context, key any, icon *ui.SVG, label string,
 	})
 	b.PopoverMenuButton(menu)
 }
-
 
 func (a *App) pillButton(c *ui.Context, key any, label string, active bool, onClick func()) {
 	p := paletteFor(c.Theme())

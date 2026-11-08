@@ -91,3 +91,26 @@ func TestSetLightweightModeCancelsIdleWhenDisabled(t *testing.T) {
 }
 
 var _ Host = (*recordingHost)(nil)
+
+func TestVibrancyDefaultsOnAndPersists(t *testing.T) {
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", t.TempDir())
+
+	store, err := NewUserDataStore()
+	if err != nil {
+		t.Fatalf("NewUserDataStore: %v", err)
+	}
+	if !store.GetVibrancyEnabled() {
+		t.Fatal("native blur material should default to on")
+	}
+
+	if err := store.SetVibrancyEnabled(false); err != nil {
+		t.Fatalf("disable vibrancy: %v", err)
+	}
+	reopened, err := NewUserDataStore()
+	if err != nil {
+		t.Fatalf("reopen user data: %v", err)
+	}
+	if reopened.GetVibrancyEnabled() {
+		t.Fatal("disabled native blur material was not persisted")
+	}
+}

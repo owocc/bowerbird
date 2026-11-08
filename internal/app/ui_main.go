@@ -13,6 +13,7 @@ import (
 func (a *App) viewMain(c *ui.Context) {
 	p := paletteFor(c.Theme())
 	a.handleMainShortcuts(c)
+	a.applyVibrancyRoot(c)
 	root := ui.Box(c).Fill()
 	a.applyBackdrop(root, c.Theme())
 	root.Children(func() {
@@ -25,22 +26,25 @@ func (a *App) viewMain(c *ui.Context) {
 				if a.previewOpen && a.previewMode == "inline" {
 					a.viewPreviewToolbar(c)
 					ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-					if len(a.items) > 0 && a.previewIndex >= 0 && a.previewIndex < len(a.items) {
-						a.viewPreviewBody(c, a.items[a.previewIndex])
+					a.mainBodySurface(c, func() {
+						if len(a.items) > 0 && a.previewIndex >= 0 && a.previewIndex < len(a.items) {
+							a.viewPreviewBody(c, a.items[a.previewIndex])
+						}
+					})
+					return
+				}
+				a.mainBodySurface(c, func() {
+					if a.library == nil {
+						a.emptyState(c, iconLibrary, a.t("app.noActiveLibrary"), a.t("app.openSetup"))
+						return
 					}
-					return
-				}
+					if a.nav == NavTags {
+						a.viewTags(c)
+						return
+					}
+					a.viewGallery(c)
+				})
 				a.viewHeader(c)
-				ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-				if a.library == nil {
-					a.emptyState(c, iconLibrary, a.t("app.noActiveLibrary"), a.t("app.openSetup"))
-					return
-				}
-				if a.nav == NavTags {
-					a.viewTags(c)
-					return
-				}
-				a.viewGallery(c)
 			})
 			if a.prefs.InspectorOpen && a.library != nil {
 				ui.Box(c).Width(1).FillHeight().Background(p.hairline)
@@ -68,6 +72,21 @@ func (a *App) viewMain(c *ui.Context) {
 		a.viewToast(c)
 		a.viewDialog(c)
 	})
+}
+
+// mainBodySurface keeps the native window material behind the header only:
+// the workspace under it is opaque whenever the transparent backdrop exposes
+// that material. With the material switched off, the window backdrop already
+// paints the body, so no extra fill is needed.
+func (a *App) mainBodySurface(c *ui.Context, body func()) {
+	e := ui.Box(c).FillWidth().Grow(1).Shrink(1)
+	if c.Vibrancy() && a.backdropMode == "transparent" {
+		// The workspace fills the whole column, including the strip behind
+		// the floating header. Leaving that strip unpainted made the top of
+		// the window look like a missing piece of the background.
+		e.Background(paletteFor(c.Theme()).bg)
+	}
+	e.Children(body)
 }
 
 func (a *App) handleMainShortcuts(c *ui.Context) {

@@ -41,6 +41,7 @@ func (a *App) refreshSettings() {
 // viewSettings builds the independent native settings window.
 func (a *App) viewSettings(c *ui.Context) {
 	p := paletteFor(c.Theme())
+	a.applyVibrancyRoot(c)
 	a.handleSettingsShortcuts(c)
 	ui.Row(c).Fill().Children(func() {
 		// Section rail.
@@ -50,19 +51,11 @@ func (a *App) viewSettings(c *ui.Context) {
 				ui.Icon(c, iconSettings).Size(18, 18).TextColor(p.muted)
 				ui.Text(c, a.t("settings.title")).FontSize(14).FontWeight(650).TextColor(p.text)
 			})
-			labels := []string{
-				a.t("settings.general"),
-				a.t("settings.appearance"),
-				a.t("settings.shortcuts"),
-				a.t("settings.plugins.title"),
-				a.t("settings.mobile.title"),
-				a.t("settings.network.title"),
-				a.t("settings.storage.title"),
-				a.t("settings.about"),
-			}
+			ui.Box(c).Height(10)
+			labels := a.settingsSectionLabels()
 			for i, label := range labels {
 				i, label := i, label
-				b := ui.ButtonBase(c.Key(fmt.Sprintf("settings-nav-%d", i))).FillWidth().Height(32).PaddingX(10).Radius(7).FocusRing(false).AlignItems(ui.Center)
+				b := ui.ButtonBase(c.Key(fmt.Sprintf("settings-nav-%d", i))).FillWidth().Height(32).PaddingX(10).Radius(7).FocusRing(false).AlignItems(ui.Center).Justify(ui.Start)
 				bg := ui.Transparent
 				if a.settingsSection == i {
 					bg = p.press
@@ -81,16 +74,15 @@ func (a *App) viewSettings(c *ui.Context) {
 		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
 		ui.Column(c).Grow(1).Shrink(1).Children(func() {
 			ui.Row(c).Height(56).PaddingX(24).AlignItems(ui.Center).Gap(10).Children(func() {
-				title := []string{
-					a.t("settings.general"), a.t("settings.appearance"), a.t("settings.shortcuts"),
-					a.t("settings.plugins.title"), a.t("settings.mobile.title"), a.t("settings.network.title"),
-					a.t("settings.storage.title"), a.t("settings.about"),
-				}[a.settingsSection]
-				ui.Text(c, title).FontSize(20).FontWeight(700).TextColor(p.text)
+				ui.Text(c, a.settingsSectionTitle(a.settingsSection)).FontSize(20).FontWeight(700).TextColor(p.text)
 				ui.Box(c).Grow(1)
-				ui.Row(c).Height(30).Width(190).PaddingX(9).Radius(8).Background(p.surface2).Border(1, p.hairline).AlignItems(ui.Center).Gap(6).Children(func() {
+				search := ui.Row(c).Height(30).Width(210).PaddingX(9).Radius(8).Background(p.surface2).Border(1, p.hairline).AlignItems(ui.Center).Gap(6)
+				search.Children(func() {
 					ui.Icon(c, iconSearch).Size(13, 13).TextColor(p.faint)
-					ui.TextInput(c.Key("settings-search"), &a.settingsSearch).Placeholder(a.t("settings.search")).FontSize(12).Grow(1)
+					field := ui.TextInputBase(c.Key("settings-search"), &a.settingsSearch).Placeholder(a.t("settings.search")).PlaceholderColor(p.faint).TextColor(p.text).FontSize(12).Grow(1).Shrink(1).MinWidth(0)
+					if field.Focused() {
+						search.Border(1, p.accent)
+					}
 				})
 			})
 			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
@@ -116,6 +108,27 @@ func (a *App) viewSettings(c *ui.Context) {
 			})
 		})
 	})
+}
+
+func (a *App) settingsSectionLabels() []string {
+	return []string{
+		a.t("settings.nav.general"),
+		a.t("settings.nav.appearance"),
+		a.t("settings.nav.shortcuts"),
+		a.t("settings.nav.plugins"),
+		a.t("settings.nav.mobile"),
+		a.t("settings.nav.network"),
+		a.t("settings.nav.data"),
+		a.t("settings.about"),
+	}
+}
+
+func (a *App) settingsSectionTitle(section int) string {
+	labels := a.settingsSectionLabels()
+	if section < 0 || section >= len(labels) {
+		return a.t("settings.title")
+	}
+	return labels[section]
 }
 
 func (a *App) handleSettingsShortcuts(c *ui.Context) {
@@ -148,7 +161,7 @@ func (a *App) settingsRow(c *ui.Context, label, help string, control func()) {
 
 func (a *App) settingsGeneral(c *ui.Context) {
 	p := paletteFor(c.Theme())
-	a.settingsCard(c, a.t("settings.language"), func() {
+	a.settingsCard(c, a.t("settings.language.title"), func() {
 		ui.Row(c).Gap(6).Children(func() {
 			for _, lang := range []string{"system", "en", "zh"} {
 				lang := lang
@@ -172,7 +185,7 @@ func (a *App) settingsGeneral(c *ui.Context) {
 			}
 		})
 	})
-	a.settingsCard(c, a.t("settings.theme"), func() {
+	a.settingsCard(c, a.t("settings.appearance.themeTitle"), func() {
 		ui.Row(c).Gap(6).Children(func() {
 			for _, theme := range []string{core.ThemeSystem, core.ThemeLight, core.ThemeDark} {
 				theme := theme
@@ -193,7 +206,7 @@ func (a *App) settingsGeneral(c *ui.Context) {
 	})
 	a.settingsCard(c, a.t("settings.behavior"), func() {
 		enabled := a.svc.GetLightweightModeEnabled()
-		a.settingsRow(c, a.t("settings.lightweight"), a.t("settings.lightweightHelp"), func() {
+		a.settingsRow(c, a.t("settings.lightweight.title"), a.t("settings.lightweight.description"), func() {
 			on := enabled
 			if ui.Switch(c.Key("lightweight"), &on).Changed() {
 				go a.svc.SetLightweightModeEnabled(on)
@@ -205,8 +218,8 @@ func (a *App) settingsGeneral(c *ui.Context) {
 
 func (a *App) settingsAppearance(c *ui.Context) {
 	p := paletteFor(c.Theme())
-	a.settingsCard(c, a.t("settings.vibrancy"), func() {
-		a.settingsRow(c, a.t("settings.vibrancy"), a.t("settings.vibrancyHelp"), func() {
+	a.settingsCard(c, a.t("settings.vibrancy.title"), func() {
+		a.settingsRow(c, a.t("settings.vibrancy.enable"), a.t("settings.vibrancy.enableDescription"), func() {
 			on := a.vibrancyValue
 			if ui.Switch(c.Key("vibrancy"), &on).Changed() {
 				a.vibrancyValue = on
@@ -222,7 +235,8 @@ func (a *App) settingsAppearance(c *ui.Context) {
 			}
 		})
 	})
-	a.settingsCard(c, a.t("settings.backdrop"), func() {
+	a.settingsCard(c, a.t("settings.backdrop.title"), func() {
+		ui.Text(c, a.t("settings.backdrop.description")).FontSize(11).TextColor(p.faint).Wrap()
 		modes := []string{"default", "transparent", "solid", "gradient"}
 		if !a.vibrancyValue {
 			modes = []string{"default", "solid", "gradient"}
@@ -295,7 +309,7 @@ func (a *App) settingsAppearance(c *ui.Context) {
 
 func (a *App) settingsShortcuts(c *ui.Context) {
 	p := paletteFor(c.Theme())
-	a.settingsCard(c, a.t("settings.shortcuts"), func() {
+	a.settingsCard(c, a.t("settings.shortcuts.title"), func() {
 		ids := make([]string, 0, len(a.shortcuts.Bindings))
 		for _, def := range core.ShortcutCatalog() {
 			ids = append(ids, def.ID)
