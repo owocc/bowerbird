@@ -55,19 +55,50 @@ func (a *App) loadInspector(id string) {
 func (a *App) viewInspector(c *ui.Context) {
 	p := paletteFor(c.Theme())
 	ui.Column(c).Width(inspectorWidth).FillHeight().Background(p.sidebar).Children(func() {
-		ui.Row(c).Height(headerHeight).PaddingX(14).AlignItems(ui.Center).DragWindow().Children(func() {
-			ui.Text(c, a.t("inspector.title")).FontSize(12).FontWeight(650).TextColor(p.text)
-		})
+		ui.Row(c).Height(headerHeight).PaddingX(14).AlignItems(ui.Center).DragWindow()
 		ui.Scroll(c).Grow(1).Shrink(1).Padding(0, 14, 20, 14).Children(func() {
 			if len(a.selected) > 1 {
 				a.viewMultiInspector(c)
 				return
 			}
 			if a.activeItem == nil {
-				a.emptyState(c, iconInfo, a.t("inspector.noSelection"), a.t("inspector.noSelectionHint"))
+				a.viewLibraryInspector(c)
 				return
 			}
 			a.viewSingleInspector(c, *a.activeItem)
+		})
+	})
+}
+
+// viewLibraryInspector fills the empty inspector with the active library's
+// identity and workspace totals, so the panel stays useful when nothing is
+// selected.
+func (a *App) viewLibraryInspector(c *ui.Context) {
+	p := paletteFor(c.Theme())
+	if a.library == nil {
+		a.emptyState(c, iconLibrary, a.t("sidebar.noLibrary"), a.t("inspector.noSelectionHint"))
+		return
+	}
+	lib := a.library
+	ui.Column(c).FillWidth().Gap(10).Children(func() {
+		a.sectionLabel(c, a.t("settings.storage.library"))
+		ui.Column(c).FillWidth().Gap(12).Children(func() {
+			ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+				ui.Box(c).Size(42, 42).Radius(10).Background(p.surface2).Center().Children(func() {
+					ui.Icon(c, iconLibrary).Size(20, 20).TextColor(p.accent)
+				})
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+					ui.Text(c, lib.Name).FontSize(15).FontWeight(650).TextColor(p.text).SingleLine()
+					ui.Text(c, a.t("settings.storage.library")).FontSize(10.5).TextColor(p.faint)
+				})
+			})
+			ui.Text(c, lib.Path).FontSize(10.5).TextColor(p.muted).Wrap().MaxLines(3)
+			a.inspectorDivider(c)
+			a.metaRow(c, a.t("settings.storage.items"), fmt.Sprintf("%d", a.stats.Total))
+			a.metaRow(c, a.t("inspector.storageUsed"), formatBytes(a.stats.TotalSize))
+			a.metaRow(c, a.t("sidebar.folders"), fmt.Sprintf("%d", len(a.folders)))
+			a.metaRow(c, a.t("sidebar.tags"), fmt.Sprintf("%d", len(a.tags)))
+			a.metaRow(c, a.t("inspector.createdAt"), formatDate(lib.CreatedAt))
 		})
 	})
 }

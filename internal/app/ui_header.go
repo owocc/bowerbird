@@ -87,8 +87,12 @@ func (a *App) applyHeaderSurface(c *ui.Context, header ui.Element, contentUnder 
 	p := paletteFor(c.Theme())
 	if contentUnder {
 		header.Material(glass.Blur{Radius: 10})
+		tint := ui.RGBA(255, 255, 255, 0.5)
+		if p.dark {
+			tint = ui.RGBA(0, 0, 0, 0.5)
+		}
 		header.Draw(func(pt *ui.Painter, r ui.Rect) {
-			pt.Fill(r, ui.RGBA(255, 255, 255, 0.5), 0)
+			pt.Fill(r, tint, 0)
 		})
 	} else {
 		header.Background(p.bg)

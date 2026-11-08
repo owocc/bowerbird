@@ -49,8 +49,7 @@ func (a *App) viewSettings(c *ui.Context) {
 		// the title sits right of the traffic lights, on the same line and
 		// with the same inset as the sidebar toggle there.
 		ui.Column(c).Width(sidebarWidth).FillHeight().Background(p.sidebar).Children(func() {
-			ui.Row(c).Height(headerHeight).FillWidth().Padding(0, 8, 0, bar.Left+gallerySidePadding).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
-				ui.Icon(c, iconSettings).Size(18, 18).TextColor(p.muted)
+			ui.Row(c).Height(headerHeight).FillWidth().Padding(0, 8, 0, bar.Left+gallerySidePadding).AlignItems(ui.Center).DragWindow().Children(func() {
 				ui.Text(c, a.t("settings.title")).FontSize(14).FontWeight(650).TextColor(p.text)
 			})
 			ui.Column(c).FillWidth().Grow(1).Shrink(1).Padding(10, 10, 10, 10).Children(func() {
@@ -182,7 +181,6 @@ func (a *App) settingsRow(c *ui.Context, label, help string, control func()) {
 }
 
 func (a *App) settingsGeneral(c *ui.Context) {
-	p := paletteFor(c.Theme())
 	a.settingsCard(c, a.t("settings.language.title"), func() {
 		ui.Row(c).Gap(6).Children(func() {
 			for _, lang := range []string{"system", "en", "zh"} {
@@ -207,25 +205,6 @@ func (a *App) settingsGeneral(c *ui.Context) {
 			}
 		})
 	})
-	a.settingsCard(c, a.t("settings.appearance.themeTitle"), func() {
-		ui.Row(c).Gap(6).Children(func() {
-			for _, theme := range []string{core.ThemeSystem, core.ThemeLight, core.ThemeDark} {
-				theme := theme
-				label := map[string]string{core.ThemeSystem: a.t("settings.themeSystem"), core.ThemeLight: a.t("settings.themeLight"), core.ThemeDark: a.t("settings.themeDark")}[theme]
-				a.pillButton(c, "theme-"+theme, label, a.themeValue == theme, func() {
-					go func() {
-						err := a.svc.SetTheme(theme)
-						a.postSettings(func() {
-							if err != nil {
-								a.showToast(err.Error())
-							}
-							a.themeValue = theme
-						})
-					}()
-				})
-			}
-		})
-	})
 	a.settingsCard(c, a.t("settings.behavior"), func() {
 		enabled := a.svc.GetLightweightModeEnabled()
 		a.settingsRow(c, a.t("settings.lightweight.title"), a.t("settings.lightweight.description"), func() {
@@ -235,11 +214,40 @@ func (a *App) settingsGeneral(c *ui.Context) {
 			}
 		})
 	})
-	_ = p
+}
+
+func (a *App) settingsThemeCard(c *ui.Context) {
+	a.settingsCard(c, a.t("settings.appearance.themeTitle"), func() {
+		ui.Row(c).Gap(6).Children(func() {
+			options := []struct {
+				theme string
+				label string
+			}{
+				{core.ThemeSystem, a.t("settings.appearance.auto")},
+				{core.ThemeLight, a.t("settings.appearance.light")},
+				{core.ThemeDark, a.t("settings.appearance.dark")},
+			}
+			for _, opt := range options {
+				opt := opt
+				a.pillButton(c, "theme-"+opt.theme, opt.label, a.themeValue == opt.theme, func() {
+					go func() {
+						err := a.svc.SetTheme(opt.theme)
+						a.postSettings(func() {
+							if err != nil {
+								a.showToast(err.Error())
+							}
+							a.themeValue = opt.theme
+						})
+					}()
+				})
+			}
+		})
+	})
 }
 
 func (a *App) settingsAppearance(c *ui.Context) {
 	p := paletteFor(c.Theme())
+	a.settingsThemeCard(c)
 	a.settingsCard(c, a.t("settings.vibrancy.title"), func() {
 		a.settingsRow(c, a.t("settings.vibrancy.enable"), a.t("settings.vibrancy.enableDescription"), func() {
 			on := a.vibrancyValue

@@ -71,6 +71,23 @@ func TestSelectingItemUpdatesInspector(t *testing.T) {
 		t.Fatalf("click selection = %v, want only c", a.selected)
 	}
 }
+func TestInspectorShowsLibraryInfoWhenSelectionEmpty(t *testing.T) {
+	a := seededApp(t)
+	a.library.Name = "ArchiveLib"
+	a.activeItem = nil
+	a.activeItemID = ""
+	a.selected = map[string]bool{}
+	tester := ui.NewTester(a.viewInspector, inspectorWidth, 800)
+	if tester.FramePending() {
+		t.Fatal("library inspector keeps animating")
+	}
+	for _, want := range []string{"ArchiveLib", "3", "4.0 KB"} {
+		if !tester.HasText(want) {
+			t.Fatalf("library inspector is missing %q", want)
+		}
+	}
+}
+
 func TestArrowKeySelectionNavigation(t *testing.T) {
 	a := seededApp(t)
 	a.chooseItem(0, 0)

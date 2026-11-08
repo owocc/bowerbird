@@ -46,21 +46,6 @@ func (a *App) viewSidebar(c *ui.Context) {
 				ui.Text(c, a.t("sidebar.noFolders")).FontSize(11).TextColor(p.faint).Padding(12, 6)
 			}
 		})
-		ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-		ui.Row(c).Padding(8, 10, 10, 10).Gap(6).Children(func() {
-			a.iconButton(c, "open-settings", iconSettings, false, a.t("appMenu.settings"), func() {
-				if a.OnOpenSettings != nil {
-					a.OnOpenSettings()
-				}
-			})
-			a.iconButton(c, "open-logs", iconLogs, false, a.t("appMenu.logs"), func() {
-				if a.OnOpenLogs != nil {
-					a.OnOpenLogs()
-				}
-			})
-			ui.Box(c).Grow(1)
-			ui.Textf(c, "%s", formatBytes(a.stats.TotalSize)).FontSize(10).TextColor(p.faint).FontFeatures("tnum")
-		})
 	})
 }
 
