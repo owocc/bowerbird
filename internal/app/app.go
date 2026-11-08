@@ -439,6 +439,21 @@ func (a *App) HandleEvent(name string, payload any) {
 		}
 	case core.LogsClearedEvent:
 		a.postLogs(func() { a.logs = nil })
+	case "import-completed":
+		// Native drops and other import entry points return before their
+		// background work finishes, so refresh once the pipeline reports the
+		// committed items. Without this the gallery only updates after the
+		// library is reopened.
+		a.post(func() { a.refreshAll() })
+	case "import-error":
+		if message, ok := payload.(string); ok {
+			a.post(func() {
+				a.showToast(message)
+				a.refreshAll()
+			})
+		} else {
+			a.post(func() { a.refreshAll() })
+		}
 	case "plugin:install-requested":
 		a.post(func() {
 			if a.svc != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -240,6 +241,49 @@ func TestNativeDropSkipsCurrentLibraryItem(t *testing.T) {
 	}
 	if len(items) != 1 {
 		t.Fatalf("got %d items after native self-drop, want 1", len(items))
+	}
+}
+
+// Items from another library are external files for the active library. They
+// must be routed through the import pipeline and deduplicated against the
+// active library only.
+func TestNativeDropImportsItemFromAnotherLibrary(t *testing.T) {
+	mgr := newRaceLibrary(t, "CrossLibraryDrop")
+	svc := core.NewService(mgr)
+
+	otherItemDir := filepath.Join(t.TempDir(), "Other.library", "items", strings.Repeat("a", 64))
+	if err := os.MkdirAll(otherItemDir, 0o755); err != nil {
+		t.Fatalf("mkdir other library item: %v", err)
+	}
+	src := filepath.Join(otherItemDir, "asset.txt")
+	if err := os.WriteFile(src, []byte("item from another library"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	result, err := svc.HandleNativeDropWithResult([]string{src}, "", "")
+	if err != nil {
+		t.Fatalf("HandleNativeDrop: %v", err)
+	}
+	if result.Internal != 0 || result.External != 1 || !result.Importing {
+		t.Fatalf("cross-library drop was not treated as external: %+v", result)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		items, err := mgr.GetItems("", "desc")
+		if err != nil {
+			t.Fatalf("GetItems: %v", err)
+		}
+		if len(items) == 1 {
+			if items[0].Name != "asset" {
+				t.Fatalf("imported item name = %q, want asset", items[0].Name)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("cross-library import produced %d items, want 1", len(items))
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

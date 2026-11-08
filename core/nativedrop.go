@@ -91,18 +91,18 @@ func (s *Service) HandleNativeDropWithResult(paths []string, targetType string, 
 			result.Skipped++
 			continue
 		}
-		// Content-addressed item paths are the library's own payload: a
-		// drop inside the app must be routed as a move, never as a new
-		// import.
-		if id := extractInternalItemID(f); id != "" {
-			internalItemIDs = append(internalItemIDs, id)
-			result.Internal++
-			continue
-		}
-		// Any other path inside the active library is also its own data
-		// (manifest, database, cache, loose files). Never import it again.
+		// Only the active library's own payload is internal. Items from
+		// another .library are ordinary files to this library and must be
+		// imported (deduplicated against the active library's database only).
 		if pathIsWithin(activePath, f) {
-			result.Skipped++
+			if id := extractInternalItemID(f); id != "" {
+				internalItemIDs = append(internalItemIDs, id)
+				result.Internal++
+			} else {
+				// Manifest, database, cache and loose files inside the
+				// active library are also its own data.
+				result.Skipped++
+			}
 			continue
 		}
 		externalFiles = append(externalFiles, f)

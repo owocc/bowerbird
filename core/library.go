@@ -1397,23 +1397,14 @@ func pathIsWithin(base, target string) bool {
 	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-// isLibraryBookkeeping reports whether path is one of the library's own
-// management files or sits inside a .library container's structural folders
-// (items/<HEX>/...), so it must never be imported as an asset.
+// isLibraryBookkeeping reports whether path is one of a library's management
+// files. Paths belonging to the active library itself are excluded separately
+// with pathIsWithin; files from other libraries stay importable.
 func isLibraryBookkeeping(path string) bool {
 	base := strings.ToLower(filepath.Base(path))
 	switch base {
 	case libraryManifestName, libraryDBName, libraryDBName + "-wal", libraryDBName + "-shm", itemMetadataName:
 		return true
-	}
-
-	// Anything nested under a .library container on disk belongs to that
-	// library, including thumbnails and the per-item directories.
-	slashed := filepath.ToSlash(path)
-	for _, segment := range strings.Split(slashed, "/") {
-		if strings.HasSuffix(strings.ToLower(segment), ".library") {
-			return true
-		}
 	}
 	return false
 }
