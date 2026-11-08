@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -189,6 +190,38 @@ func TestHeaderSitsAtTopAndGalleryScrolls(t *testing.T) {
 		t.Fatal("gallery did not scroll: the first item is still visible")
 	}
 }
+func TestLargeGalleryScrollsToItsRealEnd(t *testing.T) {
+	a := seededApp(t)
+	a.items = nil
+	for i := 0; i < 30000; i++ {
+		a.items = append(a.items, core.Item{
+			ID: fmt.Sprintf("large-%d", i), Name: fmt.Sprintf("Large Item %d", i),
+			Extension: "jpg", MimeType: "image/jpeg", Width: 1600, Height: 1000,
+		})
+	}
+	a.total = len(a.items)
+	a.activeItem = nil
+	a.selected = map[string]bool{}
+	a.rebuildRows()
+	if len(a.rows) != len(a.items) {
+		t.Fatalf("rows = %d, want one row per item (%d)", len(a.rows), len(a.items))
+	}
+
+	tester := ui.NewTester(a.viewMain, 1100, 760)
+	tester.Frame()
+	if a.galleryScroll.MaxY <= 0 {
+		t.Fatal("gallery has no scroll range")
+	}
+	a.galleryScroll.Y = math.MaxFloat32
+	tester.Frame()
+	if a.galleryScroll.Y < a.galleryScroll.MaxY-1 {
+		t.Fatalf("gallery did not reach its end: y=%v maxY=%v", a.galleryScroll.Y, a.galleryScroll.MaxY)
+	}
+	if !tester.HasText("Large Item 29999") {
+		t.Fatal("the last item is not visible at the end of a large gallery")
+	}
+}
+
 func TestLayoutModesSwitchAndRender(t *testing.T) {
 	a := seededApp(t)
 	for _, mode := range []string{"justified", "grid", "list"} {

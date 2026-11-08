@@ -616,12 +616,11 @@ func (a *App) fetchItems() ([]core.Item, int, int64, *core.Item, error) {
 		return items, len(items), 0, nil, err
 	}
 	const pageSize = 500
-	const maxItems = 20000
 	var all []core.Item
 	offset := 0
 	total := 0
 	totalSize := int64(0)
-	for offset < maxItems {
+	for {
 		page, err := a.svc.QueryWorkspace(query, a.sortOrder, offset, pageSize, scope, onlyUnrated)
 		if err != nil {
 			return all, total, totalSize, nil, err
