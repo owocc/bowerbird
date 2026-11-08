@@ -209,7 +209,7 @@ type App struct {
 
 	// Settings.
 	settingsSection int
-	settingsSearch  string
+	settingsScroll  ui.ScrollState
 	settingsGroups  []settingsGroup
 	logsFilter      string
 	logsLevel       string

@@ -43,50 +43,46 @@ func (a *App) viewSettings(c *ui.Context) {
 	p := paletteFor(c.Theme())
 	a.applyVibrancyRoot(c)
 	a.handleSettingsShortcuts(c)
-	ui.Row(c).Fill().Children(func() {
-		// Section rail.
-		ui.Column(c).Width(196).FillHeight().Background(p.sidebar).Padding(14, 10, 14, 10).Children(func() {
-			ui.Box(c).Height(18).DragWindow()
-			ui.Row(c).Padding(8, 8, 14, 8).Gap(8).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
+		bar := c.TitleBar()
+		// Section rail. Its header matches the main window's sidebar header:
+		// the title sits right of the traffic lights, on the same line and
+		// with the same inset as the sidebar toggle there.
+		ui.Column(c).Width(sidebarWidth).FillHeight().Background(p.sidebar).Children(func() {
+			ui.Row(c).Height(headerHeight).FillWidth().Padding(0, 8, 0, bar.Left+gallerySidePadding).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
 				ui.Icon(c, iconSettings).Size(18, 18).TextColor(p.muted)
 				ui.Text(c, a.t("settings.title")).FontSize(14).FontWeight(650).TextColor(p.text)
 			})
-			ui.Box(c).Height(10)
-			labels := a.settingsSectionLabels()
-			for i, label := range labels {
-				i, label := i, label
-				b := ui.ButtonBase(c.Key(fmt.Sprintf("settings-nav-%d", i))).FillWidth().Height(32).PaddingX(10).Radius(7).FocusRing(false).AlignItems(ui.Center).Justify(ui.Start)
-				bg := ui.Transparent
-				if a.settingsSection == i {
-					bg = p.press
-				} else if b.Hovered() {
-					bg = p.hover
+			ui.Column(c).FillWidth().Grow(1).Shrink(1).Padding(10, 10, 10, 10).Children(func() {
+				labels := a.settingsSectionLabels()
+				for i, label := range labels {
+					i, label := i, label
+					b := ui.ButtonBase(c.Key(fmt.Sprintf("settings-nav-%d", i))).FillWidth().Height(32).PaddingX(10).Radius(7).FocusRing(false).AlignItems(ui.Center).Justify(ui.Start)
+					bg := ui.Transparent
+					if a.settingsSection == i {
+						bg = p.press
+					} else if b.Hovered() {
+						bg = p.hover
+					}
+					b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
+					b.Children(func() { ui.Text(c, label).FontSize(12.5).TextColor(p.text) })
+					if b.Clicked() {
+						if a.settingsSection != i {
+							a.settingsSection = i
+							a.settingsScroll.Y = 0
+						}
+					}
 				}
-				b.Background(b.AnimateColor("bg", bg, ui.Animation{Duration: 120 * time.Millisecond}))
-				b.Children(func() { ui.Text(c, label).FontSize(12.5).TextColor(p.text) })
-				if b.Clicked() {
-					a.settingsSection = i
-				}
-			}
-			ui.Box(c).Grow(1)
-			ui.Textf(c, "v%s", "1.0.0-alpha-1").FontSize(10).TextColor(p.faint).Padding(10, 8)
+				ui.Box(c).Grow(1)
+				ui.Textf(c, "v%s", "1.0.0-alpha-1").FontSize(10).TextColor(p.faint).Padding(10, 8)
+			})
 		})
 		ui.Box(c).Width(1).FillHeight().Background(p.hairline)
-		ui.Column(c).Grow(1).Shrink(1).Children(func() {
-			ui.Row(c).Height(56).PaddingX(24).AlignItems(ui.Center).Gap(10).Children(func() {
-				ui.Text(c, a.settingsSectionTitle(a.settingsSection)).FontSize(20).FontWeight(700).TextColor(p.text)
-				ui.Box(c).Grow(1)
-				search := ui.Row(c).Height(30).Width(210).PaddingX(9).Radius(8).Background(p.surface2).Border(1, p.hairline).AlignItems(ui.Center).Gap(6)
-				search.Children(func() {
-					ui.Icon(c, iconSearch).Size(13, 13).TextColor(p.faint)
-					field := ui.TextInputBase(c.Key("settings-search"), &a.settingsSearch).Placeholder(a.t("settings.search")).PlaceholderColor(p.faint).TextColor(p.text).FontSize(12).Grow(1).Shrink(1).MinWidth(0)
-					if field.Focused() {
-						search.Border(1, p.accent)
-					}
-				})
-			})
-			ui.Box(c).FillWidth().Height(1).Background(p.hairline)
-			ui.Scroll(c).Grow(1).Shrink(1).Padding(20, 24, 28, 24).Children(func() {
+		ui.Column(c).FillHeight().Grow(1).Shrink(1).MinWidth(0).Background(p.bg).Children(func() {
+			// The content scrolls under one floating header, as the gallery
+			// does under the main toolbar. Its top inset keeps the first card
+			// clear of the header until the user scrolls.
+			ui.Scroll(c).Fill().TrackScroll(&a.settingsScroll).Padding(headerHeight+settingsContentTopPadding, 24, 28, 24).ScrollbarInsets(headerHeight+settingsContentTopPadding, 0, 28, 0).Children(func() {
 				switch a.settingsSection {
 				case 0:
 					a.settingsGeneral(c)
@@ -106,7 +102,33 @@ func (a *App) viewSettings(c *ui.Context) {
 					a.settingsAbout(c)
 				}
 			})
+			a.viewSettingsHeader(c)
 		})
+	})
+}
+
+// settingsContentTopPadding is the space above the first settings card. Once
+// the scroll passes it, the content has reached the floating header.
+const settingsContentTopPadding = 20
+
+func (a *App) settingsHeaderHasContentUnder() bool {
+	return a.settingsScroll.Y > settingsContentTopPadding
+}
+
+// viewSettingsHeader draws the shared settings header over the scrolling
+// content, with the same material, drag area and divider behaviour as the main
+// toolbar.
+func (a *App) viewSettingsHeader(c *ui.Context) {
+	p := paletteFor(c.Theme())
+	header := ui.Column(c).FillWidth().Height(headerHeight).Absolute().Top(0).Left(0).Right(0)
+	headerBlurActive := a.applyHeaderSurface(c, header, a.settingsHeaderHasContentUnder())
+	header.Children(func() {
+		ui.Row(c).FillWidth().Height(headerHeight).PaddingX(24).AlignItems(ui.Center).DragWindow().Children(func() {
+			ui.Text(c, a.settingsSectionTitle(a.settingsSection)).FontSize(16).FontWeight(650).TextColor(p.text)
+		})
+		if headerBlurActive {
+			ui.Box(c).Absolute().Bottom(0).FillWidth().Height(1).Background(p.hairline)
+		}
 	})
 }
 

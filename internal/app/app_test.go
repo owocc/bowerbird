@@ -425,3 +425,19 @@ func TestHeaderBlurStartsWhenContentReachesHeader(t *testing.T) {
 		t.Fatal("header did not blur once content scrolled under it")
 	}
 }
+
+func TestSettingsHeaderBlurStartsWhenContentReachesHeader(t *testing.T) {
+	a := seededApp(t)
+	a.settingsScroll.Y = 0
+	if a.settingsHeaderHasContentUnder() {
+		t.Fatal("settings header blurred before content reached it")
+	}
+	a.settingsScroll.Y = settingsContentTopPadding
+	if a.settingsHeaderHasContentUnder() {
+		t.Fatal("settings header blurred while content only reached its bottom edge")
+	}
+	a.settingsScroll.Y = settingsContentTopPadding + 1
+	if !a.settingsHeaderHasContentUnder() {
+		t.Fatal("settings header did not blur once content scrolled under it")
+	}
+}

@@ -21,16 +21,7 @@ func (a *App) viewHeader(c *ui.Context) {
 	header := ui.Column(c).FillWidth().Height(mainHeaderHeight).Absolute().Top(0).Left(0).Right(0)
 	// The header floats over the gallery. Its surface belongs to the header
 	// itself, so it paints below the controls rather than over them.
-	blurEnabled := a.svc != nil && a.svc.GetVibrancyEnabled()
-	headerBlurActive := blurEnabled && a.headerHasContentUnder()
-	if headerBlurActive {
-		header.Material(glass.Blur{Radius: 10})
-		header.Draw(func(pt *ui.Painter, r ui.Rect) {
-			pt.Fill(r, ui.RGBA(255, 255, 255, 0.5), 0)
-		})
-	} else {
-		header.Background(p.bg)
-	}
+	headerBlurActive := a.applyHeaderSurface(c, header, a.headerHasContentUnder())
 	header.Children(func() {
 		bar := c.TitleBar()
 		leftPad := bar.Left + gallerySidePadding
@@ -86,6 +77,23 @@ func (a *App) viewHeader(c *ui.Context) {
 			ui.Box(c).Absolute().Bottom(0).FillWidth().Height(1).Background(p.hairline)
 		}
 	})
+}
+
+// applyHeaderSurface gives a floating header the same surface as the main
+// toolbar: the window background while it is clear, and the shared blur
+// material plus a divider once content scrolls underneath it. It reports
+// whether the blurred state is active so the caller can add the divider.
+func (a *App) applyHeaderSurface(c *ui.Context, header ui.Element, contentUnder bool) bool {
+	p := paletteFor(c.Theme())
+	if contentUnder {
+		header.Material(glass.Blur{Radius: 10})
+		header.Draw(func(pt *ui.Painter, r ui.Rect) {
+			pt.Fill(r, ui.RGBA(255, 255, 255, 0.5), 0)
+		})
+	} else {
+		header.Background(p.bg)
+	}
+	return contentUnder
 }
 
 // headerHasContentUnder reports whether the gallery has scrolled far enough
