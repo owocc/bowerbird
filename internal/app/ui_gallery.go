@@ -2,7 +2,9 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -13,6 +15,38 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// handleGalleryZoomInput adjusts the gallery row height on wheel scroll (Ctrl on Windows, Command on macOS) or touchpad pinch.
+func (a *App) handleGalleryZoomInput(ev ui.InputEvent) bool {
+	switch ev.Kind {
+	case ui.InputZoom:
+		if ev.Scale != 0 && ev.Scale != 1 {
+			newH := int(math.Round(float64(float32(a.rowHeight) * ev.Scale)))
+			a.setRowHeight(newH)
+			return true
+		}
+	case ui.InputScroll:
+		hasZoomMod := ev.Mods&ui.Ctrl != 0
+		if runtime.GOOS == "darwin" {
+			hasZoomMod = ev.Mods&ui.Super != 0
+		}
+		if hasZoomMod {
+			if ev.DY != 0 {
+				delta := -int(math.Round(float64(ev.DY * 0.25)))
+				if delta == 0 {
+					if ev.DY < 0 {
+						delta = 2
+					} else {
+						delta = -2
+					}
+				}
+				a.setRowHeight(a.rowHeight + delta)
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // viewGallery is the virtualized justified gallery. Only the rows the list
 // builds exist; each row builds only its own cards, so tens of thousands of
 // items scroll at display refresh.
@@ -20,6 +54,7 @@ func (a *App) viewGallery(c *ui.Context) {
 	a.rebuildRows()
 	if len(a.rows) == 0 {
 		container := ui.Box(c.Key("gallery-container")).Fill().Clip()
+		container.HandleInput(a.handleGalleryZoomInput)
 		container.ContextMenu(a.viewContextMenu)
 		container.Children(func() {
 			if a.loading {
@@ -38,6 +73,9 @@ func (a *App) viewGallery(c *ui.Context) {
 
 	container := ui.Box(c.Key("gallery-container")).Fill().Clip()
 	container.HandleInput(func(ev ui.InputEvent) bool {
+		if a.handleGalleryZoomInput(ev) {
+			return true
+		}
 		switch ev.Kind {
 		case ui.InputPointerDown:
 			if ev.Button == 0 {
@@ -548,11 +586,6 @@ func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
 			if selected {
 				thumbBox.Border(2, p.accent)
 			}
-			if card.Hovered() {
-				thumbBox.Shadow(0, 10, 26, -8, p.cardShade)
-			} else {
-				thumbBox.Shadow(0, 2, 5, -1, p.cardShade)
-			}
 
 			thumbBox.Children(func() {
 				fadeTarget := float32(0)
@@ -928,6 +961,9 @@ func (a *App) itemContextMenu(m *ui.Menu, item core.Item) {
 	}
 	if m.Item(a.t("contextMenu.fullPreview")).Chosen() {
 		a.openPreview(item.ID, "full")
+	}
+	if m.Item(a.t("common.copy")).Shortcut(ui.Cmd, ui.KeyC).Chosen() {
+		a.copySelected()
 	}
 	if m.Item(a.t("contextMenu.revealInFinder")).Chosen() {
 		_ = a.svc.RevealInFinder(item.ID)

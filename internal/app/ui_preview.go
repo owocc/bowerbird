@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -44,7 +45,23 @@ func (a *App) viewPreviewToolbar(c *ui.Context) {
 	}
 	item := a.items[a.previewIndex]
 
-	ui.Row(c).FillWidth().Height(headerHeight).PaddingX(14).Gap(8).AlignItems(ui.Center).Children(func() {
+	bar := c.TitleBar()
+	leftPad := float32(14)
+	if !a.prefs.SidebarOpen || a.previewMode == "full" {
+		leftPad += bar.Left
+	}
+	rightPad := float32(14)
+	if !a.inspectorVisible() || a.previewMode == "full" {
+		r := bar.Right
+		if r == 0 && runtime.GOOS == "windows" {
+			r = 138
+		}
+		if r > 0 {
+			rightPad += r
+		}
+	}
+
+	ui.Row(c).FillWidth().Height(headerHeight).Padding(0, rightPad, 0, leftPad).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
 		a.iconButton(c, "preview-close", iconClose, false, a.t("common.close"), a.closePreview)
 		ui.Text(c, item.Name).FontSize(13).FontWeight(600).TextColor(p.text).Grow(1).Shrink(1).MinWidth(0).SingleLine()
 		ui.Textf(c, "%d / %d", a.previewIndex+1, len(a.items)).FontSize(11).TextColor(p.faint).FontFeatures("tnum")

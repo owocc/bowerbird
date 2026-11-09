@@ -272,6 +272,7 @@ func (h *appHost) createMainWindow() *mygo.Window {
 		MinWidth:       900,
 		MinHeight:      600,
 		TitleBarHidden: true,
+		TitleBarHeight: 52,
 	}))
 	h.applyWindowVibrancy(w)
 	h.attachDrop(w)
@@ -426,6 +427,11 @@ func (h *appHost) windowOptions(spec core.WindowSpec) mygo.WindowOptions {
 		opts.TitleBarStyle = mygo.TitleBarHidden
 		if runtime.GOOS == "darwin" {
 			opts.TrafficLightPosition = &mygo.Point{X: 20, Y: 20}
+		}
+		if spec.TitleBarHeight > 0 {
+			opts.TitleBarHeight = spec.TitleBarHeight
+		} else {
+			opts.TitleBarHeight = 52
 		}
 	}
 	if vibrant || mainWindow {

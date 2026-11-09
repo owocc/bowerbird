@@ -39,7 +39,7 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/wailsapp/wails/v3/pkg/w32"
+	w32 "bowerbird/internal/win32"
 )
 
 // HRESULT / DROPEFFECT / DRAGDROP_* values returned by or passed to OLE.
@@ -378,6 +378,9 @@ func (m *LibraryManager) CopyItemsToClipboard(ids []string) error {
 	host := m.Host()
 	if host == nil {
 		return errors.New("no desktop host available")
+	}
+	if err := host.WriteFilesToClipboard(paths); err == nil {
+		return nil
 	}
 	var copyErr error
 	host.RunOnMain(func() {

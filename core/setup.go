@@ -36,6 +36,7 @@ func (s *Service) OpenSetupWindow() error {
 		MinWidth:       560,
 		MinHeight:      520,
 		TitleBarHidden: true,
+		TitleBarHeight: 32,
 	})
 }
 

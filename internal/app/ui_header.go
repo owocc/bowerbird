@@ -1,6 +1,7 @@
 package app
 
 import (
+	"runtime"
 	"time"
 
 	"bowerbird/core"
@@ -28,12 +29,28 @@ func (a *App) viewHeader(c *ui.Context) {
 		if a.prefs.SidebarOpen {
 			leftPad = gallerySidePadding
 		}
-		ui.Row(c).FillWidth().Height(headerHeight).Padding(0, 12, 0, leftPad).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
+		rightPad := float32(12)
+		if !a.inspectorVisible() {
+			r := bar.Right
+			if r == 0 && runtime.GOOS == "windows" {
+				r = 138
+			}
+			if r > 0 {
+				rightPad = r + 12
+			}
+		}
+		ui.Row(c).FillWidth().Height(headerHeight).Padding(0, rightPad, 0, leftPad).Gap(8).AlignItems(ui.Center).DragWindow().Children(func() {
 			if !a.prefs.SidebarOpen {
 				a.iconButton(c, "sidebar-toggle", iconSidebar, false, a.t("common.toggleSidebar"), a.toggleSidebar)
 			}
 			a.iconButton(c, "back", iconBack, false, a.t("common.back"), func() { a.goHistory(-1) })
 			a.iconButton(c, "forward", iconForward, false, a.t("common.forward"), func() { a.goHistory(1) })
+
+			zoomVal := float64(a.rowHeight)
+			ui.Slider(c.Key("zoom-slider"), &zoomVal, 90, 420).Width(110)
+			if int(zoomVal) != a.rowHeight {
+				a.setRowHeight(int(zoomVal))
+			}
 
 			ui.Box(c).Grow(1)
 
@@ -42,12 +59,6 @@ func (a *App) viewHeader(c *ui.Context) {
 				ui.Text(c, name).FontSize(13).FontWeight(600).TextColor(p.text).MaxWidth(240).SingleLine()
 				ui.Box(c).Grow(1)
 			}
-
-			ui.Box(c).Width(1).Height(20).Background(p.hairline)
-
-			a.pillButton(c, "zoom-out", "−", false, func() { a.setRowHeight(a.rowHeight - 24) })
-			ui.Textf(c, "%d", a.rowHeight).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum").Width(28).TextAlign(ui.Center)
-			a.pillButton(c, "zoom-in", "+", false, func() { a.setRowHeight(a.rowHeight + 24) })
 
 			a.viewSearchField(c)
 		})
@@ -87,9 +98,9 @@ func (a *App) applyHeaderSurface(c *ui.Context, header ui.Element, contentUnder 
 	p := paletteFor(c.Theme())
 	if contentUnder {
 		header.Material(glass.Blur{Radius: 10})
-		tint := ui.RGBA(255, 255, 255, 0.5)
+		tint := ui.RGBA(255, 255, 255, 0.8)
 		if p.dark {
-			tint = ui.RGBA(0, 0, 0, 0.5)
+			tint = ui.RGBA(0, 0, 0, 0.8)
 		}
 		header.Draw(func(pt *ui.Painter, r ui.Rect) {
 			pt.Fill(r, tint, 0)
@@ -112,7 +123,7 @@ func (a *App) headerHasContentUnder() bool {
 // not draw a second border inside it.
 func (a *App) viewSearchField(c *ui.Context) {
 	p := paletteFor(c.Theme())
-	row := ui.Row(c).Height(32).Width(240).Padding(0, 10).Radius(10).Background(p.surface2).Border(1, p.hairline).AlignItems(ui.Center).Gap(7)
+	row := ui.Row(c).Height(32).Grow(1).Shrink(1).MinWidth(160).MaxWidth(380).Padding(0, 10).Radius(10).Background(p.surface2).Border(1, p.hairline).AlignItems(ui.Center).Gap(7)
 	row.Children(func() {
 		ui.Icon(c, iconSearch).Size(14, 14).TextColor(p.faint)
 		field := ui.TextInputBase(c.Key("search"), &a.query).Bind(&a.searchBox).

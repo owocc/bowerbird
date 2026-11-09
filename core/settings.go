@@ -186,6 +186,7 @@ func (s *Service) OpenSettingsWindow() error {
 		MinWidth:       800,
 		MinHeight:      650,
 		TitleBarHidden: true,
+		TitleBarHeight: 52,
 	})
 }
 
@@ -203,5 +204,6 @@ func OpenSettingsWindowWithHost(host Host) error {
 		MinWidth:       800,
 		MinHeight:      650,
 		TitleBarHidden: true,
+		TitleBarHeight: 52,
 	})
 }

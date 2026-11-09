@@ -13,6 +13,7 @@ type WindowSpec struct {
 	MinHeight       int
 	BackgroundColor string
 	TitleBarHidden  bool
+	TitleBarHeight  int
 }
 
 // Host is everything core needs from the desktop shell. The mygo entry point

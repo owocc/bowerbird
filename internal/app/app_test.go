@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -34,6 +35,7 @@ func seededApp(t *testing.T) *App {
 	a.activeItem = &a.items[0]
 	a.activeItemID = "a"
 	a.selected = map[string]bool{"a": true}
+	a.OnWriteFiles = func(paths []string) error { return nil }
 	a.rebuildRows()
 	return a
 }
@@ -678,5 +680,105 @@ func TestNormalizeDroppedURLs(t *testing.T) {
 	urls, files := splitDroppedPaths([]string{"https://pin.it/x", "/tmp/photo.jpg"})
 	if len(urls) != 1 || len(files) != 1 {
 		t.Fatalf("splitDroppedPaths urls=%v files=%v", urls, files)
+	}
+}
+
+func TestHeaderRightPaddingOnInspectorCollapsed(t *testing.T) {
+	a := seededApp(t)
+	tester := ui.NewTester(a.viewMain, 1280, 800)
+	tester.SetTitleBar(ui.TitleBar{Height: 52, Right: 138})
+
+	// Collapse inspector. Main header now reaches the right edge of the window.
+	a.prefs.InspectorOpen = false
+	tester.Frame()
+
+	if tester.FramePending() {
+		t.Fatal("unexpected pending frame after rendering header with collapsed inspector")
+	}
+}
+
+func TestGalleryCtrlWheelZoom(t *testing.T) {
+	a := seededApp(t)
+	tester := ui.NewTester(a.viewMain, 1280, 800)
+	tester.Frame()
+
+	initHeight := a.rowHeight
+
+	// Without modifier, it does not zoom.
+	taken := a.handleGalleryZoomInput(ui.InputEvent{Kind: ui.InputScroll, DY: -80})
+	if taken || a.rowHeight != initHeight {
+		t.Fatalf("rowHeight changed without modifier: taken=%v, height=%d", taken, a.rowHeight)
+	}
+
+	zoomMod := ui.Ctrl
+	if runtime.GOOS == "darwin" {
+		zoomMod = ui.Super
+	}
+
+	// Wheel with modifier zooms in (DY < 0 increases row height).
+	taken = a.handleGalleryZoomInput(ui.InputEvent{Kind: ui.InputScroll, DY: -80, Mods: zoomMod})
+	if !taken || a.rowHeight <= initHeight {
+		t.Fatalf("rowHeight did not increase on modifier+Wheel Up: taken=%v got=%d, want > %d", taken, a.rowHeight, initHeight)
+	}
+
+	zoomedIn := a.rowHeight
+	// Wheel with modifier zooms out (DY > 0 decreases row height).
+	taken = a.handleGalleryZoomInput(ui.InputEvent{Kind: ui.InputScroll, DY: 80, Mods: zoomMod})
+	if !taken || a.rowHeight >= zoomedIn {
+		t.Fatalf("rowHeight did not decrease on modifier+Wheel Down: taken=%v got=%d, want < %d", taken, a.rowHeight, zoomedIn)
+	}
+
+	// Pinch gesture through Tester also triggers zoom.
+	beforePinch := a.rowHeight
+	tester.Pinch(400, 300, 1.25)
+	tester.Frame()
+	if a.rowHeight <= beforePinch {
+		t.Fatalf("Pinch gesture did not zoom: got %d, want > %d", a.rowHeight, beforePinch)
+	}
+}
+
+func TestCopyItemsShortcutAndAction(t *testing.T) {
+	a := seededApp(t)
+	var copiedPaths []string
+	a.OnWriteFiles = func(paths []string) error {
+		copiedPaths = paths
+		return nil
+	}
+	tester := ui.NewTester(a.viewMain, 1280, 800)
+	tester.Frame()
+
+	// 1. Single selection copy (item "a")
+	a.selected = map[string]bool{"a": true}
+	a.activeItemID = "a"
+	a.copySelected()
+	if a.toast != a.t("common.copied") {
+		t.Fatalf("toast = %q, want %q", a.toast, a.t("common.copied"))
+	}
+	if len(copiedPaths) != 1 || !strings.HasSuffix(copiedPaths[0], "a.jpg") {
+		t.Fatalf("copiedPaths = %v, want [ .../a.jpg ]", copiedPaths)
+	}
+
+	// 2. Multi selection copy (items "a" and "b")
+	a.selected = map[string]bool{"a": true, "b": true}
+	a.toast = ""
+	copiedPaths = nil
+	a.copySelected()
+	if a.toast != a.t("common.copied") {
+		t.Fatalf("multi-item copy toast = %q, want %q", a.toast, a.t("common.copied"))
+	}
+	if len(copiedPaths) != 2 {
+		t.Fatalf("copiedPaths count = %d, want 2: %v", len(copiedPaths), copiedPaths)
+	}
+
+	// 3. Trigger via KeyC shortcut through Tester
+	a.toast = ""
+	copiedPaths = nil
+	tester.Key(ui.Cmd, ui.KeyC)
+	tester.Frame()
+	if a.toast != a.t("common.copied") {
+		t.Fatalf("Cmd+C shortcut toast = %q, want %q", a.toast, a.t("common.copied"))
+	}
+	if len(copiedPaths) != 2 {
+		t.Fatalf("shortcut copiedPaths count = %d, want 2: %v", len(copiedPaths), copiedPaths)
 	}
 }

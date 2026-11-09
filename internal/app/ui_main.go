@@ -47,7 +47,7 @@ func (a *App) viewMain(c *ui.Context) {
 				})
 				a.viewHeader(c)
 			})
-			if a.prefs.InspectorOpen && a.library != nil {
+			if a.inspectorVisible() {
 				ui.Box(c).Width(1).FillHeight().Background(p.hairline)
 				a.viewInspector(c)
 			}
@@ -107,6 +107,9 @@ func (a *App) handleMainShortcuts(c *ui.Context) {
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyR) {
 		a.refreshAll()
+	}
+	if c.Shortcut(ui.Cmd, ui.KeyC) || c.Shortcut(ui.Ctrl, ui.KeyC) {
+		a.copySelected()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyA) && !a.previewOpen {
 		for _, it := range a.items {

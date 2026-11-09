@@ -122,7 +122,12 @@ func (a *App) viewSettingsHeader(c *ui.Context) {
 	header := ui.Column(c).FillWidth().Height(headerHeight).Absolute().Top(0).Left(0).Right(0)
 	headerBlurActive := a.applyHeaderSurface(c, header, a.settingsHeaderHasContentUnder())
 	header.Children(func() {
-		ui.Row(c).FillWidth().Height(headerHeight).PaddingX(24).AlignItems(ui.Center).DragWindow().Children(func() {
+		bar := c.TitleBar()
+		r := bar.Right
+		if r == 0 && runtime.GOOS == "windows" {
+			r = 138
+		}
+		ui.Row(c).FillWidth().Height(headerHeight).Padding(0, r+24, 0, 24).AlignItems(ui.Center).DragWindow().Children(func() {
 			ui.Text(c, a.settingsSectionTitle(a.settingsSection)).FontSize(16).FontWeight(650).TextColor(p.text)
 		})
 		if headerBlurActive {

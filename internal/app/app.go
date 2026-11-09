@@ -267,6 +267,7 @@ type App struct {
 	OnSecondInstance func()
 	OnReady          func()
 	OnProtocol       func(string)
+	OnWriteFiles     func([]string) error
 }
 
 type galleryCell struct {
@@ -352,6 +353,10 @@ func (a *App) Translator() *i18n.Bundle { return a.trans }
 
 // Prefs returns a copy of the appearance preferences.
 func (a *App) Prefs() Prefs { return a.prefs }
+
+func (a *App) inspectorVisible() bool {
+	return a.prefs.InspectorOpen && a.library != nil
+}
 
 func (a *App) t(key string) string { return a.trans.T(key) }
 
@@ -907,7 +912,7 @@ func (a *App) rebuildRows() {
 	if a.prefs.SidebarOpen {
 		width -= sidebarWidth
 	}
-	if a.prefs.InspectorOpen {
+	if a.inspectorVisible() {
 		width -= inspectorWidth
 	}
 	if width < 240 {

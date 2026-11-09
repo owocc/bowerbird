@@ -1,7 +1,10 @@
 package app
 
 import (
+	"path/filepath"
 	"strings"
+
+	"github.com/egoist/mygo"
 )
 
 // Dialog actions. They run the core calls off the main thread and post both the
@@ -129,6 +132,56 @@ func (a *App) installPluginFromDialog() {
 }
 
 // Workspace mutations shared by the context menu and inspector.
+
+func (a *App) writeFilesToClipboard(paths []string) error {
+	if a.OnWriteFiles != nil {
+		return a.OnWriteFiles(paths)
+	}
+	return mygo.Clipboard.WriteFiles(paths...)
+}
+
+func (a *App) copySelected() {
+	var ids []string
+	if a.previewOpen && a.previewIndex >= 0 && a.previewIndex < len(a.items) {
+		ids = []string{a.items[a.previewIndex].ID}
+	} else {
+		ids = a.selectedIDs()
+		if len(ids) == 0 && a.activeItemID != "" {
+			ids = []string{a.activeItemID}
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	if a.svc != nil {
+		if err := a.svc.CopyItemsToClipboard(ids); err == nil {
+			a.showToast(a.t("common.copied"))
+			return
+		}
+	}
+
+	paths := make([]string, 0, len(ids))
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	for _, it := range a.items {
+		if idSet[it.ID] && it.FilePath != "" {
+			absPath, err := filepath.Abs(it.FilePath)
+			if err == nil {
+				paths = append(paths, absPath)
+			} else {
+				paths = append(paths, it.FilePath)
+			}
+		}
+	}
+	if len(paths) > 0 {
+		if err := a.writeFilesToClipboard(paths); err == nil {
+			a.showToast(a.t("common.copied"))
+		}
+	}
+}
 
 func (a *App) trashSelected() {
 	ids := a.selectedIDs()

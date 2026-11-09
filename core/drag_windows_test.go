@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/wailsapp/wails/v3/pkg/w32"
+	w32 "bowerbird/internal/win32"
 )
 
 // testDragData is the shell data object a drag would publish, kept alive for the

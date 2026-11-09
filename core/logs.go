@@ -247,5 +247,6 @@ func (s *Service) OpenLogsWindow() error {
 		MinWidth:       680,
 		MinHeight:      440,
 		TitleBarHidden: true,
+		TitleBarHeight: 40,
 	})
 }
