@@ -47,6 +47,13 @@ func (a *App) handleGalleryZoomInput(ev ui.InputEvent) bool {
 	return false
 }
 
+func (a *App) galleryGap() float32 {
+	if a.prefs.LayoutMode == "list" {
+		return 4
+	}
+	return 8
+}
+
 // viewGallery is the virtualized justified gallery. Only the rows the list
 // builds exist; each row builds only its own cards, so tens of thousands of
 // items scroll at display refresh.
@@ -165,7 +172,7 @@ func (a *App) viewGallery(c *ui.Context) {
 				return
 			}
 			a.galleryRow(c, a.rows[row])
-		}).FillWidth().Grow(1).Shrink(1).TrackScroll(&a.galleryScroll).Gap(8).Padding(top, gallerySidePadding, bottom, gallerySidePadding).ScrollbarInsets(top, 0, bottom, 0)
+		}).FillWidth().Grow(1).Shrink(1).TrackScroll(&a.galleryScroll).Gap(a.galleryGap()).Padding(top, gallerySidePadding, bottom, gallerySidePadding).ScrollbarInsets(top, 0, bottom, 0)
 		if list.Clicked() && len(a.selected) > 0 {
 			a.clearSelection()
 			if a.win != nil {
@@ -195,7 +202,7 @@ func (a *App) viewGallery(c *ui.Context) {
 }
 func (a *App) itemAtPoint(x, y, padTop float32) int {
 	targetY := y
-	const gap = float32(8)
+	gap := a.galleryGap()
 	padLeft := float32(gallerySidePadding)
 	curY := padTop - a.galleryScroll.Y
 
@@ -236,7 +243,7 @@ func (a *App) updateMarqueeSelection(padTop float32) {
 	boxBottom := maxF(y0, y1)
 
 	hit := make(map[string]bool)
-	const gap = float32(8)
+	gap := a.galleryGap()
 	padLeft := float32(gallerySidePadding)
 	curY := padTop - a.galleryScroll.Y
 
@@ -322,7 +329,7 @@ func (a *App) galleryRow(c *ui.Context, row []galleryCell) {
 		return
 	}
 	height := float32(row[0].height)
-	ui.Row(c).FillWidth().Height(height).Gap(8).PassThrough().Children(func() {
+	ui.Row(c).FillWidth().Height(height).Gap(a.galleryGap()).PassThrough().Children(func() {
 		for _, cell := range row {
 			if cell.folderID != "" {
 				a.folderCard(c, cell.folderID, float32(cell.width), float32(cell.height))
@@ -501,6 +508,13 @@ func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
 	card.Cursor(ui.CursorPointer)
 	card.Radius(8)
 	bg := ui.Transparent
+	if isList {
+		if selected {
+			bg = p.surface2
+		} else if card.Hovered() {
+			bg = p.hover
+		}
+	}
 	card.Background(card.AnimateColor("bg", bg, ui.Animation{Duration: 110 * time.Millisecond}))
 	// Native drag out: advertises the file list to Finder and other apps.
 	card.DragDataFrom(func() transfer.Data { return a.itemDragData(item) })
@@ -651,7 +665,11 @@ func (a *App) itemCard(c *ui.Context, item core.Item, index int, w, h float32) {
 		a.clearItemClick()
 		a.openPreview(item.ID, "inline")
 	} else if card.Clicked() {
-		a.handleItemClick(item, index)
+		mods := card.ClickModifiers()
+		if mods == 0 {
+			mods = c.Modifiers()
+		}
+		a.handleItemClick(item, index, mods)
 	}
 	card.ContextMenu(func(m *ui.Menu) {
 		if !a.selected[item.ID] {
@@ -707,12 +725,153 @@ func (a *App) itemClickCompletesDouble(id string) bool {
 
 // handleItemClick selects a card, with a manual double-click fallback for
 // platforms that do not report click counts.
-func (a *App) handleItemClick(item core.Item, index int) {
+func (a *App) handleItemClick(item core.Item, index int, mods ui.Modifiers) {
 	if a.itemClickCompletesDouble(item.ID) {
 		a.openPreview(item.ID, "inline")
 		return
 	}
-	a.chooseItem(index, 0)
+	a.chooseItem(index, mods)
+}
+
+// rangeSelectIndices computes the indices of items between anchorIdx and targetIdx
+// taking into account the geometry of the current layout (list, grid, justified).
+func (a *App) rangeSelectIndices(anchorIdx, targetIdx int) []int {
+	if len(a.items) == 0 {
+		return nil
+	}
+	if anchorIdx < 0 {
+		anchorIdx = 0
+	}
+	if anchorIdx >= len(a.items) {
+		anchorIdx = len(a.items) - 1
+	}
+	if targetIdx < 0 {
+		targetIdx = 0
+	}
+	if targetIdx >= len(a.items) {
+		targetIdx = len(a.items) - 1
+	}
+	if anchorIdx == targetIdx {
+		return []int{targetIdx}
+	}
+
+	mode := a.prefs.LayoutMode
+	switch mode {
+	case "list":
+		// 1D: consecutive linear range
+		start := min(anchorIdx, targetIdx)
+		end := max(anchorIdx, targetIdx)
+		out := make([]int, 0, end-start+1)
+		for i := start; i <= end; i++ {
+			out = append(out, i)
+		}
+		return out
+
+	case "grid":
+		// 2D grid matrix box selection: [minRow..maxRow] x [minCol..maxCol]
+		anchorRow, anchorCol := -1, -1
+		targetRow, targetCol := -1, -1
+		for rIdx, row := range a.rows {
+			for cIdx, cell := range row {
+				if cell.index == anchorIdx {
+					anchorRow, anchorCol = rIdx, cIdx
+				}
+				if cell.index == targetIdx {
+					targetRow, targetCol = rIdx, cIdx
+				}
+			}
+		}
+		if anchorRow >= 0 && targetRow >= 0 {
+			minRow, maxRow := min(anchorRow, targetRow), max(anchorRow, targetRow)
+			minCol, maxCol := min(anchorCol, targetCol), max(anchorCol, targetCol)
+			var out []int
+			seen := make(map[int]bool)
+			for r := minRow; r <= maxRow; r++ {
+				if r < 0 || r >= len(a.rows) {
+					continue
+				}
+				for c := minCol; c <= maxCol; c++ {
+					if c >= 0 && c < len(a.rows[r]) {
+						idx := a.rows[r][c].index
+						if idx >= 0 && idx < len(a.items) && !seen[idx] {
+							seen[idx] = true
+							out = append(out, idx)
+						}
+					}
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+
+	case "justified":
+		// 2D justified stream selection: row span with horizontal projection overlap
+		gap := a.galleryGap()
+		anchorRow, targetRow := -1, -1
+		var anchorX0, anchorX1, targetX0, targetX1 float32
+
+		for rIdx, row := range a.rows {
+			curX := float32(gallerySidePadding)
+			for _, cell := range row {
+				cellW := float32(cell.width)
+				x0 := curX
+				x1 := curX + cellW
+				if cell.index == anchorIdx {
+					anchorRow = rIdx
+					anchorX0, anchorX1 = x0, x1
+				}
+				if cell.index == targetIdx {
+					targetRow = rIdx
+					targetX0, targetX1 = x0, x1
+				}
+				curX = x1 + gap
+			}
+		}
+
+		if anchorRow >= 0 && targetRow >= 0 {
+			minRow, maxRow := min(anchorRow, targetRow), max(anchorRow, targetRow)
+			minX, maxX := minF(anchorX0, targetX0), maxF(anchorX1, targetX1)
+
+			var out []int
+			seen := make(map[int]bool)
+			for r := minRow; r <= maxRow; r++ {
+				if r < 0 || r >= len(a.rows) {
+					continue
+				}
+				curX := float32(gallerySidePadding)
+				for _, cell := range a.rows[r] {
+					cellW := float32(cell.width)
+					x0 := curX
+					x1 := curX + cellW
+					curX = x1 + gap
+
+					if cell.index < 0 || cell.index >= len(a.items) {
+						continue
+					}
+					// Overlap with [minX, maxX]
+					if x0 <= maxX && x1 >= minX {
+						if !seen[cell.index] {
+							seen[cell.index] = true
+							out = append(out, cell.index)
+						}
+					}
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+
+	// Sequential fallback
+	start := min(anchorIdx, targetIdx)
+	end := max(anchorIdx, targetIdx)
+	out := make([]int, 0, end-start+1)
+	for i := start; i <= end; i++ {
+		out = append(out, i)
+	}
+	return out
 }
 
 func (a *App) chooseItem(index int, mods ui.Modifiers) {
@@ -720,9 +879,91 @@ func (a *App) chooseItem(index int, mods ui.Modifiers) {
 		return
 	}
 	item := a.items[index]
+	isShift := mods&ui.Shift != 0
+	isCtrl := mods&ui.Ctrl != 0 || mods&ui.Cmd != 0 || mods&ui.Super != 0
+
+	// 1. Shift range selection
+	if isShift && a.selectedAnchor >= 0 && a.selectedAnchor < len(a.items) {
+		indices := a.rangeSelectIndices(a.selectedAnchor, index)
+		if !isCtrl {
+			a.selected = make(map[string]bool, len(indices))
+			a.selectedOrder = make([]string, 0, len(indices))
+			for _, idx := range indices {
+				itID := a.items[idx].ID
+				a.selected[itID] = true
+				a.selectedOrder = append(a.selectedOrder, itID)
+			}
+		} else {
+			for _, idx := range indices {
+				itID := a.items[idx].ID
+				if !a.selected[itID] {
+					a.selected[itID] = true
+					a.selectedOrder = append(a.selectedOrder, itID)
+				}
+			}
+		}
+		// Shift preserves selectedAnchor for continuous range adjustments
+		a.selectedAt = index
+		a.activeItemID = item.ID
+		cp := item
+		a.activeItem = &cp
+		a.loadInspector(item.ID)
+		if a.win != nil {
+			a.win.Invalidate()
+		}
+		return
+	}
+
+	// 2. Ctrl / Cmd toggle selection
+	if isCtrl {
+		if a.selected[item.ID] {
+			delete(a.selected, item.ID)
+			newOrder := make([]string, 0, len(a.selectedOrder))
+			for _, id := range a.selectedOrder {
+				if id != item.ID {
+					newOrder = append(newOrder, id)
+				}
+			}
+			a.selectedOrder = newOrder
+			if len(a.selectedOrder) > 0 {
+				lastID := a.selectedOrder[len(a.selectedOrder)-1]
+				a.activeItemID = lastID
+				for i, it := range a.items {
+					if it.ID == lastID {
+						cp := it
+						a.activeItem = &cp
+						a.selectedAt = i
+						break
+					}
+				}
+				a.loadInspector(a.activeItemID)
+			} else {
+				a.activeItemID = ""
+				a.activeItem = nil
+				a.selectedAt = -1
+				a.loadInspector("")
+			}
+		} else {
+			a.selected[item.ID] = true
+			a.selectedOrder = append(a.selectedOrder, item.ID)
+			a.activeItemID = item.ID
+			cp := item
+			a.activeItem = &cp
+			a.selectedAt = index
+			a.loadInspector(item.ID)
+		}
+		a.selectedAnchor = index
+		if a.win != nil {
+			a.win.Invalidate()
+		}
+		return
+	}
+
+	// 3. Normal single click
 	a.selected = map[string]bool{item.ID: true}
 	a.selectedOrder = []string{item.ID}
 	a.selectedAt = index
+	a.selectedAnchor = index
 	a.activeItemID = item.ID
 	cp := item
 	a.activeItem = &cp
@@ -809,7 +1050,7 @@ func (a *App) moveGallerySelection(dx, dy int) {
 				curCenterX = curX + w*0.5
 				break
 			}
-			curX += w + 8
+			curX += w + a.galleryGap()
 		}
 		if curRow >= 0 {
 			break

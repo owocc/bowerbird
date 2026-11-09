@@ -216,6 +216,7 @@ func (a *App) clearSelection() {
 	a.selected = map[string]bool{}
 	a.selectedOrder = nil
 	a.selectedAt = -1
+	a.selectedAnchor = -1
 	a.activeItemID = ""
 	a.activeItem = nil
 }

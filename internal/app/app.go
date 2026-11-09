@@ -149,6 +149,7 @@ type App struct {
 	selected        map[string]bool
 	selectedOrder   []string
 	selectedAt      int
+	selectedAnchor  int
 	activeItemID    string
 	activeItem      *core.Item
 	lastClickID     string
@@ -325,6 +326,7 @@ func New(svc *core.Service) *App {
 		expanded:       map[string]bool{},
 		selected:       map[string]bool{},
 		selectedAt:     -1,
+		selectedAnchor: -1,
 		sortOrder:      "desc",
 		rowHeight:      190,
 		thumbs:         newThumbCache(),
@@ -811,6 +813,7 @@ func (a *App) clearWorkspaceSelection() {
 	a.selected = map[string]bool{}
 	a.selectedOrder = nil
 	a.selectedAt = -1
+	a.selectedAnchor = -1
 	a.activeItemID = ""
 	a.activeItem = nil
 	a.renameValue = ""

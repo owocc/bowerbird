@@ -782,3 +782,73 @@ func TestCopyItemsShortcutAndAction(t *testing.T) {
 		t.Fatalf("shortcut copiedPaths count = %d, want 2: %v", len(copiedPaths), copiedPaths)
 	}
 }
+
+func TestShiftAndCtrlMultiSelectionAcrossLayouts(t *testing.T) {
+	a := seededApp(t)
+
+	// --- 1. Test Ctrl / Cmd toggle selection ---
+	a.chooseItem(0, 0)
+	if !a.selected["a"] || len(a.selected) != 1 {
+		t.Fatalf("expected only 'a' selected, got %v", a.selected)
+	}
+	// Ctrl+Click 'b': add 'b'
+	a.chooseItem(1, ui.Ctrl)
+	if !a.selected["a"] || !a.selected["b"] || len(a.selected) != 2 {
+		t.Fatalf("expected 'a' and 'b' selected, got %v", a.selected)
+	}
+	// Ctrl+Click 'a': toggle 'a' off
+	a.chooseItem(0, ui.Ctrl)
+	if a.selected["a"] || !a.selected["b"] || len(a.selected) != 1 {
+		t.Fatalf("expected only 'b' selected after toggling 'a', got %v", a.selected)
+	}
+	// Ctrl+Click 'a': toggle 'a' back on
+	a.chooseItem(0, ui.Ctrl)
+	if !a.selected["a"] || !a.selected["b"] || len(a.selected) != 2 {
+		t.Fatalf("expected 'a' and 'b' selected after toggling 'a' back, got %v", a.selected)
+	}
+
+	// --- 2. Test List layout Shift range selection (1D consecutive) ---
+	a.prefs.LayoutMode = "list"
+	a.rebuildRows()
+	// Click 'a' (index 0) without modifiers -> sets anchor to 0
+	a.chooseItem(0, 0)
+	// Shift+Click 'c' (index 2) -> selects [0, 1, 2]
+	a.chooseItem(2, ui.Shift)
+	if len(a.selected) != 3 || !a.selected["a"] || !a.selected["b"] || !a.selected["c"] {
+		t.Fatalf("list shift selection expected 3 items (a, b, c), got %v", a.selected)
+	}
+
+	// --- 3. Test Grid layout Shift range selection (2D matrix block) ---
+	a.prefs.LayoutMode = "grid"
+	// Setup 6 items: 2 rows of 3 columns
+	a.items = []core.Item{
+		{ID: "0", Name: "Item 0"}, {ID: "1", Name: "Item 1"}, {ID: "2", Name: "Item 2"},
+		{ID: "3", Name: "Item 3"}, {ID: "4", Name: "Item 4"}, {ID: "5", Name: "Item 5"},
+	}
+	a.rows = [][]galleryCell{
+		{{index: 0, width: 100, height: 100}, {index: 1, width: 100, height: 100}, {index: 2, width: 100, height: 100}},
+		{{index: 3, width: 100, height: 100}, {index: 4, width: 100, height: 100}, {index: 5, width: 100, height: 100}},
+	}
+	// Click (row 0, col 0) index 0 -> anchor = 0
+	a.chooseItem(0, 0)
+	// Shift+Click (row 1, col 1) index 4 -> 2D block [row 0..1] x [col 0..1] = {0, 1, 3, 4}
+	a.chooseItem(4, ui.Shift)
+	if len(a.selected) != 4 || !a.selected["0"] || !a.selected["1"] || !a.selected["3"] || !a.selected["4"] {
+		t.Fatalf("grid 2D shift block selection expected {0, 1, 3, 4}, got %v", a.selected)
+	}
+	if a.selected["2"] || a.selected["5"] {
+		t.Fatalf("items in column 2 should not be selected in [0..1]x[0..1] grid box")
+	}
+
+	// --- 4. Test Justified layout Shift range selection ---
+	a.prefs.LayoutMode = "justified"
+	a.rows = [][]galleryCell{
+		{{index: 0, width: 120, height: 100}, {index: 1, width: 180, height: 100}, {index: 2, width: 140, height: 100}},
+		{{index: 3, width: 200, height: 100}, {index: 4, width: 140, height: 100}, {index: 5, width: 100, height: 100}},
+	}
+	a.chooseItem(0, 0)
+	a.chooseItem(4, ui.Shift)
+	if len(a.selected) < 2 || !a.selected["0"] || !a.selected["4"] {
+		t.Fatalf("justified shift selection must at least include endpoints 0 and 4, got %v", a.selected)
+	}
+}
