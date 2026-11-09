@@ -1169,36 +1169,12 @@ func (a *App) HandleDrop(paths []string) {
 	folder := a.dropFolderID
 	a.dropFolderID = ""
 	if len(urls) > 0 {
-		a.handleURLDropsToFolder(urls, folder)
+		a.handleURLDropsToFolder(urls, "", folder)
 	}
 	if len(files) == 0 {
 		return
 	}
-	paths = files
-	go func() {
-		var (
-			result core.NativeDropResult
-			err    error
-		)
-		if folder != "" {
-			result, err = a.svc.HandleNativeDropWithResult(paths, "folder", folder)
-		} else {
-			result, err = a.svc.HandleNativeDropWithResult(paths, "", "")
-		}
-		a.post(func() {
-			if err != nil {
-				a.showToast(err.Error())
-				a.refreshAll()
-				return
-			}
-			if result.Importing {
-				a.showToast(a.tf("dropzone.importing", map[string]any{"count": result.External}))
-			}
-			if result.Importing || result.Internal > 0 {
-				a.refreshAll()
-			}
-		})
-	}()
+	a.handleDroppedFiles(files, folder)
 }
 
 func (a *App) toastActive() bool { return a.toast != "" && time.Now().Before(a.toastUntil) }

@@ -3,6 +3,8 @@ package app
 import (
 	"time"
 
+	"bowerbird/core"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -95,17 +97,17 @@ func (a *App) handleMainShortcuts(c *ui.Context) {
 	if c.Shortcut(ui.Cmd, ui.KeyF) {
 		a.searchBox.Focus(c)
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyComma) {
+	if a.shortcutMatched(c, core.ShortcutOpenSettings) {
 		if a.OnOpenSettings != nil {
 			a.OnOpenSettings()
 		}
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyL) {
+	if a.shortcutMatched(c, core.ShortcutLogs) {
 		if a.OnOpenLogs != nil {
 			a.OnOpenLogs()
 		}
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyR) {
+	if a.shortcutMatched(c, core.ShortcutReload) {
 		a.refreshAll()
 	}
 	if c.Shortcut(ui.Cmd, ui.KeyC) || c.Shortcut(ui.Ctrl, ui.KeyC) {

@@ -13,41 +13,82 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// attachURLDropTarget makes a native view accept URLs dragged from a browser,
-// Finder/Explorer, or another application. File-only drags are ignored here and
-// continue through Window.OnFileDrop.
+// attachURLDropTarget makes a native view accept URLs and files dragged from a
+// browser, Finder/Explorer, or another application. Files are routed through
+// the normal native-drop path; URLs are imported through the resolver chain.
 func (a *App) attachURLDropTarget(el ui.Element) {
 	opts := transfer.DropOptions{
-		Formats:    []transfer.Format{transfer.URIList, transfer.Text},
+		// FileList matters: browsers and Explorer advertise CF_HDROP as a file
+		// list. Without it the same drag degrades into its URI list, which is how
+		// a local image used to be mistaken for a URL.
+		Formats:    []transfer.Format{transfer.FileList, transfer.URIList, transfer.Text, transfer.HTML},
 		Operations: transfer.Copy,
 	}
 	if _, over := ui.DataDragOver(el, opts); over {
 		// Keep the drop target unobtrusive; the toast reports the result.
 	}
 	if drop, ok := ui.DropData(el, opts); ok {
+		folder := a.dropFolderID
+		a.dropFolderID = ""
 		// Finder/Explorer drags also advertise a URI list. Route their file
 		// URLs through the normal native-drop path instead of swallowing them.
 		if files, err := drop.Data.Files(); err == nil && len(files) > 0 {
-			a.HandleDrop(files)
+			a.handleDroppedFiles(files, folder)
 			return
 		}
-		if urls := urlsFromDropData(drop.Data); len(urls) > 0 {
-			folder := a.dropFolderID
-			a.dropFolderID = ""
-			a.handleURLDropsToFolder(urls, folder)
+		urls, referer := urlsFromDropData(drop.Data)
+		if len(urls) > 0 {
+			a.handleURLDropsToFolder(urls, referer, folder)
 		}
 	}
 }
 
-func urlsFromDropData(data transfer.Data) []string {
+// urlsFromDropData extracts import URLs from a browser drag. The HTML
+// representation is read first because a dragged <img> often carries the real
+// image URL there while the URI list only holds the page it is linked to. It
+// also returns the page URL to use as a Referer for hotlink-protected media.
+func urlsFromDropData(data transfer.Data) ([]string, string) {
 	var raw []string
+	referer := ""
+	if markup, err := data.Read(transfer.HTML); err == nil && len(markup) > 0 {
+		media, page := core.ExtractMediaFromHTML("", markup)
+		raw = append(raw, media...)
+		if page != "" {
+			referer = page
+		}
+	}
 	if urls, err := data.URLs(); err == nil {
 		raw = append(raw, urls...)
 	}
 	if text, err := data.Read(transfer.Text); err == nil {
 		raw = append(raw, strings.Split(string(text), "\n")...)
 	}
-	return normalizeDroppedURLs(raw)
+	urls := normalizeDroppedURLs(raw)
+	if referer == "" {
+		// A page URL next to a media URL is the image's source page, which is
+		// exactly what hosts with hotlink protection expect in Referer.
+		for _, candidate := range urls {
+			if !looksLikeMediaURL(candidate) {
+				referer = candidate
+				break
+			}
+		}
+	}
+	return urls, referer
+}
+
+func looksLikeMediaURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	p := strings.ToLower(u.Path)
+	for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg", ".mp4", ".webm", ".mov", ".m4v", ".pdf"} {
+		if strings.HasSuffix(p, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeDroppedURLs(raw []string) []string {
@@ -106,7 +147,7 @@ func splitDroppedPaths(paths []string) (urls, files []string) {
 // handleURLDrops resolves every dropped URL through the plugin index. The first
 // matching resolver runs and returns media candidates; only if no plugin claims
 // the URL does the host try the URL itself as a direct media download.
-func (a *App) handleURLDropsToFolder(rawURLs []string, folderID string) {
+func (a *App) handleURLDropsToFolder(rawURLs []string, referer string, folderID string) {
 	if a.svc == nil {
 		return
 	}
@@ -114,19 +155,22 @@ func (a *App) handleURLDropsToFolder(rawURLs []string, folderID string) {
 	if len(urls) == 0 {
 		return
 	}
+	core.RecordLog("info", "url", "url drop received", fmt.Sprintf("count=%d referer=%s urls=%v", len(urls), referer, urls), 0)
 	a.showToast(a.t("dropzone.urlImporting"))
 	go func() {
 		imported := 0
 		var firstErr error
 		for _, raw := range urls {
-			item, err := a.importURL(raw, folderID)
+			item, err := a.importURL(raw, referer, folderID)
 			if err != nil {
+				core.RecordLog("error", "url", "url import failed", fmt.Sprintf("url=%s err=%v", raw, err), 0)
 				if firstErr == nil {
 					firstErr = err
 				}
 				continue
 			}
 			if item != nil {
+				core.RecordLog("info", "url", "url import succeeded", fmt.Sprintf("url=%s name=%s", raw, item.Name), 0)
 				imported++
 			}
 		}
@@ -143,7 +187,39 @@ func (a *App) handleURLDropsToFolder(rawURLs []string, folderID string) {
 	}()
 }
 
-func (a *App) importURL(raw string, folderID string) (*core.Item, error) {
+// handleDroppedFiles imports files (or folders) dropped on a window, routing
+// them through the native drop service so self-drops stay no-ops.
+func (a *App) handleDroppedFiles(paths []string, folder string) {
+	if a.svc == nil || len(paths) == 0 {
+		return
+	}
+	go func() {
+		var (
+			result core.NativeDropResult
+			err    error
+		)
+		if folder != "" {
+			result, err = a.svc.HandleNativeDropWithResult(paths, "folder", folder)
+		} else {
+			result, err = a.svc.HandleNativeDropWithResult(paths, "", "")
+		}
+		a.post(func() {
+			if err != nil {
+				a.showToast(err.Error())
+				a.refreshAll()
+				return
+			}
+			if result.Importing {
+				a.showToast(a.tf("dropzone.importing", map[string]any{"count": result.External}))
+			}
+			if result.Importing || result.Internal > 0 {
+				a.refreshAll()
+			}
+		})
+	}()
+}
+
+func (a *App) importURL(raw string, referer string, folderID string) (*core.Item, error) {
 	var resolverID string
 	var resolution *plugin.ResolveResult
 	if a.pluginHost != nil {
@@ -161,6 +237,9 @@ func (a *App) importURL(raw string, folderID string) (*core.Item, error) {
 	opts := core.ImportItemOptions{SkipURL: !a.prefs.RecordImportURL}
 	if a.prefs.RecordImportURL {
 		opts.URL = raw
+	}
+	if referer != "" {
+		opts.Headers = map[string]string{"Referer": referer}
 	}
 	if folderID != "" {
 		opts.FolderIDs = []string{folderID}
@@ -181,7 +260,10 @@ func (a *App) importURL(raw string, folderID string) (*core.Item, error) {
 		if resolverID != "" {
 			if p, ok := a.pluginHost.Get(resolverID); ok && p.Settings != nil {
 				if cookie := strings.TrimSpace(p.Settings["cookie"]); cookie != "" {
-					opts.Headers = map[string]string{"Cookie": cookie}
+					if opts.Headers == nil {
+						opts.Headers = map[string]string{}
+					}
+					opts.Headers["Cookie"] = cookie
 				}
 			}
 		}

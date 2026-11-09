@@ -1967,6 +1967,11 @@ func (m *LibraryManager) ImportFromURL(rawURL string) (*Item, error) {
 }
 
 // ImportFromURLWithOptions downloads a remote resource with custom headers and item metadata options.
+//
+// The URL is downloaded as-is: no page scraping or second-level URL parsing
+// happens here. A caller that knows the real media URL (a plugin resolver or
+// the drop target's HTML fragment) passes it directly, so an unmatched image
+// URL is always a single direct download.
 func (m *LibraryManager) ImportFromURLWithOptions(rawURL string, opts ImportItemOptions) (*Item, error) {
 	trimmed := strings.TrimSpace(rawURL)
 	if trimmed == "" {
@@ -2005,6 +2010,29 @@ func (m *LibraryManager) ImportFromURLWithOptions(rawURL string, opts ImportItem
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch network resource: %w", err)
 	}
+	// A CDN with hotlink protection answers 401/403 for a bare image request.
+	// Retrying once with the media origin as Referer is harmless and fixes the
+	// common "drag an image out of a page" case where the page URL is unknown.
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) &&
+		!hasHeaderFold(opts.Headers, "Referer") {
+		if referer := originReferer(trimmed); referer != "" {
+			retry, retryErr := http.NewRequest("GET", trimmed, nil)
+			if retryErr == nil {
+				retry.Header.Set("User-Agent", req.Header.Get("User-Agent"))
+				retry.Header.Set("Accept", req.Header.Get("Accept"))
+				for k, v := range opts.Headers {
+					if strings.TrimSpace(k) != "" && strings.TrimSpace(v) != "" {
+						retry.Header.Set(k, v)
+					}
+				}
+				retry.Header.Set("Referer", referer)
+				if retryResp, retryErr := client.Do(retry); retryErr == nil {
+					resp.Body.Close()
+					resp = retryResp
+				}
+			}
+		}
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -2017,6 +2045,14 @@ func (m *LibraryManager) ImportFromURLWithOptions(rawURL string, opts ImportItem
 	}
 	if len(data) == 0 {
 		return nil, errors.New("empty network resource")
+	}
+
+	// A page URL (common when a browser puts the link target on the drag
+	// payload) must not be stored as if it were media. There is no page scraping
+	// fallback: the caller is expected to hand over the image URL directly (see
+	// the drop handler, which reads the drag's HTML <img> fragment).
+	if isHTMLPayload(resp.Header.Get("Content-Type"), data) {
+		return nil, fmt.Errorf("URL is a web page, not a media file: %s", trimmed)
 	}
 
 	// 3. Determine accurate filename, extension, and MIME type using Go's deep sniffing & headers
