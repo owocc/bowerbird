@@ -1,104 +1,169 @@
 # @bowerbird/plugin-sdk
 
-Official Software Development Kit for authoring custom preview and metadata plugins for [Bowerbird](https://github.com/owocc/bowerbird).
+TypeScript SDK for **native-rendered, zero-build** Bowerbird plugins.
 
-## Features
+Bowerbird no longer embeds a WebView or React runtime. A plugin is a plain ES
+module plus a `plugin.json`; the Go host runs it in an embedded moejs runtime and
+paints the returned data with `mygo/ui`. Plugins therefore never import React,
+never touch the DOM and never ship a bundler config.
 
-- **TypeScript Definitions**: Complete types for `PluginManifest`, `PreviewPluginDefinition`, `MetadataPluginDefinition`, and host APIs.
-- **Preview Plugins**: Create custom rich viewports and sidebar inspectors for specialized file types (Markdown, 3D models, Audio, Video, etc.).
-- **Metadata Plugins**: Extend asset metadata panels with custom fields, prompt collectors, or tag generators.
-- **Manifest Validation**: Built-in runtime manifest validator (`validatePluginManifest`).
-
-## Installation
+## Install
 
 ```bash
 pnpm add -D @bowerbird/plugin-sdk
-# or
-npm install -D @bowerbird/plugin-sdk
 ```
 
-## Quick Start: Preview Plugin
+The SDK is types-only for most plugins. Runtime helpers such as `formatBytes`
+are tiny and can be imported directly; there is no framework runtime to bundle.
 
-1. Create a `manifest.json`:
+## Plugin layout
+
+```text
+my-plugin/
+├── plugin.json
+├── index.js          # optional for native-only plugins
+└── locales/          # optional translations
+```
+
+`main` may also point to a `.ts` file: the moejs kernel strips TypeScript type
+syntax directly, so no bundler or `tsc` output is required.
 
 ```json
 {
-  "id": "myorg.custom-preview",
-  "name": "Custom Preview",
-  "version": "1.0.0",
-  "description": "Preview support for my custom format",
-  "author": "My Team",
-  "kind": "preview",
-  "priority": 50,
-  "extensions": ["xyz"],
-  "main": "index.js"
+  "id": "example.ai-inspector",
+  "name": "AI Inspector",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "kind": "metadata",
+  "main": "index.js",
+  "hooks": ["inspect"],
+  "permissions": { "network": [], "process": [] },
+  "settings": [
+    { "key": "endpoint", "label": "API endpoint", "placeholder": "https://…" }
+  ]
 }
 ```
 
-2. Author your plugin entrypoint (`src/index.tsx`):
+## Hooks
 
-```tsx
-import type { PreviewPluginDefinition } from "@bowerbird/plugin-sdk";
-
-const plugin: PreviewPluginDefinition = {
-  id: "myorg.custom-preview",
-  name: "Custom Preview",
-  kind: "preview",
-  extensions: ["xyz"],
-  Viewport: ({ item, mode }) => {
-    return (
-      <div className="w-full h-full flex items-center justify-center">
-        <span>Previewing {item.name}</span>
-      </div>
-    );
-  },
-};
-
-export default plugin;
+```ts
+// index.js — no imports and no build step required
+export async function inspect({ item }) {
+  if (!item.prompt) return null;
+  return {
+    sections: [{
+      title: "AI Prompt",
+      rows: [
+        { label: "Characters", value: String(item.prompt.length) },
+        { label: "Words", value: String(item.prompt.trim().split(/\s+/).length) },
+      ],
+      textBlocks: [{ title: "Prompt", text: item.prompt }],
+    }],
+  };
+}
 ```
 
-3. Bundle into `index.js` using Vite or your favorite bundler, leaving `react` and `react-dom` as external dependencies.
+All hooks receive plain JSON data and return plain JSON data:
+
+| Hook | Purpose |
+| --- | --- |
+| `resolveUrl({ url })` | Resolve a page/short link to direct media. |
+| `inspect({ item })` | Add declarative sections to the native inspector. |
+| `actions(ctx)` | Contribute native context-menu actions. |
+| `runAction({ id, item, items, folder })` | Execute one advertised action. |
+| `thumbnail({ filePath, mimeType })` | Ask the host to import a generated cover image. |
+
+## URL resolver plugins
+
+Declare hosts and/or regular expressions so the host can index a dropped URL
+and start only the first matching resolver:
+
+```json
+{
+  "kind": "resolver",
+  "urlHosts": ["pinterest.com", "*.pinterest.com", "pin.it"],
+  "urlPatterns": ["^https?://pin\\.it/[A-Za-z0-9]+"],
+  "permissions": { "network": ["pinterest.com", "*.pinterest.com", "pin.it"] }
+}
+```
+
+Hosts are matched through an exact/wildcard index; regexes then filter the
+candidate set. Resolvers are ordered by `priority` (highest first), and the
+first non-empty `resolveUrl` result wins, so slower fallbacks never run.
+
+## Native preview plugins
+
+Preview plugins do not draw pixels. They declare which renderer the host should
+use, and the native host supplies the `mygo/ui` view:
+
+```json
+{
+  "id": "official.markdown-preview",
+  "name": "Markdown Preview",
+  "version": "2.0.0",
+  "kind": "preview",
+  "native": "markdown",
+  "extensions": ["md", "markdown"],
+  "mimePrefixes": ["text/markdown"],
+  "priority": 50
+}
+```
+
+The optional `preview` object is an equivalent structured form:
+
+```json
+{
+  "kind": "preview",
+  "preview": {
+    "renderer": "audio",
+    "extensions": ["mp3", "flac", "wav"],
+    "mimePrefixes": ["audio/"],
+    "supportsZoom": false,
+    "priority": 60
+  }
+}
+```
+
+Built-in renderer ids currently include `image`, `video`, `markdown`, `audio`,
+`psd` and `prompt`. A native plugin with no `main` is fully hosted by Go and
+runs entirely inside the Go process.
+
+## Sandbox
+
+The host exposes only `globalThis.host`:
+
+```ts
+host.fetch(url, init);          // hostname allow-list from permissions.network
+host.settings.get("key");       // plugin-scoped settings
+host.spawn("magick", ["-help"]); // allow-list + explicit user grant
+host.log("info", "resolved", url); // unified plugin log
+console.log("also captured");    // console.* is forwarded too
+```
+
+From TypeScript, the SDK helper reads the same store:
+
+```ts
+import { log } from "@bowerbird/plugin-sdk";
+log("info", "resolved", url);
+```
+
+Every hook start/end, result, error and host API call is written to the native
+plugin log with the plugin id and hook name. `host.log(level, message, detail)`
+accepts `trace`, `debug`, `info`, `warn` and `error`.
+
+Network, filesystem and child processes are denied by default. A plugin call is
+limited to 30 seconds and a 256 MB heap; the host creates a fresh runtime for
+each hook, so a crash cannot take the app down.
+
+## Validation
+
+```ts
+import { validatePluginManifest, normalizePluginManifest } from "@bowerbird/plugin-sdk";
+
+const result = validatePluginManifest(JSON.parse(raw));
+if (!result.valid) console.error(result.errors);
+```
 
 ## License
 
 MIT
-
-## URL Resolver Plugins
-
-Plugins can take ownership of site-specific URL parsing. The host exposes a
-generic HTTP bridge (`/api/url/fetch`) so plugins can read remote pages without
-worrying about WebView CORS rules, then return direct media candidates through
-the `resolveUrl` hook.
-
-```ts
-import { definePlugin, type PluginUrlResolution, type UrlResolveContext } from "@bowerbird/plugin-sdk";
-
-async function resolve(url: string, ctx: UrlResolveContext): Promise<PluginUrlResolution | null> {
-  if (!url.includes("example.com/item/")) return null;
-
-  const page = await ctx.fetchText(url);
-  const match = page.body.match(/https:\/\/cdn\.example\.com\/original\/[^"']+/);
-  if (!match) return null;
-
-  return {
-    url: match[0],
-    candidates: [match[0]],
-    sourceUrl: url,
-    tags: ["example"],
-  };
-}
-
-export default definePlugin({
-  id: "myorg.example-resolver",
-  name: "Example URL Resolver",
-  kind: "metadata",
-  priority: 55,
-  extensions: [],
-  resolveUrl: resolve,
-});
-```
-
-The host asks enabled plugins in priority order. The first non-null resolution is
-used; each candidate is imported in order until one succeeds. This keeps the
-desktop core completely site-agnostic — adding support for another service only
-requires a plugin update.

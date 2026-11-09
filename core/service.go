@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -554,6 +556,14 @@ func (s *Service) SaveItemThumbnail(itemID string, base64Data string, videoWidth
 	return s.mgr.SaveItemThumbnail(itemID, base64Data, videoWidth, videoHeight)
 }
 
+// SaveItemThumbnailImage persists an already-decoded native cover image.
+func (s *Service) SaveItemThumbnailImage(itemID string, img image.Image, width, height int) (*Item, error) {
+	if s.mgr == nil {
+		return nil, ErrCoreNotInitialized
+	}
+	return s.mgr.SaveItemThumbnailImage(itemID, img, width, height)
+}
+
 func (s *Service) UpdateItemDetails(id string, note string, rawURL string, rating int, prompt string) (*Item, error) {
 	if s.mgr == nil {
 		return nil, ErrCoreNotInitialized
@@ -652,13 +662,29 @@ func (s *Service) UpgradePlugin(id string) (*InstalledPlugin, error) {
 // server instead of the deployed Worker.
 const defaultMarketplaceURL = "https://bowerbird-marketplace.owocc.workers.dev"
 
-// OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
-func (s *Service) OpenMarketplace() error {
+func marketplaceBaseURL() string {
 	targetURL := strings.TrimSpace(os.Getenv("BOWERBIRD_MARKETPLACE_URL"))
 	if targetURL == "" {
 		targetURL = defaultMarketplaceURL
 	}
-	return OpenExternalURL(targetURL)
+	return strings.TrimRight(targetURL, "/")
+}
+
+// OpenMarketplace opens the Bowerbird Plugin Marketplace in the default browser.
+func (s *Service) OpenMarketplace() error {
+	return OpenExternalURL(marketplaceBaseURL())
+}
+
+// OpenPluginMarketplace opens the store page for one plugin. It keeps the
+// plugin list useful after installation: users can jump back to the listing to
+// read changelogs, check updates, or reinstall a removed plugin.
+func (s *Service) OpenPluginMarketplace(id string) error {
+	base := marketplaceBaseURL()
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return OpenExternalURL(base)
+	}
+	return OpenExternalURL(base + "/plugins/" + url.PathEscape(id))
 }
 
 // GetUserDataDir returns the absolute path of the Bowerbird user data directory.

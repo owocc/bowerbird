@@ -1,0 +1,33 @@
+{
+  "id": "official.psd-preview",
+  "name": "PSD Preview",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "kind": "preview",
+  "native": "psd",
+  "description": "Native Photoshop composite preview with layer tree, zoom and document properties.",
+  "author": "Bowerbird Team",
+  "license": "MIT",
+  "priority": 95,
+  "extensions": [
+    "psd",
+    "psb"
+  ],
+  "mimePrefixes": [
+    "image/vnd.adobe.photoshop",
+    "image/x-photoshop",
+    "image/photoshop",
+    "image/psd",
+    "application/x-photoshop"
+  ],
+  "supportsZoom": true,
+  "capabilities": [
+    "preview"
+  ],
+  "builtin": true,
+  "permissions": {
+    "network": [],
+    "process": []
+  },
+  "settings": []
+}

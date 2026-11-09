@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -59,33 +60,35 @@ type Filters struct {
 // Prefs are the native-only appearance preferences that used to live in
 // localStorage.
 type Prefs struct {
-	BackdropMode  string   `json:"backdropMode"`
-	BackdropSolid string   `json:"backdropSolid"`
-	BackdropSeed  int      `json:"backdropSeed"`
-	InspectorOpen bool     `json:"inspectorOpen"`
-	SidebarOpen   bool     `json:"sidebarOpen"`
-	ShowNames     bool     `json:"showNames"`
-	ShowExt       bool     `json:"showExt"`
-	LayoutMode    string   `json:"layoutMode"`
-	SortOrder     string   `json:"sortOrder"`
-	RowHeight     float64  `json:"rowHeight"`
-	IncludeSubs   bool     `json:"includeSubfolders"`
-	PinnedFilters []string `json:"pinnedFilters"`
-	LibraryOrder  []string `json:"libraryOrder,omitempty"`
+	BackdropMode    string   `json:"backdropMode"`
+	BackdropSolid   string   `json:"backdropSolid"`
+	BackdropSeed    int      `json:"backdropSeed"`
+	InspectorOpen   bool     `json:"inspectorOpen"`
+	SidebarOpen     bool     `json:"sidebarOpen"`
+	ShowNames       bool     `json:"showNames"`
+	ShowExt         bool     `json:"showExt"`
+	LayoutMode      string   `json:"layoutMode"`
+	SortOrder       string   `json:"sortOrder"`
+	RowHeight       float64  `json:"rowHeight"`
+	IncludeSubs     bool     `json:"includeSubfolders"`
+	PinnedFilters   []string `json:"pinnedFilters"`
+	LibraryOrder    []string `json:"libraryOrder,omitempty"`
+	RecordImportURL bool     `json:"recordImportUrl"`
 }
 
 func defaultPrefs() Prefs {
 	return Prefs{
-		BackdropMode:  "default",
-		BackdropSolid: "#141416",
-		InspectorOpen: true,
-		SidebarOpen:   true,
-		ShowNames:     true,
-		ShowExt:       true,
-		LayoutMode:    "justified",
-		SortOrder:     "desc",
-		RowHeight:     190,
-		PinnedFilters: append([]string(nil), defaultPinnedFilterCriteria...),
+		BackdropMode:    "default",
+		BackdropSolid:   "#141416",
+		InspectorOpen:   true,
+		SidebarOpen:     true,
+		ShowNames:       true,
+		ShowExt:         true,
+		LayoutMode:      "justified",
+		SortOrder:       "desc",
+		RowHeight:       190,
+		PinnedFilters:   append([]string(nil), defaultPinnedFilterCriteria...),
+		RecordImportURL: true,
 	}
 }
 
@@ -205,6 +208,10 @@ type App struct {
 	psdInfo        *core.PSDInfo
 	previewError   string
 	player         *player.Player
+	video          *player.VideoPlayer
+	videoErr       string
+	videoScrub     float64
+	videoSeq       uint64
 	previewSeq     uint64
 
 	// Settings values.
@@ -233,7 +240,8 @@ type App struct {
 	pendingInstall *core.PluginInstallRequest
 
 	// Thumbnails.
-	thumbs *thumbCache
+	thumbs    *thumbCache
+	thumbJobs *thumbJobQueue
 
 	// backdropMode is the resolved background mode used by the painter.
 	backdropMode string
@@ -294,11 +302,15 @@ type settingsField struct {
 }
 
 type installedPluginRow struct {
-	ID      string
-	Name    string
-	Version string
-	Enabled bool
-	Native  string
+	ID           string
+	Name         string
+	Version      string
+	Kind         string
+	Enabled      bool
+	Native       string
+	Builtin      bool
+	Hosted       bool
+	CanUninstall bool
 }
 
 // New creates the app state. The service may be nil while the desktop entry
@@ -315,6 +327,7 @@ func New(svc *core.Service) *App {
 		sortOrder:      "desc",
 		rowHeight:      190,
 		thumbs:         newThumbCache(),
+		thumbJobs:      newThumbJobQueue(),
 		logsAutoScroll: true,
 		logsLevel:      "all",
 		start:          time.Now(),
@@ -324,6 +337,10 @@ func New(svc *core.Service) *App {
 	if cwd, err := os.Getwd(); err == nil {
 		a.pluginHost.SetLocalDirs(filepath.Join(cwd, "plugins"))
 	}
+	// Native official plugins are compiled into the host. Repository/local
+	// copies under plugins/ override them with richer marketplace metadata.
+	a.pluginHost.RegisterBuiltin(plugin.OfficialManifests()...)
+	a.syncPluginHTTPClient()
 	return a
 }
 
@@ -426,6 +443,7 @@ func (a *App) Notify(show bool) {
 		a.player.Stop()
 		a.player = nil
 	}
+	a.closeVideo()
 	runtime.GC()
 	// debug.FreeOSMemory is intentionally not called on every hide: the native
 	// app keeps a small Go heap and the OS reclaims textures with the window.
@@ -445,6 +463,8 @@ func (a *App) HandleEvent(name string, payload any) {
 		a.post(func() { a.trans.SetLanguage(a.currentLanguage()); a.refreshAll() })
 	case core.VibrancyChangedEvent, core.LightweightModeChangedEvent:
 		a.post(func() { a.refreshAll() })
+	case core.NetworkSettingsChangedEvent:
+		a.syncPluginHTTPClient()
 	case core.LogEntryEvent:
 		if entry, ok := payload.(core.LogEntry); ok {
 			a.postLogs(func() { a.appendLog(entry) })
@@ -563,6 +583,10 @@ func (a *App) refreshAll() {
 			}
 			a.rebuildRows()
 			a.recordHistory()
+			// Entering a page wakes the thumbnail lifecycle for visible items
+			// that the import pipeline could not decode (video/PSD/plugin
+			// formats). It is idempotent and limited to two workers.
+			a.backfillMissingThumbnails(a.items)
 			if err != nil {
 				a.showToast(err.Error())
 			}
@@ -571,24 +595,46 @@ func (a *App) refreshAll() {
 }
 
 func (a *App) pluginRows(list []core.InstalledPlugin) []installedPluginRow {
-	rows := make([]installedPluginRow, 0, len(list)+5)
-	for _, p := range list {
-		rows = append(rows, installedPluginRow{ID: p.ID, Name: p.Name, Version: p.Version, Enabled: p.Enabled})
-	}
-	for _, p := range []struct{ id, name string }{
-		{"builtin.prompt-metadata", "Prompt Metadata"},
-		{"builtin.audio-player", "Audio Player"},
-		{"builtin.markdown-preview", "Markdown Preview"},
-		{"builtin.psd-preview", "PSD Preview"},
-	} {
-		rows = append(rows, installedPluginRow{ID: p.id, Name: p.name, Version: "1.0.0", Enabled: true, Native: "builtin"})
-	}
+	rows := make([]installedPluginRow, 0, len(list)+6)
+	seen := map[string]bool{}
 	if a.pluginHost != nil {
 		for _, p := range a.pluginHost.Plugins() {
-			rows = append(rows, installedPluginRow{ID: p.Manifest.ID, Name: p.Manifest.Name, Version: p.Manifest.Version, Enabled: p.Enabled})
+			seen[p.Manifest.ID] = true
+			rows = append(rows, installedPluginRow{
+				ID:           p.Manifest.ID,
+				Name:         p.Manifest.Name,
+				Version:      p.Manifest.Version,
+				Kind:         p.Manifest.Kind,
+				Enabled:      p.Enabled,
+				Native:       p.Manifest.Native,
+				Builtin:      p.Manifest.Builtin,
+				Hosted:       true,
+				CanUninstall: a.pluginHost.CanUninstall(p.Manifest.ID),
+			})
 		}
 	}
+	// Legacy WebView plugins installed through the old marketplace are still
+	// listed so users can see and disable them while they migrate.
+	for _, p := range list {
+		if seen[p.ID] {
+			continue
+		}
+		rows = append(rows, installedPluginRow{ID: p.ID, Name: p.Name, Version: p.Version, Kind: p.Kind, Enabled: p.Enabled, CanUninstall: true})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Builtin != rows[j].Builtin {
+			return rows[i].Builtin
+		}
+		return rows[i].ID < rows[j].ID
+	})
 	return rows
+}
+
+// nativeFeature reports whether the enabled official plugin that owns a native
+// renderer exists. Disabling a built-in plugin therefore really removes its
+// preview/metadata surface instead of only changing a badge.
+func (a *App) nativeFeature(id string) bool {
+	return a.pluginHost == nil || a.pluginHost.IsEnabled(id)
 }
 
 func (a *App) showToast(message string) {
@@ -1065,7 +1111,9 @@ func (a *App) loadPrefs() {
 	if err != nil {
 		return
 	}
-	var p Prefs
+	// Start from defaults so newly added fields (such as recordImportUrl) keep
+	// their intended default when older native-ui.json files lack them.
+	p := defaultPrefs()
 	if err := json.Unmarshal(data, &p); err != nil {
 		return
 	}
@@ -1109,8 +1157,16 @@ func (a *App) HandleDrop(paths []string) {
 	if a.svc == nil || len(paths) == 0 {
 		return
 	}
+	urls, files := splitDroppedPaths(paths)
 	folder := a.dropFolderID
 	a.dropFolderID = ""
+	if len(urls) > 0 {
+		a.handleURLDropsToFolder(urls, folder)
+	}
+	if len(files) == 0 {
+		return
+	}
+	paths = files
 	go func() {
 		var (
 			result core.NativeDropResult

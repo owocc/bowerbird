@@ -1,0 +1,34 @@
+{
+  "id": "official.audio-player",
+  "name": "Audio Player",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "kind": "preview",
+  "native": "audio",
+  "description": "Native audio playback with spectrum bars, scrubber and technical metadata.",
+  "author": "Bowerbird Team",
+  "license": "MIT",
+  "priority": 60,
+  "extensions": [
+    "mp3",
+    "wav",
+    "ogg",
+    "flac",
+    "m4a",
+    "aac",
+    "webm"
+  ],
+  "mimePrefixes": [
+    "audio/"
+  ],
+  "supportsZoom": false,
+  "capabilities": [
+    "preview"
+  ],
+  "builtin": true,
+  "permissions": {
+    "network": [],
+    "process": []
+  },
+  "settings": []
+}

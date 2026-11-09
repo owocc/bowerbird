@@ -143,14 +143,19 @@ func (p *Player) Volume() float64 {
 	return p.volume
 }
 
-// Close releases the decoder and file.
+// Close stops the stream and releases the file. It is safe to call twice.
 func (p *Player) Close() error {
 	if p == nil {
 		return nil
 	}
-	p.Stop()
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.stream != nil {
+		p.stream.Stop()
+		p.stream.Close()
+		p.stream = nil
+	}
+	p.playing = false
 	if p.file != nil {
 		err := p.file.Close()
 		p.file = nil

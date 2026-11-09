@@ -1,42 +1,45 @@
 ---
-title: 快速起步 (Getting Started)
-description: 准备开发环境并安装官方 Bowerbird Plugin SDK。
+title: 快速开始
+description: 使用 @bowerbird/plugin-sdk 编写免构建的原生渲染插件。
 sidebar:
   order: 1
 ---
 
-本教程将引导你完成 Bowerbird 插件开发的前提准备，并使用包管理器安装核心依赖。
+Bowerbird 桌面端由 **mygo/ui（Go + GPU）** 原生渲染，不再内嵌 WebView 或 React。插件不会绘制 DOM；它们返回纯 JSON，由宿主用原生视图呈现。
 
-## 1. 环境准备
-
-在开始编写插件前，请确保本地已具备：
-
-- **Node.js**: v18.0.0 或更高版本 (推荐 Node 20 LTS)
-- **包管理器**: `pnpm` (推荐), `npm`, 或 `yarn`
-- **Bowerbird 桌面客户端**: 已安装并运行于 macOS 或 Windows
-
-## 2. 安装官方 SDK
-
-在你的插件项目根目录下，将 `@bowerbird/plugin-sdk` 添加为开发依赖：
+## 安装 SDK
 
 <PackageManagers pkg="@bowerbird/plugin-sdk" />
 
-<Aside type="note">
-  由于宿主桌面应用运行时已内置了 `react`, `react-dom` 与 `@bowerbird/plugin-sdk`，在打包配置中需要将它们列入外部依赖（external），以保证插件产物极致精简（通常小于 20KB）。
-</Aside>
+SDK 主要提供 TypeScript 类型与少量纯函数，没有 React/运行时依赖，也不需要打包器。
 
-## 3. 项目基本结构
-
-标准的 Bowerbird 插件工程遵循以下目录结构：
+## 创建插件目录
 
 ```text
-my-custom-preview/
-├── manifest.json        # 核心插件元数据声明
-├── package.json         # 项目依赖与构建脚本
-├── tsconfig.json        # TypeScript 编译配置
-├── vite.config.ts       # ESM 格式打包配置
-└── src/
-    └── index.tsx        # 插件入口代码与组件
+my-plugin/
+├── plugin.json
+└── index.js
 ```
 
-接下来，请前往 [开发第一个插件](/plugin-sdk/quickstart) 开始编写组件代码。
+`plugin.json` 声明能力；`index.js` 只编写逻辑钩子（可选）：
+
+```json
+{
+  "id": "com.example.inspector",
+  "name": "Example Inspector",
+  "version": "2.0.0",
+  "kind": "metadata",
+  "main": "index.js",
+  "hooks": ["inspect"]
+}
+```
+
+```js
+export function inspect({ item }) {
+  return {
+    sections: [{ title: "Example", rows: [{ label: "Extension", value: item.extension }] }],
+  };
+}
+```
+
+原生预览插件则声明 `"native": "markdown"` 等宿主渲染器，可以完全省略 `main`。下一步请阅读 [开发第一个插件](/plugin-sdk/quickstart)。

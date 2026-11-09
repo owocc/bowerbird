@@ -1,54 +1,32 @@
-import type { PluginKind } from "./types";
-
-/**
- * Manifest schema for remote Bowerbird plugins.
- */
-export interface PluginManifest {
-  /** Unique reverse-domain or namespaced plugin id (e.g. "official.markdown-preview") */
-  id: string;
-  /** Human-readable display name */
-  name: string;
-  /** Semantic version string (e.g. "1.0.0") */
-  version: string;
-  /** Concise description of plugin functionality */
-  description: string;
-  /** Author or publisher name */
-  author: string;
-  /** Capability kind: "preview" or "metadata" */
-  kind: PluginKind;
-  /** Evaluation priority (1-85) */
-  priority: number;
-  /** List of lowercase file extensions supported (without dot, e.g. ["md", "markdown"]) */
-  extensions: string[];
-  /** Optional MIME prefixes or types (e.g. ["text/markdown", "audio/"]) */
-  mimePrefixes?: string[];
-  /** Whether the plugin Viewport supports zooming and zoom controls */
-  supportsZoom?: boolean;
-  /** Entrypoint JavaScript file relative to plugin folder (default: "index.js") */
-  main?: string;
-  /** Optional stylesheet file relative to plugin folder (e.g. "style.css") */
-  style?: string;
-  /** Optional icon filename or URL */
-  icon?: string;
-  /** Optional homepage URL */
-  homepage?: string;
-  /** Optional source code repository URL */
-  repository?: string;
-  /** Optional software license (e.g. "MIT", "Apache-2.0") */
-  license?: string;
-}
+import type {
+  NativeRenderer,
+  PluginHookName,
+  PluginKind,
+  PluginManifest,
+  PluginPermissions,
+  PluginSetting,
+} from "./types";
 
 export interface ManifestValidationResult {
   valid: boolean;
   errors: string[];
 }
 
+const KINDS: PluginKind[] = ["preview", "metadata", "resolver", "action"];
+const HOOKS: PluginHookName[] = ["resolveUrl", "inspect", "actions", "runAction", "thumbnail"];
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === "string");
+}
+
 /**
- * Validates a plugin manifest object against the Bowerbird manifest schema.
+ * Validates a `plugin.json` object against the native plugin schema.
+ *
+ * This function is safe to use in tests and tooling. The desktop host performs
+ * the same validation in Go before a plugin is loaded.
  */
 export function validatePluginManifest(manifest: unknown): ManifestValidationResult {
   const errors: string[] = [];
-
   if (!manifest || typeof manifest !== "object") {
     return { valid: false, errors: ["Manifest must be a non-null object"] };
   }
@@ -58,68 +36,143 @@ export function validatePluginManifest(manifest: unknown): ManifestValidationRes
   if (typeof m.id !== "string" || !m.id.trim()) {
     errors.push("Missing or invalid 'id': must be a non-empty string");
   } else if (!/^[a-zA-Z0-9_\-.]+$/.test(m.id)) {
-    errors.push("Invalid 'id': only alphanumeric characters, dots, dashes, and underscores allowed");
+    errors.push("Invalid 'id': only alphanumeric characters, dots, dashes and underscores are allowed");
   }
-
   if (typeof m.name !== "string" || !m.name.trim()) {
     errors.push("Missing or invalid 'name': must be a non-empty string");
   }
-
   if (typeof m.version !== "string" || !m.version.trim()) {
     errors.push("Missing or invalid 'version': must be a non-empty semver string");
   }
-
-  if (typeof m.description !== "string") {
-    errors.push("Missing or invalid 'description': must be a string");
+  if (m.kind !== undefined && !KINDS.includes(m.kind as PluginKind)) {
+    errors.push(`Invalid 'kind': expected one of ${KINDS.join(", ")}`);
   }
 
-  if (typeof m.author !== "string" || !m.author.trim()) {
-    errors.push("Missing or invalid 'author': must be a non-empty string");
+  const native = m.native ?? (m.preview && (m.preview as Record<string, unknown>).renderer);
+  if (native !== undefined && (typeof native !== "string" || !native.trim())) {
+    errors.push("Invalid 'native': must be a non-empty renderer id");
+  }
+  if (m.main !== undefined && (typeof m.main !== "string" || !m.main.trim())) {
+    errors.push("If specified, 'main' must be a non-empty string");
+  }
+  if (m.main === undefined && native === undefined) {
+    errors.push("A plugin must declare either 'main' (JS hooks) or 'native' (host renderer)");
   }
 
-  if (m.kind !== "preview" && m.kind !== "metadata") {
-    errors.push("Invalid 'kind': must be 'preview' or 'metadata'");
+  if (m.extensions !== undefined && !isStringArray(m.extensions)) {
+    errors.push("If specified, 'extensions' must be an array of strings");
   }
-
-  if (typeof m.priority !== "number" || isNaN(m.priority) || m.priority < 0 || m.priority > 100) {
-    errors.push("Invalid 'priority': must be a number between 0 and 100");
+  if (m.mimePrefixes !== undefined && !isStringArray(m.mimePrefixes)) {
+    errors.push("If specified, 'mimePrefixes' must be an array of strings");
   }
-
-  if (!Array.isArray(m.extensions)) {
-    errors.push("Missing or invalid 'extensions': must be an array of strings");
-  } else if (m.extensions.some((ext) => typeof ext !== "string")) {
-    errors.push("All elements of 'extensions' must be strings");
+  if (m.urlHosts !== undefined && !isStringArray(m.urlHosts)) {
+    errors.push("If specified, 'urlHosts' must be an array of strings");
   }
-
-  if (m.mimePrefixes !== undefined) {
-    if (!Array.isArray(m.mimePrefixes) || m.mimePrefixes.some((p) => typeof p !== "string")) {
-      errors.push("If specified, 'mimePrefixes' must be an array of strings");
+  if (m.urlPatterns !== undefined) {
+    if (!isStringArray(m.urlPatterns)) {
+      errors.push("If specified, 'urlPatterns' must be an array of strings");
+    } else {
+      for (const pattern of m.urlPatterns) {
+        try {
+          new RegExp(pattern);
+        } catch {
+          errors.push(`Invalid regular expression in 'urlPatterns': ${pattern}`);
+        }
+      }
+    }
+  }
+  if (m.hooks !== undefined) {
+    if (!isStringArray(m.hooks)) {
+      errors.push("If specified, 'hooks' must be an array of strings");
+    } else {
+      for (const hook of m.hooks) {
+        if (!HOOKS.includes(hook as PluginHookName)) {
+          errors.push(`Unknown hook '${hook}'`);
+        }
+      }
+    }
+  }
+  if (typeof m.main === "string" && m.main.trim() && (!Array.isArray(m.hooks) || m.hooks.length === 0)) {
+    errors.push("JavaScript plugins must declare the hooks they export in 'hooks'");
+  }
+  if (m.permissions !== undefined) {
+    const permissions = m.permissions as Record<string, unknown>;
+    if (permissions.network !== undefined && !isStringArray(permissions.network)) {
+      errors.push("'permissions.network' must be an array of strings");
+    }
+    if (permissions.process !== undefined && !isStringArray(permissions.process)) {
+      errors.push("'permissions.process' must be an array of strings");
+    }
+    if (permissions.openExternal !== undefined && typeof permissions.openExternal !== "boolean") {
+      errors.push("'permissions.openExternal' must be a boolean");
+    }
+    if (Array.isArray(permissions.network)) {
+      for (const host of permissions.network) {
+        if (typeof host !== "string" || !host.trim() || host === "*" || host.includes("://") || /[\\/]/.test(host)) {
+          errors.push(`Invalid network permission host: ${String(host)}`);
+        }
+      }
+    }
+    if (Array.isArray(permissions.process)) {
+      for (const command of permissions.process) {
+        if (typeof command !== "string" || !command.trim() || command === "*") {
+          errors.push(`Invalid process permission: ${String(command)}`);
+        }
+      }
     }
   }
 
-  if (m.main !== undefined && typeof m.main !== "string") {
-    errors.push("If specified, 'main' must be a string");
+  if (m.priority !== undefined && (typeof m.priority !== "number" || Number.isNaN(m.priority))) {
+    errors.push("If specified, 'priority' must be a number");
+  }
+  if (m.settings !== undefined && !Array.isArray(m.settings)) {
+    errors.push("If specified, 'settings' must be an array");
   }
 
-  if (m.style !== undefined && typeof m.style !== "string") {
-    errors.push("If specified, 'style' must be a string");
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-  };
+  return { valid: errors.length === 0, errors };
 }
 
-/**
- * Normalizes and sets defaults for a PluginManifest.
- */
+function normalizeList(values?: string[], lower = false): string[] {
+  if (!values) return [];
+  return values
+    .map((value) => {
+      let v = String(value).trim();
+      if (lower) v = v.replace(/^\./, "").toLowerCase();
+      return v;
+    })
+    .filter(Boolean);
+}
+
+/** Applies runtime defaults without changing hook implementations. */
 export function normalizePluginManifest(manifest: PluginManifest): PluginManifest {
-  return {
+  const preview = manifest.preview;
+  const normalized: PluginManifest = {
     ...manifest,
-    main: manifest.main || "index.js",
-    extensions: (manifest.extensions || []).map((ext) => ext.toLowerCase().replace(/^\./, "")),
-    mimePrefixes: (manifest.mimePrefixes || []).map((m) => m.toLowerCase()),
-    supportsZoom: manifest.supportsZoom ?? false,
+    kind: manifest.kind ?? (manifest.native || preview ? "preview" : "metadata"),
+    native: manifest.native ?? preview?.renderer,
+    extensions: normalizeList(manifest.extensions ?? preview?.extensions, true),
+    mimePrefixes: normalizeList(manifest.mimePrefixes ?? preview?.mimePrefixes).map((v) => v.toLowerCase()),
+    urlHosts: normalizeList(manifest.urlHosts).map((v) => v.toLowerCase()),
+    urlPatterns: normalizeList(manifest.urlPatterns),
+    priority: manifest.priority ?? preview?.priority ?? 50,
+    supportsZoom: manifest.supportsZoom ?? preview?.supportsZoom ?? false,
+    permissions: {
+      network: normalizeList(manifest.permissions?.network),
+      process: normalizeList(manifest.permissions?.process),
+      openExternal: manifest.permissions?.openExternal ?? false,
+    } satisfies PluginPermissions,
+    settings: (manifest.settings ?? []) as PluginSetting[],
+    hooks: normalizeList(manifest.hooks) as PluginHookName[],
   };
+  if (!normalized.main && normalized.native) {
+    delete normalized.main;
+  } else if (!normalized.main) {
+    normalized.main = "index.js";
+  }
+  return normalized;
+}
+
+/** Convenience helper for tooling that wants a normalized renderer id. */
+export function nativeRenderer(manifest: PluginManifest): NativeRenderer | undefined {
+  return manifest.native ?? manifest.preview?.renderer;
 }

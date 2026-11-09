@@ -1,11 +1,161 @@
-import type React from "react";
+/**
+ * Bowerbird native plugin SDK.
+ *
+ * A plugin is a single JavaScript/TypeScript module loaded by the desktop host.
+ * It never renders DOM or React: it returns plain data, and the host paints the
+ * result with `mygo/ui` (Go + GPU). This keeps plugins portable, sandboxable and
+ * consistent with the rest of the native application.
+ */
 
+/** Capability group advertised by a plugin. */
+export type PluginKind = "preview" | "metadata" | "resolver" | "action";
+
+/**
+ * Identifier of a renderer implemented by the native host.
+ *
+ * Plugins cannot draw their own UI. Instead they declare which native renderer
+ * should handle a file, and the host maps that id to its built-in `mygo/ui`
+ * view (markdown, audio, psd, image, video, ...).
+ */
+export type NativeRenderer =
+  | "markdown"
+  | "audio"
+  | "video"
+  | "image"
+  | "psd"
+  | "prompt"
+  | (string & {});
+
+/** Capabilities a plugin may request from the host sandbox. */
+export interface PluginPermissions {
+  /**
+   * Hostname allow-list for `host.fetch`. Exact hosts and `*.example.com`
+   * wildcards are supported. Empty means no network access.
+   */
+  network?: string[];
+  /**
+   * Executables the plugin may run through `host.spawn`. Every process launch
+   * also needs an explicit user grant in the settings window.
+   */
+  process?: string[];
+  /** Whether `host.platformOpen(url)` is available. Defaults to false. */
+  openExternal?: boolean;
+}
+
+/** One editable row rendered in the plugin settings card. */
+export interface PluginSetting {
+  key: string;
+  label: string;
+  help?: string;
+  /** Optional placeholder for the native text field. */
+  placeholder?: string;
+  /** Optional default value. */
+  default?: string;
+  /** Treat the value as a secret in the settings UI. */
+  secret?: boolean;
+}
+
+/** Fields contributed by a preview plugin. */
+export interface PreviewContribution {
+  /** Native renderer used by the host, e.g. "markdown" or "audio". */
+  renderer: NativeRenderer;
+  /** Lowercase extensions without a leading dot. */
+  extensions?: string[];
+  /** MIME prefixes/types, e.g. "text/markdown" or "audio/". */
+  mimePrefixes?: string[];
+  /** Let the host show zoom controls and route pinch/scroll gestures. */
+  supportsZoom?: boolean;
+  /** Higher priority wins when several plugins match the same item. */
+  priority?: number;
+}
+
+/**
+ * `plugin.json` schema. Only `id`, `name` and `version` are mandatory; native
+ * plugins may omit `main` when all of their behaviour is declared through the
+ * host renderer.
+ */
+export interface PluginManifest {
+  /** Unique namespaced id, e.g. "official.markdown-preview". */
+  id: string;
+  name: string;
+  version: string;
+  minAppVersion?: string;
+  description?: string;
+  author?: string;
+  license?: string;
+  homepage?: string;
+  repository?: string;
+
+  /** Primary capability group. Defaults to "preview" for preview plugins. */
+  kind?: PluginKind;
+  /** Native renderer id for preview plugins. */
+  native?: NativeRenderer;
+  /** Optional declarative preview contribution (alias of `native` + lists). */
+  preview?: PreviewContribution;
+
+  /** Lowercase extensions without a leading dot. */
+  extensions?: string[];
+  /** MIME prefixes or complete types. */
+  mimePrefixes?: string[];
+  /** Evaluation priority; higher wins. Custom plugins normally use 1–85. */
+  priority?: number;
+  /** Whether the native preview supports zoom. */
+  supportsZoom?: boolean;
+
+  /** Entry module relative to the plugin folder. Optional for native-only plugins. */
+  main?: string;
+  /** Optional icon name from the host icon set. */
+  icon?: string;
+  iconName?: string;
+  /** Optional i18n keys. */
+  nameKey?: string;
+  descriptionKey?: string;
+
+  permissions?: PluginPermissions;
+  settings?: PluginSetting[];
+
+  /** Hooks implemented by `main`. Purely informational for native plugins. */
+  hooks?: PluginHookName[];
+  /** Capability labels shown in the marketplace/settings. */
+  capabilities?: string[];
+  /** Hostnames this resolver owns; supports exact names and `*.example.com`. */
+  urlHosts?: string[];
+  /**
+   * Regular expressions matched against normalized URLs. Hosts are indexed
+   * first, so regexes only run for plugins whose host can match.
+   */
+  urlPatterns?: string[];
+
+  /** Marketplace metadata (optional, ignored by the runtime). */
+  category?: string;
+  subCategory?: string;
+  featured?: boolean;
+  downloadsCount?: number;
+  rating?: number;
+  longDescription?: string;
+  changelog?: Array<{ version: string; date: string; notes: string[] }>;
+  /** Marks an official plugin bundled with the desktop app. */
+  builtin?: boolean;
+}
+
+export type PluginHookName =
+  | "resolveUrl"
+  | "inspect"
+  | "actions"
+  | "runAction"
+  | "thumbnail";
+
+/** Extended media metadata extracted by the core scanner. */
 export interface PluginItemMeta {
   colorModel?: string;
   colorSpace?: string;
   hasAlpha?: boolean;
   aspectRatio?: string;
-  shape?: "landscape" | "portrait" | "square" | string;
+  orientation?: "landscape" | "portrait" | "square" | string;
+  bitDepth?: number;
+  animated?: boolean;
+  exifMake?: string;
+  exifModel?: string;
   exifDate?: string;
   megapixels?: string;
   duration?: number;
@@ -15,326 +165,205 @@ export interface PluginItemMeta {
   [key: string]: unknown;
 }
 
-/**
- * Normalized asset item representation provided to Bowerbird plugins.
- */
+/** Normalized asset item passed to every hook. */
 export interface PluginItem {
   id: string;
-  /** Content hash (SHA-256) */
-  hex: string;
-  /** Display name of the item */
   name: string;
-  /** Lowercase file extension without dot */
-  extension: string;
-  /** Stored filename on disk */
   filename: string;
-  /** File size in bytes */
-  size: number;
-  /** Detected MIME type */
+  extension: string;
   mimeType: string;
-  /** Intrinsic media width in pixels, if known */
+  size: number;
   width: number;
-  /** Intrinsic media height in pixels, if known */
   height: number;
-  /** Whether a cached thumbnail is available */
-  hasThumbnail: boolean;
-  /** Hex dominant color code (e.g. #3b82f6) */
-  dominantColor: string;
-  /** Extracted color palette */
-  palette: string[] | null;
-  /** Extended media metadata */
+  hasThumbnail?: boolean;
+  dominantColor?: string;
+  palette?: string[] | null;
   meta?: PluginItemMeta | null;
-  /** User-provided note / remarks */
-  note: string;
-  /** Source or origin URL */
-  url: string;
-  /** Rating score (0-5) */
-  rating: number;
-  /** Generative AI prompt or descriptive text */
-  prompt: string;
-  /** Assigned tag labels */
-  tags: string[] | null;
-  /** Associated folder IDs */
-  folders: string[] | null;
-  /** Whether the item is in the trash bin */
-  inTrash: boolean;
-  /** Trashed timestamp in milliseconds */
-  trashedAt: number;
-  /** Created timestamp in milliseconds */
-  createdAt: number;
-  /** Imported timestamp in milliseconds */
-  importedAt: number;
-  /** Updated timestamp in milliseconds */
-  updatedAt: number;
-  /** Relative or local disk path of item directory */
-  itemPath: string;
-  /** Absolute local filesystem path to the original asset */
-  filePath: string;
-  /** Shell-escaped path for CLI usage */
-  shellPath: string;
-  /** RFC file:// URI */
-  fileUrl: string;
-  /** HTTP stream URL */
-  originalUrl: string;
-  /** HTTP thumbnail URL */
-  thumbnailUrl: string;
-  /** HTTP download URL for OS drag-out or save */
-  downloadUrl: string;
-  [key: string]: unknown;
-}
-
-export interface ItemDetailsPatch {
   note?: string;
   url?: string;
   rating?: number;
   prompt?: string;
-}
-
-export interface PreviewZoomController {
-  scale: number;
-  setScale: (newScale: number) => void;
-  actualSize: () => void;
-  zoomToFit: () => void;
-}
-
-export interface OriginalFileHandle {
-  /** HTTP streaming URL for Range/MSE/fetch requests */
-  url: string;
-  /** Physical local filesystem path */
+  tags?: string[] | null;
+  folders?: string[] | null;
   filePath: string;
-  /** RFC file:// URI */
-  fileUrl: string;
-  /** HTTP attachment download URL */
-  downloadUrl: string;
-  /** Detected MIME type */
-  mimeType: string;
-  /** Lowercase file extension without dot */
-  extension: string;
-  /** File size in bytes */
-  size: number;
-  /** Fetches the original file (or byte range) as a Blob */
-  fetchBlob: (rangeHeader?: string) => Promise<Blob>;
-  /** Fetches the original file (or byte range) as an ArrayBuffer */
-  fetchArrayBuffer: (rangeHeader?: string) => Promise<ArrayBuffer>;
-  /** Fetches the original file as text */
-  fetchText?: (rangeHeader?: string) => Promise<string>;
+  itemPath?: string;
+  fileUrl?: string;
+  originalUrl?: string;
+  thumbnailUrl?: string;
+  downloadUrl?: string;
+  createdAt?: number;
+  importedAt?: number;
+  updatedAt?: number;
+  /**
+   * UTF-8 content for small text files, supplied by the host when it asks for
+   * inspection metadata. Binary previews should use their native renderer.
+   */
+  content?: string;
+  [key: string]: unknown;
 }
 
-/** Options for fetching a remote URL through the desktop HTTP bridge. */
-export interface UrlFetchOptions {
-  headers?: Record<string, string>;
-  /** Maximum number of response bytes to return. Defaults to 4 MiB. */
-  maxBytes?: number;
-  /** Request timeout in milliseconds. Defaults to 20000. */
-  timeoutMs?: number;
+/** A folder exposed to context-menu hooks. */
+export interface PluginFolder {
+  id: string;
+  name: string;
+  parentId?: string;
+  itemCount?: number;
 }
 
-/** Raw text response returned by the host URL fetch bridge. */
-export interface UrlFetchResult {
-  /** Final URL after redirects */
+export type PluginActionTarget = "file" | "folder" | "general";
+
+/** Context shared by action hooks. */
+export interface PluginActionContext {
+  target?: PluginActionTarget;
+  item?: PluginItem;
+  items?: PluginItem[];
+  folder?: PluginFolder | null;
+}
+
+/** One context-menu action contributed by a plugin. */
+export interface PluginAction {
+  /** Stable id local to the plugin. The host prefixes it with the plugin id. */
+  id: string;
+  title: string;
+  /** Optional host icon name. */
+  icon?: string;
+  /** Optional extension filter. */
+  extensions?: string[];
+  /** Optional disabled flag. */
+  disabled?: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
+/* resolveUrl                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface ResolveUrlInput {
   url: string;
-  statusCode: number;
-  contentType: string;
-  body: string;
 }
 
-/**
- * Host capabilities available to plugin URL resolvers. The host performs the
- * actual network request (bypassing WebView CORS/mixed-content restrictions),
- * while the plugin owns all site-specific parsing.
- */
-export interface UrlResolveContext {
-  fetchText: (url: string, options?: UrlFetchOptions) => Promise<UrlFetchResult>;
-}
-
-/** Result returned by a plugin URL resolver. */
+/** Result of resolving a page/short link to direct media. */
 export interface PluginUrlResolution {
   /** Preferred direct media URL. */
   url?: string;
-  /** Additional media URLs to try in order when `url` is unavailable. */
+  /** More media URLs to try in order when `url` is unavailable. */
   candidates?: string[];
-  /** Page/source URL to store on the imported item. */
+  /** Page/source URL stored on the imported item. */
   sourceUrl?: string;
+  /** Suggested item name. */
   name?: string;
+  /** Tags applied on import. */
   tags?: string[];
 }
 
-/** Plugin-provided URL resolver (Pinterest, Twitter, Instagram, ...). */
-export type PluginUrlResolver = (
-  url: string,
-  context: UrlResolveContext
-) => Promise<PluginUrlResolution | null> | PluginUrlResolution | null;
+/* -------------------------------------------------------------------------- */
+/* inspect                                                                    */
+/* -------------------------------------------------------------------------- */
 
-export type ThemeMode = "dark" | "light";
-
-/**
- * Host capabilities exposed to every PreviewPlugin in Viewport, InspectorPreview, and InspectorExtension.
- */
-export interface PreviewPluginHostAPI<TItem = PluginItem> {
-  /** Returns structured access to the original physical file and HTTP stream */
-  getOriginalFile: () => OriginalFileHandle;
-  /** Returns the current cover/thumbnail URL if available */
-  getCoverUrl: () => string | undefined;
-  /**
-   * Saves a base64-encoded image as the item's cover thumbnail
-   * and triggers backend dominant color and palette extraction.
-   */
-  saveCoverThumbnail: (
-    base64Image: string,
-    options?: { width?: number; height?: number; force?: boolean }
-  ) => Promise<TItem | null>;
-  /** Opens the original file with the OS default application */
-  openWithDefaultApp: () => Promise<void>;
-  /** Reveals the original file in macOS Finder / Windows Explorer */
-  revealInFinder: () => Promise<void>;
-  /** Opens an external HTTP/HTTPS URL in the OS default browser */
-  openExternalURL: (url: string) => Promise<void>;
-  /** Persists user-editable metadata fields (note, url, rating, prompt) */
-  updateItemDetails: (patch: ItemDetailsPatch) => Promise<TItem | null>;
-  /** Notifies the host workspace to refresh item state */
-  onItemUpdated?: (updated: TItem) => void;
-  /** Returns current resolved theme mode ("dark" or "light") */
-  getTheme?: () => ThemeMode;
-  /** Subscribes to theme changes, returning an unsubscribe callback */
-  subscribeTheme?: (callback: (theme: ThemeMode) => void) => () => void;
-}
-
-export interface PreviewViewportProps<TItem = PluginItem> {
-  item: TItem;
-  mode: "inline" | "full-window";
-  scale: number;
-  onScaleChange: (scale: number) => void;
-  controllerRef: { current: PreviewZoomController | null };
-  api: PreviewPluginHostAPI<TItem>;
-  theme?: ThemeMode;
-}
-
-export interface PreviewInspectorProps<TItem = PluginItem> {
-  item: TItem;
-  onOpenPreview?: () => void;
-  onDragStart?: (e: React.DragEvent) => void;
-  api: PreviewPluginHostAPI<TItem>;
-  theme?: ThemeMode;
-}
-
-export interface InspectorExtensionProps<TItem = PluginItem> {
-  item: TItem;
-  isTrashView?: boolean;
-  api: PreviewPluginHostAPI<TItem>;
-  theme?: ThemeMode;
-}
-export type ContextMenuTarget = "file" | "folder" | "general";
-
-export interface PluginContextMenuFolder {
-  id: string;
-  name: string;
-  itemCount?: number;
-  parentId?: string;
-}
-
-export interface PluginContextMenuContext<TItem = PluginItem> {
-  target: ContextMenuTarget;
-  items?: TItem[];
-  folder?: PluginContextMenuFolder | null;
-  position?: { x: number; y: number };
-  api: PreviewPluginHostAPI<TItem>;
-}
-
-export interface PluginContextMenuItem<TItem = PluginItem> {
-  id: string;
+export interface InspectRow {
   label: string;
-  labelKey?: string;
-  icon?: string;
-  target: ContextMenuTarget;
-  extensions?: string[];
-  disabled?: boolean | ((ctx: PluginContextMenuContext<TItem>) => boolean);
-  hidden?: boolean | ((ctx: PluginContextMenuContext<TItem>) => boolean);
-  onClick: (ctx: PluginContextMenuContext<TItem>) => void | Promise<void>;
+  value: string;
+  copyable?: boolean;
 }
 
-export type PluginKind = "preview" | "metadata";
+export interface InspectTextBlock {
+  title?: string;
+  text: string;
+}
+
+export interface InspectSection {
+  title: string;
+  rows?: InspectRow[];
+  textBlocks?: InspectTextBlock[];
+}
+
+export interface InspectResult {
+  sections: InspectSection[];
+}
+
+export interface InspectInput {
+  item: PluginItem;
+}
+
+/* -------------------------------------------------------------------------- */
+/* thumbnail                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export interface ThumbnailInput {
+  filePath: string;
+  mimeType: string;
+  /** Optional source item, when the host has one. */
+  item?: PluginItem;
+}
+
+export interface ThumbnailResult {
+  /** Absolute path to a generated image readable by the host. */
+  imagePath: string;
+  width?: number;
+  height?: number;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Host sandbox                                                               */
+/* -------------------------------------------------------------------------- */
+
+export interface HostFetchInit {
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  redirect?: "follow" | "error" | "manual";
+  signal?: AbortSignal;
+}
+
+export interface HostSettings {
+  /** Reads a value saved in the plugin settings card. */
+  get(key: string): string;
+  /** Convenience default. */
+  get(key: string, fallback: string): string;
+}
 
 /**
- * Cover thumbnail produced by a plugin for a format the host cannot decode natively
- * (PSD, AI, PDF, ...). `width` / `height` describe the ORIGINAL document dimensions,
- * not the size of the generated image — the host uses them to backfill item metadata.
+ * Capabilities injected as `globalThis.host`. Nothing else from Node is
+ * exposed: no filesystem, no unrestricted network and no unrestricted process
+ * execution.
  */
-export interface GeneratedCoverThumbnail {
-  /** data: URL of the generated image (image/jpeg or image/png) */
-  dataUrl: string;
-  /** Original document width in pixels */
-  width: number;
-  /** Original document height in pixels */
-  height: number;
+export interface PluginHost {
+  /** `fetch` restricted to `permissions.network`. */
+  fetch(input: string | URL, init?: HostFetchInit): Promise<Response>;
+  /** Plugin-scoped settings store. */
+  settings: HostSettings;
+  /** Runs an allow-listed executable and returns its stdout. */
+  spawn(command: string, args?: string[]): string;
+  /** Opens an HTTP(S) URL in the user's browser, when granted by the host. */
+  platformOpen?(url: string): void;
+  /**
+   * Writes a line to the unified Bowerbird plugin log. The host records the
+   * plugin id and hook alongside the message, so plugin logs appear in the
+   * native Logs window with every other diagnostic entry.
+   */
+  log(message: string, detail?: string): void;
+  log(level: PluginLogLevel, message: string, detail?: string): void;
 }
 
-/** Context passed to PreviewPlugin.generateCoverThumbnail. */
-export interface GenerateCoverThumbnailContext<TItem = PluginItem> {
-  item: TItem;
-  api: PreviewPluginHostAPI<TItem>;
+export type PluginLogLevel = "trace" | "debug" | "info" | "warn" | "error";
+
+/** Hook request/response shapes implemented by plugin modules. */
+export interface PluginHooks {
+  resolveUrl?(input: ResolveUrlInput): Promise<PluginUrlResolution | null> | PluginUrlResolution | null;
+  inspect?(input: InspectInput): Promise<InspectResult | null> | InspectResult | null;
+  actions?(input: PluginActionContext): Promise<PluginAction[]> | PluginAction[];
+  runAction?(input: PluginActionContext & { id: string }): Promise<unknown> | unknown;
+  thumbnail?(input: ThumbnailInput): Promise<ThumbnailResult | null> | ThumbnailResult | null;
 }
 
-export interface PreviewPlugin<TItem = PluginItem> {
-  /** Unique identifier of the plugin (e.g. "official.markdown-preview") */
-  id: string;
-  /** Plugin capability kind: "preview" (default) or "metadata" (inspector extension) */
-  kind?: PluginKind;
-  /** Human-readable name */
-  name: string;
-  /** Optional i18n translation key for the plugin name */
-  nameKey?: string;
-  /** Human-readable description of the plugin's capabilities */
-  description?: string;
-  /** Optional i18n translation key for the plugin description */
-  descriptionKey?: string;
-  /** Semantic version of the plugin (semver) */
-  version?: string;
-  /** Plugin author or organization */
-  author?: string;
-  /** Whether this is a built-in core plugin */
-  builtin?: boolean;
-  /**
-   * Whether this plugin can be disabled by the user.
-   * Defaults to true. Internal fallback plugins remain non-disableable.
-   */
-  canDisable?: boolean;
-  /** Whether this plugin should be hidden from the user-facing plugin list */
-  internal?: boolean;
-  /** Higher priority plugins are evaluated first (1-85 for custom plugins, fallback = 0) */
-  priority: number;
-  /** Supported lowercase file extensions without leading dot */
-  extensions?: string[];
-  /** Supported MIME type prefixes (e.g. "image/", "audio/", "text/markdown") */
-  mimePrefixes?: string[];
-  /** Optional custom predicate for matching an item */
-  match?: (item: TItem) => boolean;
-  /** Whether the main header should render ZoomControls for this plugin */
-  supportsZoom?: boolean;
-  /** Main viewport renderer (used by both inline and full-window QuickLook preview) */
-  Viewport?: React.ComponentType<PreviewViewportProps<TItem>>;
-  /** Borderless adaptive inspector preview renderer for the right detail panel */
-  InspectorPreview?: React.ComponentType<PreviewInspectorProps<TItem>>;
-  /** Optional inspector metadata extension panel rendered inside ItemDetailPanel when enabled */
-  InspectorExtension?: React.ComponentType<InspectorExtensionProps<TItem>>;
-  /** Registered context menu items for file, folder, and general canvas */
-  contextMenus?: PluginContextMenuItem<TItem>[];
-  /**
-   * Optional: generates a cover thumbnail for items this plugin supports but the host
-   * cannot decode natively. The host calls this in the background for items without a
-   * thumbnail, then persists the result via `api.saveCoverThumbnail`.
-   */
-  generateCoverThumbnail?: (
-    ctx: GenerateCoverThumbnailContext<TItem>
-  ) => Promise<GeneratedCoverThumbnail | null> | GeneratedCoverThumbnail | null;
-  /**
-   * Optional URL resolver. The host asks enabled plugins in priority order
-   * whether they recognize a pasted/dropped URL and can resolve it to a direct
-   * media URL (or a list of candidates). Site-specific parsing stays in plugins.
-   */
-  resolveUrl?: PluginUrlResolver;
-  /** Dynamic context menu item contributor */
-  getContextMenuItems?: (
-    target: ContextMenuTarget,
-    context: PluginContextMenuContext<TItem>
-  ) => PluginContextMenuItem<TItem>[];
+/**
+ * Optional authoring wrapper. It is purely a type helper: plugin files remain
+ * plain ES modules and can be loaded by the host without a bundler.
+ */
+export interface PluginDefinition extends PluginHooks {
+  manifest?: PluginManifest;
+}
+
+declare global {
+  // eslint-disable-next-line no-var
+  var host: PluginHost;
 }

@@ -1,42 +1,45 @@
 ---
 title: Getting Started
-description: Set up your environment and install the official Bowerbird Plugin SDK.
+description: Author zero-build, natively rendered plugins with @bowerbird/plugin-sdk.
 sidebar:
   order: 1
 ---
 
-This guide walks you through preparing your plugin project and installing core dependencies.
+Bowerbird's desktop UI is rendered natively by **mygo/ui (Go + GPU)**. There is no embedded WebView or React runtime. Plugins return plain JSON and the host paints it with native views.
 
-## 1. Prerequisites
-
-Before building a plugin, ensure you have:
-
-- **Node.js**: v18.0.0 or later (Node 20 LTS recommended)
-- **Package Manager**: `pnpm` (recommended), `npm`, or `yarn`
-- **Bowerbird Desktop App**: Installed and running on macOS or Windows
-
-## 2. Installing the SDK
-
-In your plugin directory, add `@bowerbird/plugin-sdk`:
+## Install the SDK
 
 <PackageManagers pkg="@bowerbird/plugin-sdk" />
 
-<Aside type="note">
-  Since the host desktop runtime provides `react`, `react-dom`, and `@bowerbird/plugin-sdk`, mark them as external in your bundler to keep plugin packages tiny (typically under 20KB).
-</Aside>
+The SDK is primarily TypeScript types plus a few pure helpers. It has no React or framework runtime and needs no bundler.
 
-## 3. Project Structure
-
-A standard plugin repository follows this layout:
+## Create a plugin
 
 ```text
-my-custom-preview/
-├── manifest.json        # Core plugin manifest specification
-├── package.json         # Dependencies and build scripts
-├── tsconfig.json        # TypeScript configuration
-├── vite.config.ts       # ESM bundler configuration
-└── src/
-    └── index.tsx        # Plugin entrypoint and components
+my-plugin/
+├── plugin.json
+└── index.js
 ```
 
-Continue to [Build Your First Plugin](/en/plugin-sdk/quickstart) to write your component code.
+`plugin.json` declares capabilities; `index.js` contains optional logic hooks:
+
+```json
+{
+  "id": "com.example.inspector",
+  "name": "Example Inspector",
+  "version": "2.0.0",
+  "kind": "metadata",
+  "main": "index.js",
+  "hooks": ["inspect"]
+}
+```
+
+```js
+export function inspect({ item }) {
+  return {
+    sections: [{ title: "Example", rows: [{ label: "Extension", value: item.extension }] }],
+  };
+}
+```
+
+Native preview plugins declare a host renderer such as `"native": "markdown"` and may omit `main` entirely. Continue with [Build your first plugin](/en/plugin-sdk/quickstart).

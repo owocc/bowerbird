@@ -1,44 +1,67 @@
 ---
-title: Manifest Specification (manifest.json)
-description: Detailed reference for plugin manifest schema and evaluation priority rules.
+title: Manifest (plugin.json)
+description: Fields and priority rules for the native plugin manifest.
 sidebar:
   order: 3
 ---
 
-Every Bowerbird plugin must provide a root `manifest.json`.
+Every plugin contains a `plugin.json`. The native host uses it for registration, extension matching, permissions and priority.
 
-## Example Manifest
+## Example
 
 ```json
 {
   "id": "official.markdown-preview",
   "name": "Markdown Preview",
-  "version": "1.0.0",
-  "description": "Rich Markdown preview with syntax highlighting and outline navigation",
+  "version": "2.0.0",
+  "description": "Native GitHub-flavored Markdown preview",
   "author": "Bowerbird Team",
   "kind": "preview",
+  "native": "markdown",
   "priority": 50,
-  "extensions": ["md", "markdown", "mdown", "mkd", "mdwn"],
-  "mimePrefixes": ["text/markdown", "text/x-markdown"],
-  "supportsZoom": false,
-  "main": "index.js",
+  "extensions": ["md", "markdown"],
+  "mimePrefixes": ["text/markdown"],
   "license": "MIT"
 }
 ```
 
-## Schema Reference
+## Fields
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `string` | Yes | Unique reverse-domain identifier (e.g. `com.example.my-plugin`) |
-| `name` | `string` | Yes | Display name of the plugin |
-| `version` | `string` | Yes | Semantic version string (SemVer, e.g. `1.0.0`) |
-| `description` | `string` | Yes | Concise capability summary |
-| `author` | `string` | Yes | Author or publisher name |
-| `kind` | `"preview"` \| `"metadata"` | Yes | Capability category: `preview` for main viewport, `metadata` for inspector extension |
-| `priority` | `number` | Yes | Matching priority (1~85, higher takes precedence) |
-| `extensions` | `string[]` | Yes | Supported lowercase file extensions without leading dot |
-| `mimePrefixes` | `string[]` | No | Matching MIME prefixes (e.g. `["audio/", "image/"]`) |
-| `supportsZoom` | `boolean` | No | Whether the main header renders standard zoom controls |
-| `main` | `string` | No | Entrypoint JavaScript bundle path (default: `"index.js"`) |
-| `license` | `string` | No | Software license (e.g. `"MIT"`, `"Apache-2.0"`) |
+| `id` | `string` | yes | Unique namespaced id (e.g. `com.example.my-plugin`) |
+| `name` | `string` | yes | Display name |
+| `version` | `string` | yes | SemVer version |
+| `kind` | `preview` \| `metadata` \| `resolver` \| `action` | no | Capability group; defaults to `preview` when `native` is set |
+| `native` | `string` | no | Host renderer id such as `markdown`, `audio`, `psd`, `prompt` |
+| `main` | `string` | no | Logic hook entry; native plugins may omit it |
+| `extensions` | `string[]` | no | Lowercase extensions without a dot |
+| `mimePrefixes` | `string[]` | no | MIME prefixes or complete types |
+| `urlHosts` | `string[]` | no | Resolver host index, supports `*.example.com` |
+| `urlPatterns` | `string[]` | no | Regex list matched after the host index hits |
+| `priority` | `number` | no | Match priority; higher wins |
+| `supportsZoom` | `boolean` | no | Route zoom controls to the native preview |
+| `permissions.network` | `string[]` | no | `fetch` host allow-list, supports `*.example.com` |
+| `permissions.process` | `string[]` | no | Executables allowed for `host.spawn` |
+| `permissions.openExternal` | `boolean` | no | Allow `host.platformOpen` for external links; defaults to `false` |
+| `settings` | `object[]` | no | Settings fields (`key`, `label`, `help`, `placeholder`, `default`, `secret`) |
+| `hooks` | `string[]` | no | Implemented hooks: `resolveUrl`, `inspect`, `actions`, `runAction`, `thumbnail` |
+
+The structured preview form is also supported:
+
+```json
+{
+  "kind": "preview",
+  "preview": {
+    "renderer": "audio",
+    "extensions": ["mp3", "flac"],
+    "mimePrefixes": ["audio/"],
+    "supportsZoom": false,
+    "priority": 60
+  }
+}
+```
+
+<Aside type="caution" title="Priority and fallback">
+  When several enabled plugins match a format, the highest `priority` wins. Disabled or failing plugins fall back to the native default view.
+</Aside>

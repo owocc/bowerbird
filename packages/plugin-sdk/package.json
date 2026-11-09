@@ -1,7 +1,7 @@
 {
   "name": "@bowerbird/plugin-sdk",
-  "version": "1.0.0-alpha-1",
-  "description": "SDK for authoring Bowerbird preview and metadata plugins",
+  "version": "2.1.0",
+  "description": "TypeScript SDK for zero-build, native-rendered Bowerbird plugins",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -31,25 +31,15 @@
     "bowerbird",
     "plugin",
     "sdk",
-    "preview",
-    "metadata"
+    "native",
+    "mygo"
   ],
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
     "prepublishOnly": "pnpm run build"
   },
-  "peerDependencies": {
-    "react": ">=18.0.0"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@types/react": "19.3.0",
-    "react": "19.3.0",
     "typescript": "^5.2.2"
   }
 }

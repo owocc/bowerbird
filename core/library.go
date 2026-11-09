@@ -2024,7 +2024,7 @@ func (m *LibraryManager) ImportFromURLWithOptions(rawURL string, opts ImportItem
 	if opts.Name == "" {
 		opts.Name = strings.TrimSuffix(finalFilename, filepath.Ext(finalFilename))
 	}
-	if opts.URL == "" {
+	if opts.URL == "" && !opts.SkipURL {
 		opts.URL = trimmed
 	}
 
@@ -2134,10 +2134,30 @@ func (m *LibraryManager) processImageThumbnail(mediaPath string, itemDir string,
 	return 0, 0, false, "", []string{}, nil
 }
 
-// SaveItemThumbnail decodes a base64-encoded image (e.g., extracted video cover or first frame from a preview plugin),
-// saves it as thumbnail.jpg, runs perceptual color palette & metadata extraction, updates SQLite and metadata.json,
-// and returns the updated Item.
+// SaveItemThumbnail decodes a base64-encoded image (e.g. extracted video cover
+// or first frame from a preview plugin), then saves it through
+// SaveItemThumbnailImage.
 func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, videoWidth int, videoHeight int) (*Item, error) {
+	pureData := strings.TrimSpace(base64Data)
+	if idx := strings.Index(pureData, ","); idx != -1 {
+		pureData = pureData[idx+1:]
+	}
+	rawBytes, err := base64.StdEncoding.DecodeString(pureData)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base64 image data: %w", err)
+	}
+	img, _, err := image.Decode(bytes.NewReader(rawBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode thumbnail image: %w", err)
+	}
+	return m.SaveItemThumbnailImage(itemID, img, videoWidth, videoHeight)
+}
+
+// SaveItemThumbnailImage writes an already-decoded cover image, extracts the
+// dominant palette, updates SQLite/metadata.json and emits the usual item
+// upsert event. Native lifecycle workers use this directly to avoid a base64
+// round trip.
+func (m *LibraryManager) SaveItemThumbnailImage(itemID string, img image.Image, videoWidth int, videoHeight int) (*Item, error) {
 	m.mu.RLock()
 	active := m.activeLib
 	db := m.db
@@ -2147,24 +2167,13 @@ func (m *LibraryManager) SaveItemThumbnail(itemID string, base64Data string, vid
 	if active == nil || db == nil {
 		return nil, errors.New("no active library")
 	}
+	if img == nil {
+		return nil, errors.New("no thumbnail image")
+	}
 
 	item, err := m.GetItem(itemID)
 	if err != nil || item == nil {
 		return nil, errors.New("item not found")
-	}
-
-	pureData := strings.TrimSpace(base64Data)
-	if idx := strings.Index(pureData, ","); idx != -1 {
-		pureData = pureData[idx+1:]
-	}
-	rawBytes, err := base64.StdEncoding.DecodeString(pureData)
-	if err != nil {
-		return nil, fmt.Errorf("invalid base64 image data: %w", err)
-	}
-
-	img, _, err := image.Decode(bytes.NewReader(rawBytes))
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode thumbnail image: %w", err)
 	}
 
 	itemDir := filepath.Join(active.Path, "items", item.ID)

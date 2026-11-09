@@ -1,48 +1,67 @@
 ---
-title: 插件清单规范 (manifest.json)
-description: 详细了解 manifest.json 清单各字段规范与优先级规则。
+title: 插件清单规范 (plugin.json)
+description: 新版原生插件 plugin.json 的字段与优先级规则。
 sidebar:
   order: 3
 ---
 
-每个 Bowerbird 插件根目录下必须包含一个标准 `manifest.json` 文件。宿主应用根据清单进行静态注册、扩展名关联与优先级排序。
+每个插件根目录包含一个 `plugin.json`。原生宿主用它做静态注册、扩展名关联、权限检查与优先级排序。
 
-## 示例清单文件
+## 示例
 
 ```json
 {
   "id": "official.markdown-preview",
   "name": "Markdown Preview",
-  "version": "1.0.0",
-  "description": "Rich Markdown preview with syntax highlighting and outline navigation",
+  "version": "2.0.0",
+  "description": "Native GitHub-flavored Markdown preview",
   "author": "Bowerbird Team",
   "kind": "preview",
+  "native": "markdown",
   "priority": 50,
-  "extensions": ["md", "markdown", "mdown", "mkd", "mdwn"],
-  "mimePrefixes": ["text/markdown", "text/x-markdown"],
-  "supportsZoom": false,
-  "main": "index.js",
+  "extensions": ["md", "markdown"],
+  "mimePrefixes": ["text/markdown"],
   "license": "MIT"
 }
 ```
 
-## 字段规范参考
+## 字段
 
-| 字段名 | 类型 | 必填 | 描述 |
+| 字段 | 类型 | 必填 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `id` | `string` | 是 | 唯一反向域名命名空间标识符（如 `com.example.my-plugin`） |
-| `name` | `string` | 是 | 插件显示名称 |
-| `version` | `string` | 是 | 语义化版本号（遵循 SemVer 规范，如 `1.0.0`） |
-| `description` | `string` | 是 | 简要功能说明 |
-| `author` | `string` | 是 | 开发者或组织机构名称 |
-| `kind` | `"preview"` \| `"metadata"` | 是 | 插件类型：`preview` 为主视口预览，`metadata` 为右侧属性检视器扩展 |
-| `priority` | `number` | 是 | 评估优先级（数值越大越优先评估，核心插件一般为 50~85） |
-| `extensions` | `string[]` | 是 | 支持的小写文件扩展名数组（不包含前导点，如 `["md", "markdown"]`） |
-| `mimePrefixes` | `string[]` | 否 | 支持的 MIME 类型前缀（如 `["audio/", "image/"]`） |
-| `supportsZoom` | `boolean` | 否 | 是否在主顶部工具栏呈现标准缩放控件（默认 `false`） |
-| `main` | `string` | 否 | 入口脚本产物相对路径（默认 `"index.js"`） |
-| `license` | `string` | 否 | 开源软件许可证（如 `"MIT"`, `"Apache-2.0"`） |
+| `id` | `string` | 是 | 唯一命名空间标识符（如 `com.example.my-plugin`） |
+| `name` | `string` | 是 | 显示名称 |
+| `version` | `string` | 是 | SemVer 版本号 |
+| `kind` | `preview` \| `metadata` \| `resolver` \| `action` | 否 | 能力类型；声明 `native` 时默认 `preview` |
+| `native` | `string` | 否 | 宿主原生渲染器 id，如 `markdown`、`audio`、`psd`、`prompt` |
+| `main` | `string` | 否 | 逻辑钩子入口；原生插件可省略 |
+| `extensions` | `string[]` | 否 | 小写扩展名（不含点） |
+| `mimePrefixes` | `string[]` | 否 | MIME 前缀或完整类型 |
+| `urlHosts` | `string[]` | 否 | resolver 拥有的域名，支持 `*.example.com` 索引 |
+| `urlPatterns` | `string[]` | 否 | 规范化 URL 的正则列表，仅在域名命中后执行 |
+| `priority` | `number` | 否 | 匹配优先级，越大越优先 |
+| `supportsZoom` | `boolean` | 否 | 是否使用宿主缩放控件 |
+| `permissions.network` | `string[]` | 否 | `fetch` 域名白名单，支持 `*.example.com` |
+| `permissions.process` | `string[]` | 否 | `host.spawn` 可执行文件白名单 |
+| `permissions.openExternal` | `boolean` | 否 | 是否允许 `host.platformOpen` 打开外部链接，默认 `false` |
+| `settings` | `object[]` | 否 | 设置页文本字段（`key`、`label`、`help`、`placeholder`、`default`、`secret`） |
+| `hooks` | `string[]` | 否 | 实现的钩子：`resolveUrl`、`inspect`、`actions`、`runAction`、`thumbnail` |
 
-<Aside type="caution" title="优先级评估规则">
-  当某格式被多个插件声明时，宿主将优先匹配 `priority` 最高且启用的插件。若最高优先级插件抛出异常，宿主将平滑降级调用下一优先级或原生基础组件。
+也可以使用结构化形式声明预览能力：
+
+```json
+{
+  "kind": "preview",
+  "preview": {
+    "renderer": "audio",
+    "extensions": ["mp3", "flac"],
+    "mimePrefixes": ["audio/"],
+    "supportsZoom": false,
+    "priority": 60
+  }
+}
+```
+
+<Aside type="caution" title="优先级与降级">
+  同一格式被多个插件声明时，宿主选择已启用且 `priority` 最高的插件。插件被禁用或调用失败时，原生兜底视图继续工作。
 </Aside>

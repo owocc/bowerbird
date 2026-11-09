@@ -1,107 +1,80 @@
-import type { OriginalFileHandle, PluginItem, PreviewPlugin } from "./types";
+import type {
+  PluginDefinition,
+  PluginItem,
+  PluginLogLevel,
+  PluginManifest,
+} from "./types";
 
-/**
- * Type-safe helper to define a Bowerbird preview or metadata plugin.
- */
-export function definePlugin<TItem = PluginItem>(
-  plugin: PreviewPlugin<TItem>
-): PreviewPlugin<TItem> {
+/** Marks a plugin module for editor completion. It is a no-op at runtime. */
+export function definePlugin<T extends PluginDefinition>(plugin: T): T {
   return plugin;
 }
 
-/**
- * Formats a byte size into a human-readable string (e.g. "1.2 MB").
- */
-export function formatBytes(bytes: number, decimals: number = 1): string {
-  if (bytes === 0) return "0 B";
+/** Formats a byte size into a compact human-readable string. */
+export function formatBytes(bytes: number, decimals = 1): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
   const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  const safeI = Math.min(i, sizes.length - 1);
-  return `${parseFloat((bytes / Math.pow(k, safeI)).toFixed(dm))} ${sizes[safeI]}`;
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`;
 }
 
-/**
- * Extracts the filename from a file path or URL.
- */
+/** Returns the final path/URL segment. */
 export function getFilename(pathOrUrl: string): string {
-  const normalized = pathOrUrl.replace(/\\/g, "/");
-  const parts = normalized.split("/");
-  return parts[parts.length - 1] || "";
+  const normalized = String(pathOrUrl || "").replace(/\\/g, "/");
+  return normalized.split("/").pop() || "";
 }
 
-/**
- * Checks if a given item matches extension and MIME patterns.
- */
-export function matchesExtensionOrMime(
-  item: { extension?: string; mimeType?: string },
+/** Returns the lowercase extension without a leading dot. */
+export function extensionOf(item: Pick<PluginItem, "extension" | "filename">): string {
+  const fromItem = String(item.extension || "").replace(/^\./, "").toLowerCase();
+  if (fromItem) return fromItem;
+  const name = String(item.filename || "");
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+/** Checks an item against extension and MIME declarations. */
+export function matchesItem(
+  item: Pick<PluginItem, "extension" | "mimeType">,
   extensions?: string[],
   mimePrefixes?: string[]
 ): boolean {
-  const ext = (item.extension || "").toLowerCase().replace(/^\./, "");
-  const mime = (item.mimeType || "").toLowerCase();
+  const ext = String(item.extension || "").replace(/^\./, "").toLowerCase();
+  const mime = String(item.mimeType || "").toLowerCase();
 
-  if (extensions && extensions.length > 0) {
-    const normExtensions = extensions.map((e) => e.toLowerCase().replace(/^\./, ""));
-    if (normExtensions.includes(ext)) {
+  if (extensions?.some((candidate) => candidate.replace(/^\./, "").toLowerCase() === ext)) {
+    return true;
+  }
+  for (const prefix of mimePrefixes ?? []) {
+    const p = prefix.toLowerCase();
+    if (p.endsWith("/") ? mime.startsWith(p) : mime === p || mime.startsWith(`${p}/`) || mime.startsWith(`${p};`)) {
       return true;
     }
   }
-
-  if (mimePrefixes && mimePrefixes.length > 0) {
-    for (const prefix of mimePrefixes) {
-      const normPrefix = prefix.toLowerCase();
-      if (normPrefix.endsWith("/")) {
-        if (mime.startsWith(normPrefix)) return true;
-      } else {
-        if (mime === normPrefix || mime.startsWith(`${normPrefix}/`)) return true;
-      }
-    }
-  }
-
   return false;
 }
 
-/**
- * Constructs a default OriginalFileHandle for an item.
- */
-export function createDefaultOriginalFileHandle(item: PluginItem): OriginalFileHandle {
-  const url = item.originalUrl || item.fileUrl || "";
-  return {
-    url,
-    filePath: item.filePath || "",
-    fileUrl: item.fileUrl || "",
-    downloadUrl: item.downloadUrl || url,
-    mimeType: item.mimeType || "application/octet-stream",
-    extension: (item.extension || "").toLowerCase().replace(/^\./, ""),
-    size: item.size || 0,
-    fetchBlob: async (rangeHeader?: string) => {
-      const headers: Record<string, string> = {};
-      if (rangeHeader) headers["Range"] = rangeHeader;
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        throw new Error(`Failed to fetch original file: HTTP ${res.status}`);
-      }
-      return res.blob();
-    },
-    fetchArrayBuffer: async (rangeHeader?: string) => {
-      const headers: Record<string, string> = {};
-      if (rangeHeader) headers["Range"] = rangeHeader;
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        throw new Error(`Failed to fetch original file: HTTP ${res.status}`);
-      }
-      return res.arrayBuffer();
-    },
-    fetchText: async (rangeHeader?: string) => {
-      const headers: Record<string, string> = {};
-      if (rangeHeader) headers["Range"] = rangeHeader;
-      const res = await fetch(url, { headers });
-      if (!res.ok) {
-        throw new Error(`Failed to fetch original file: HTTP ${res.status}`);
-      }
-      return res.text();
-    },
-  };
+/** Reads a plugin setting, falling back when the host has no value yet. */
+export function setting(key: string, fallback = ""): string {
+  if (typeof globalThis === "undefined" || !globalThis.host) return fallback;
+  return globalThis.host.settings.get(key, fallback);
+}
+
+/** Returns true when the current manifest describes a native-only plugin. */
+export function isNativePlugin(manifest: PluginManifest): boolean {
+  return Boolean(manifest.native ?? manifest.preview?.renderer);
+}
+
+/** Writes one line to the host's unified plugin log. */
+export function log(message: string, detail?: string): void;
+export function log(level: PluginLogLevel, message: string, detail?: string): void;
+export function log(levelOrMessage: PluginLogLevel | string, messageOrDetail = "", detail = ""): void {
+  const host = globalThis.host;
+  if (!host || typeof host.log !== "function") return;
+  if (["trace", "debug", "info", "warn", "error"].includes(levelOrMessage)) {
+    host.log(levelOrMessage as PluginLogLevel, messageOrDetail, detail);
+    return;
+  }
+  host.log(levelOrMessage, messageOrDetail);
 }

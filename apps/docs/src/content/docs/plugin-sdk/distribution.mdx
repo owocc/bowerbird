@@ -1,52 +1,37 @@
 ---
-title: 构建、打包与 1-Click 安装协议
-description: 采用 Vite 构建 ES Module 产物并通过 bowerbird:// 协议分发。
+title: 分发与安装
+description: 打包、分发并在 Bowerbird 中安装原生插件。
 sidebar:
   order: 5
 ---
 
-Bowerbird 插件采用纯现代 ES Module 格式打包。宿主客户端在运行时通过动态 `import()` 或隔离沙箱加载插件产物。
+原生插件是免构建的目录，直接打包 `plugin.json`、可选的 `index.js` 与本地化资源即可。
 
-## 1. Vite 打包配置 (vite.config.ts)
-
-创建 `vite.config.ts` 并设置 external 外部依赖：
-
-```ts
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  build: {
-    lib: {
-      entry: "src/index.tsx",
-      formats: ["es"],
-      fileName: () => "index.js",
-    },
-    rollupOptions: {
-      external: [
-        "react",
-        "react-dom",
-        "react/jsx-runtime",
-        "@bowerbird/plugin-sdk",
-      ],
-    },
-  },
-});
-```
-
-运行构建命令生成 `dist/index.js`：
-
-```bash
-pnpm build
-```
-
-## 2. 1-Click 安装协议 (bowerbird://)
-
-Bowerbird 注册了操作系统级别的自定义 URL Scheme。用户在浏览器或任何应用中点击包含协议的链接即可直接呼起本地桌面客户端进行一键安装：
+## 目录与 ZIP
 
 ```text
-bowerbird://plugin/install?manifest=https://your-domain.com/manifest.json&id=your.plugin.id&version=1.0.0
+my-plugin/
+├── plugin.json
+├── index.js
+└── locales/zh-CN.json
 ```
 
-<Aside type="tip" title="市场自动集成">
-  当你向官方或社区插件市场提交插件后，市场网页端将自动生成此安装链接，用户无需手动下载或解压。
+```bash
+zip -r my-plugin-v2.0.0.zip my-plugin
+```
+
+ZIP 根目录可以直接是插件目录，也可以包一层同名文件夹；安装器会自动展平。
+
+## 安装
+
+- 设置 → 插件 → **安装插件…**，输入 `plugin.json` 或 ZIP 的 HTTP(S)/`file://` 地址。
+- 或把插件目录放入 `<UserDataDir>/plugins/`，宿主扫描后即可启用。
+- 官方插件在打包版本中作为内置插件注册；本地同名目录会覆盖内置副本，便于开发。
+
+## 更新与状态
+
+`<UserDataDir>/plugins/native-plugins.json` 保存插件的启停与设置值。卸载远程插件会删除其目录，内置插件不可卸载但可以禁用。
+
+<Aside type="tip" title="无需 Vite/Rollup">
+  如果你的插件只声明 `native` 预览或编写普通 ES 模块钩子，就不需要任何构建产物；直接把源码作为发布包即可。
 </Aside>

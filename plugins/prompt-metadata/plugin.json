@@ -1,0 +1,21 @@
+{
+  "id": "official.prompt-metadata",
+  "name": "AI Prompt Metadata",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "kind": "metadata",
+  "native": "prompt",
+  "description": "Records and inspects AI generation prompts with the native inspector, copy action and full-text editor.",
+  "author": "Bowerbird Team",
+  "license": "MIT",
+  "priority": 50,
+  "capabilities": [
+    "metadata"
+  ],
+  "builtin": true,
+  "permissions": {
+    "network": [],
+    "process": []
+  },
+  "settings": []
+}

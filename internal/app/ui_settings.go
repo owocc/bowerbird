@@ -213,6 +213,14 @@ func (a *App) settingsGeneral(c *ui.Context) {
 				go a.svc.SetLightweightModeEnabled(on)
 			}
 		})
+		recordURL := a.prefs.RecordImportURL
+		a.settingsRow(c, a.t("settings.recordURL.title"), a.t("settings.recordURL.description"), func() {
+			on := recordURL
+			if ui.Switch(c.Key("record-import-url"), &on).Changed() {
+				a.prefs.RecordImportURL = on
+				a.savePrefs()
+			}
+		})
 	})
 }
 
@@ -399,8 +407,8 @@ func (a *App) settingsPlugins(c *ui.Context) {
 		}
 	})
 	ui.Box(c).Height(8)
-	for _, pl := range a.plugins {
-		pl := pl
+	for i := range a.plugins {
+		pl := &a.plugins[i]
 		a.settingsCard(c, pl.Name, func() {
 			ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(10).Children(func() {
 				ui.Column(c).Grow(1).Gap(1).Children(func() {
@@ -409,39 +417,101 @@ func (a *App) settingsPlugins(c *ui.Context) {
 						ui.Text(c, a.t("settings.plugins.native")).FontSize(10).TextColor(p.faint)
 					}
 				})
-				ui.Text(c, "v"+pl.Version).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
-				if pl.Native != "" {
+				if pl.Builtin {
 					ui.Badge(c, a.t("settings.plugins.builtin")).FontSize(9)
-				} else {
-					on := pl.Enabled
-					if ui.Switch(c.Key("plugin-"+pl.ID), &on).Changed() {
-						if a.pluginHost != nil {
-							if _, ok := a.pluginHost.Get(pl.ID); ok {
-								a.pluginHost.SetEnabled(pl.ID, on)
-							} else {
-								_ = a.svc.SetPluginEnabled(pl.ID, on)
-							}
-						}
-						pl.Enabled = on
+				}
+				ui.Text(c, "v"+pl.Version).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
+				// Bind the switch to the row stored in a.plugins, not to a
+				// loop copy. A copy made the switch snap back to its old
+				// value on the next frame, which looked like the plugin
+				// could not be disabled.
+				on := pl.Enabled
+				if ui.Switch(c.Key("plugin-"+pl.ID), &on).Changed() {
+					if pl.Hosted && a.pluginHost != nil {
+						a.pluginHost.SetEnabled(pl.ID, on)
+					} else if a.svc != nil {
+						_ = a.svc.SetPluginEnabled(pl.ID, on)
+					}
+					pl.Enabled = on
+					if on {
+						// Enabling a preview plugin may unlock cover generation for
+						// items already loaded on the page.
+						a.post(func() { a.backfillMissingThumbnails(a.items) })
 					}
 				}
 			})
 			// Plugin settings rendered from the manifest.
 			if a.pluginHost != nil {
-				if p, ok := a.pluginHost.Get(pl.ID); ok {
-					for _, setting := range p.Manifest.Settings {
+				if hosted, ok := a.pluginHost.Get(pl.ID); ok {
+					for _, setting := range hosted.Manifest.Settings {
 						setting := setting
-						val := p.Settings[setting.Key]
+						val := hosted.Settings[setting.Key]
+						if val == "" {
+							val = setting.Default
+						}
 						a.settingsRow(c, setting.Label, setting.Help, func() {
-							ui.TextInput(c.Key("plugin-setting-"+pl.ID+"-"+setting.Key), &val).Width(220).FontSize(12).OnSubmit(func() {
+							input := ui.TextInput(c.Key("plugin-setting-"+pl.ID+"-"+setting.Key), &val).Width(220).FontSize(12)
+							if setting.Placeholder != "" {
+								input.Placeholder(setting.Placeholder)
+							}
+							input.OnSubmit(func() {
 								a.pluginHost.SetSetting(pl.ID, setting.Key, val)
 							})
 						})
 					}
 				}
 			}
+			ui.Row(c).Gap(8).Children(func() {
+				if ui.Button(c, a.t("settings.plugins.openStore")).Clicked() {
+					a.openPluginStore(pl.ID)
+				}
+				if pl.CanUninstall && ui.Button(c, a.t("settings.plugins.uninstall")).Clicked() {
+					a.uninstallPlugin(pl.ID)
+				}
+			})
 		})
 	}
+}
+
+// openPluginStore opens the marketplace detail page for one plugin.
+func (a *App) openPluginStore(id string) {
+	if a.svc == nil {
+		return
+	}
+	go func() {
+		if err := a.svc.OpenPluginMarketplace(id); err != nil {
+			a.postSettings(func() { a.showToast(err.Error()) })
+		}
+	}()
+}
+
+// uninstallPlugin removes both the native host copy and the legacy plugin
+// registry entry. Either side may be absent, so "not installed" is ignored.
+func (a *App) uninstallPlugin(id string) {
+	go func() {
+		var failure error
+		if a.pluginHost != nil && a.pluginHost.CanUninstall(id) {
+			if err := a.pluginHost.Uninstall(id); err != nil {
+				failure = err
+			}
+		}
+		if a.svc != nil {
+			if err := a.svc.UninstallPlugin(id); err != nil && failure == nil &&
+				!strings.Contains(strings.ToLower(err.Error()), "not installed") &&
+				!strings.Contains(strings.ToLower(err.Error()), "not found") {
+				failure = err
+			}
+		}
+		a.postSettings(func() {
+			if failure != nil {
+				a.showToast(failure.Error())
+				return
+			}
+			a.showToast(a.t("settings.plugins.uninstalled"))
+			a.refreshSettings()
+			a.refreshAll()
+		})
+	}()
 }
 
 func (a *App) settingsMobile(c *ui.Context) {

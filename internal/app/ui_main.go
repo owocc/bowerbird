@@ -16,6 +16,7 @@ func (a *App) viewMain(c *ui.Context) {
 	a.applyVibrancyRoot(c)
 	root := ui.Box(c).Fill()
 	a.applyBackdrop(root, c.Theme())
+	a.attachURLDropTarget(root)
 	root.Children(func() {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			if a.prefs.SidebarOpen {

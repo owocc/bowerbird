@@ -657,3 +657,26 @@ func TestSettingsHeaderBlurStartsWhenContentReachesHeader(t *testing.T) {
 		t.Fatal("settings header did not blur once content scrolled under it")
 	}
 }
+
+func TestNormalizeDroppedURLs(t *testing.T) {
+	raw := []string{
+		"https://www.pinterest.com/pin/123/\r\nhttps://pin.it/AbCdEf",
+		"pin.it/NoScheme",
+		"not a url",
+		"file:///tmp/a.jpg",
+		"https://www.pinterest.com/pin/123/",
+	}
+	got := normalizeDroppedURLs(raw)
+	want := []string{
+		"https://www.pinterest.com/pin/123/",
+		"https://pin.it/AbCdEf",
+		"https://pin.it/NoScheme",
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("normalizeDroppedURLs = %v, want %v", got, want)
+	}
+	urls, files := splitDroppedPaths([]string{"https://pin.it/x", "/tmp/photo.jpg"})
+	if len(urls) != 1 || len(files) != 1 {
+		t.Fatalf("splitDroppedPaths urls=%v files=%v", urls, files)
+	}
+}

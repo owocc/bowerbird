@@ -1,0 +1,19 @@
+{
+  "id": "builtin.video",
+  "name": "Video Player",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "kind": "preview",
+  "native": "video",
+  "description": "Native video playback rendered by mygo/ui with ffmpeg frame decoding and mygo audio output.",
+  "author": "Bowerbird Team",
+  "license": "MIT",
+  "priority": 90,
+  "extensions": ["mp4", "mov", "qt", "webm", "mkv", "avi", "m4v", "flv", "f4v", "mts", "m2ts", "m3u8", "m3u", "mpd", "ogv", "ogm", "3gp", "3g2", "wmv", "asf", "mpg", "mpeg", "m2v", "vob", "rmvb", "rm"],
+  "mimePrefixes": ["video/", "application/vnd.apple.mpegurl", "application/x-mpegurl", "application/dash+xml"],
+  "supportsZoom": false,
+  "capabilities": ["preview"],
+  "builtin": true,
+  "permissions": { "network": [], "process": [] },
+  "settings": []
+}

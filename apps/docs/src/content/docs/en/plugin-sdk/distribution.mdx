@@ -1,46 +1,37 @@
 ---
-title: Building & 1-Click Installation
-description: Package your plugin with Vite and distribute via bowerbird:// protocol.
+title: Distribution & Installation
+description: Package, distribute and install native Bowerbird plugins.
 sidebar:
   order: 5
 ---
 
-Bowerbird plugins compile as standalone ES Modules dynamically loaded by the host runtime.
+Native plugins are zero-build directories. Package `plugin.json`, the optional `index.js`, and locale files directly.
 
-## 1. Vite Configuration (vite.config.ts)
-
-```ts
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  build: {
-    lib: {
-      entry: "src/index.tsx",
-      formats: ["es"],
-      fileName: () => "index.js",
-    },
-    rollupOptions: {
-      external: [
-        "react",
-        "react-dom",
-        "react/jsx-runtime",
-        "@bowerbird/plugin-sdk",
-      ],
-    },
-  },
-});
-```
-
-Compile with:
-
-```bash
-pnpm build
-```
-
-## 2. 1-Click Protocol (bowerbird://)
-
-Distribute your plugin with a 1-click install URL:
+## Directory and ZIP
 
 ```text
-bowerbird://plugin/install?manifest=https://your-domain.com/manifest.json&id=your.plugin.id&version=1.0.0
+my-plugin/
+├── plugin.json
+├── index.js
+└── locales/zh-CN.json
 ```
+
+```bash
+zip -r my-plugin-v2.0.0.zip my-plugin
+```
+
+The ZIP root may be the plugin directory itself or wrap it in one folder; the installer flattens that automatically.
+
+## Installation
+
+- Settings → Plugins → **Install plugin…**, then enter an HTTP(S) or `file://` URL for `plugin.json` or a ZIP.
+- Or place the plugin directory under `<UserDataDir>/plugins/` and scan.
+- Official plugins are registered as built-ins in packaged builds; a local directory with the same id overrides the bundled copy for development.
+
+## Updates and state
+
+`<UserDataDir>/plugins/native-plugins.json` stores enabled/settings state. Uninstalling a remote plugin removes its directory; built-ins cannot be removed but can be disabled.
+
+<Aside type="tip" title="No Vite/Rollup needed">
+  If your plugin only declares a `native` renderer or exports plain ES module hooks, there is no build artifact: ship the source directory as-is.
+</Aside>

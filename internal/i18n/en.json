@@ -97,7 +97,8 @@
     "searchFolderPlaceholder": "Search folders…",
     "searchPlaceholder": "Search actions…",
     "selectAll": "Select all",
-    "shortcutSpace": "Space"
+    "shortcutSpace": "Space",
+    "generateThumbnails": "Generate thumbnails"
   },
   "dropzone": {
     "badge": {
@@ -109,7 +110,9 @@
     "processing": "Processing…",
     "releaseToAll": "Release to import into all assets",
     "releaseToFolder": "Release to import into “{{name}}”",
-    "supportedHint": "External files and folders supported · folders are recursively flattened into individual assets"
+    "supportedHint": "External files and folders supported · folders are recursively flattened into individual assets",
+    "urlImporting": "Resolving URL…",
+    "urlImported": "URL imported"
   },
   "importing": {
     "analyzing_one": "Analyzing {{count}} file…",
@@ -331,7 +334,8 @@
     "audioHint": "Native audio playback",
     "fit": "Fit to window",
     "next": "Next",
-    "previous": "Previous"
+    "previous": "Previous",
+    "videoLoading": "Preparing native video frames…"
   },
   "settings": {
     "appearance": {
@@ -525,7 +529,7 @@
     "plugins": {
       "alwaysEnabled": "Built-in · Active",
       "builtinBadge": "Built-in",
-      "cannotDisableHint": "Built-in core plugins cannot be disabled",
+      "cannotDisableHint": "Built-in plugins can be disabled in Settings",
       "description": "Manage installed preview and metadata plugins. Click a card to open its store page. Built-in plugins can also be disabled.",
       "disabled": "Disabled",
       "enabled": "Enabled",
@@ -565,7 +569,10 @@
       "installed": "Plugin installed",
       "marketplace": "Marketplace",
       "native": "Native built-in view",
-      "openFolder": "Open folder"
+      "openFolder": "Open folder",
+      "openStore": "Open in Marketplace",
+      "uninstall": "Uninstall",
+      "uninstalled": "Plugin uninstalled"
     },
     "mobile": {
       "title": "Mobile Connection",
@@ -674,7 +681,11 @@
     "themeDark": "Dark",
     "themeLight": "Light",
     "themeSystem": "System",
-    "vibrancyHelp": "Use the system material behind the header; this switch controls every blur"
+    "vibrancyHelp": "Use the system material behind the header; this switch controls every blur",
+    "recordURL": {
+      "title": "Record source URL",
+      "description": "After downloading a media URL, save the resolved page/source URL into the item metadata. This is an application setting and is not controlled by plugins."
+    }
   },
   "setup": {
     "back": "Back",

@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -33,7 +34,20 @@ func (a *App) loadInspector(id string) {
 		item, err := a.svc.GetItem(id)
 		var sections []plugin.InspectSection
 		if a.pluginHost != nil {
-			sections = a.pluginHost.Inspect(pluginContext([]core.Item{itemCopy}, a.folderID).Items[0])
+			ctxItem := pluginContext([]core.Item{itemCopy}, a.folderID).Items[0]
+			// Text plugins (markdown frontmatter/outline) need the actual
+			// document. The worker cannot read arbitrary files, so the host
+			// supplies a bounded UTF-8 copy instead.
+			if isTextDocument(itemCopy.Extension) && itemCopy.FilePath != "" {
+				if data, readErr := os.ReadFile(itemCopy.FilePath); readErr == nil {
+					const maxInspectorText = 512 << 10
+					if len(data) > maxInspectorText {
+						data = data[:maxInspectorText]
+					}
+					ctxItem["content"] = string(data)
+				}
+			}
+			sections = a.pluginHost.Inspect(ctxItem)
 		}
 		a.post(func() {
 			if seq != a.detailSeq || inspectSeq != a.inspectSeq {
@@ -257,24 +271,26 @@ func (a *App) viewSingleInspector(c *ui.Context, item core.Item) {
 		})
 
 		a.inspectorDivider(c)
-		a.sectionLabel(c, a.t("inspector.prompt"))
-		ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
-			ui.Text(c, a.t("inspector.promptHelp")).FontSize(10.5).TextColor(p.faint).Grow(1).Shrink(1)
-			a.iconButton(c, "prompt-toggle", iconChevron, a.promptOpen, a.t("inspector.expand"), func() { a.promptOpen = !a.promptOpen })
-		})
-		if a.promptOpen {
-			ui.TextArea(c.Key("prompt"), &a.promptDraft).FontSize(12).Height(110)
-			ui.Row(c).Gap(6).Children(func() {
-				if ui.Button(c, a.t("common.save")).Clicked() {
-					a.saveDetails(item.ID)
-				}
-				if ui.Button(c, a.t("common.copy")).Clicked() {
-					_ = a.svc.WriteClipboardText(a.promptDraft)
-					a.showToast(a.t("common.copied"))
-				}
+		if a.nativeFeature("official.prompt-metadata") {
+			a.sectionLabel(c, a.t("inspector.prompt"))
+			ui.Row(c).FillWidth().AlignItems(ui.Center).Children(func() {
+				ui.Text(c, a.t("inspector.promptHelp")).FontSize(10.5).TextColor(p.faint).Grow(1).Shrink(1)
+				a.iconButton(c, "prompt-toggle", iconChevron, a.promptOpen, a.t("inspector.expand"), func() { a.promptOpen = !a.promptOpen })
 			})
-		} else if strings.TrimSpace(item.Prompt) != "" {
-			ui.Text(c, item.Prompt).FontSize(11.5).TextColor(p.muted).MaxLines(3).Wrap()
+			if a.promptOpen {
+				ui.TextArea(c.Key("prompt"), &a.promptDraft).FontSize(12).Height(110)
+				ui.Row(c).Gap(6).Children(func() {
+					if ui.Button(c, a.t("common.save")).Clicked() {
+						a.saveDetails(item.ID)
+					}
+					if ui.Button(c, a.t("common.copy")).Clicked() {
+						_ = a.svc.WriteClipboardText(a.promptDraft)
+						a.showToast(a.t("common.copied"))
+					}
+				})
+			} else if strings.TrimSpace(item.Prompt) != "" {
+				ui.Text(c, item.Prompt).FontSize(11.5).TextColor(p.muted).MaxLines(3).Wrap()
+			}
 		}
 
 		a.inspectorDivider(c)
@@ -290,7 +306,7 @@ func (a *App) viewSingleInspector(c *ui.Context, item core.Item) {
 
 		// Built-in PSD facts (the composite preview is handled by the preview
 		// layer; the layer tree is shown there too).
-		if strings.EqualFold(item.Extension, "psd") || strings.EqualFold(item.Extension, "psb") {
+		if (strings.EqualFold(item.Extension, "psd") || strings.EqualFold(item.Extension, "psb")) && a.nativeFeature("official.psd-preview") {
 			a.inspectorDivider(c)
 			a.sectionLabel(c, a.t("inspector.psd"))
 			a.metaRow(c, a.t("inspector.format"), "Photoshop Document")
@@ -333,7 +349,7 @@ func (a *App) viewSingleInspector(c *ui.Context, item core.Item) {
 		a.metaRow(c, a.t("inspector.hex"), item.Hex)
 
 		// Native audio preview for audio items.
-		if categoryOf(item) == "audio" {
+		if categoryOf(item) == "audio" && a.nativeFeature("official.audio-player") {
 			a.inspectorAudio(c, item)
 		}
 

@@ -1,41 +1,71 @@
 ---
-title: Host API & Capabilities
-description: Reference for PreviewPluginHostAPI file handles, metadata updates, and desktop hooks.
+title: Host API & Sandbox
+description: host.fetch, settings, spawn and hook return shapes for native plugins.
 sidebar:
   order: 4
 ---
 
-The host injects `api: PreviewPluginHostAPI` into each plugin component.
+Plugins run in an embedded moejs runtime inside the Go process. The host injects only `globalThis.host`: no DOM, filesystem, or unrestricted network.
 
-## Key APIs
+## `host.fetch(url, init?)`
 
-### `api.getOriginalFile(): OriginalFileHandle`
-Access the local filesystem file and data streaming:
+Requests are limited by the `permissions.network` allow-list:
 
-```ts
-const file = api.getOriginalFile();
-const text = await file.fetchText();
-const buffer = await file.fetchArrayBuffer();
-```
-
-### `api.saveCoverThumbnail(base64Image, options)`
-Save a custom thumbnail cover and trigger dominant color extraction:
-
-```ts
-await api.saveCoverThumbnail(canvas.toDataURL("image/png"));
-```
-
-### `api.updateItemDetails(patch)`
-Persist user metadata fields:
-
-```ts
-await api.updateItemDetails({
-  prompt: "A futuristic city in neon cyberpunk style",
-  rating: 5,
-  note: "Verified high-quality asset",
+```js
+const res = await host.fetch("https://api.example.com/items", {
+  headers: { Accept: "application/json" },
 });
+if (!res.ok) throw new Error(`HTTP ${res.status}`);
+const data = await res.json();
 ```
 
-### `api.openWithDefaultApp()` and `api.revealInFinder()`
-- `api.openWithDefaultApp()`: Launches the file in the default OS handler.
-- `api.revealInFinder()`: Highlights the file in macOS Finder or Windows Explorer.
+Missing permissions or hosts outside the allow-list throw immediately.
+
+## `host.settings.get(key)`
+
+Read values saved in the plugin settings card:
+
+```js
+const endpoint = host.settings.get("endpoint") || "https://api.example.com";
+```
+
+```json
+{
+  "permissions": { "network": ["api.example.com"] },
+  "settings": [
+    { "key": "endpoint", "label": "API endpoint", "placeholder": "https://…" }
+  ]
+}
+```
+
+## `host.log(level, message, detail?)`
+
+Write plugin diagnostics to Bowerbird's unified log window. The host adds the
+plugin id and current hook automatically:
+
+```js
+host.log("info", "resolved pin", url);
+host.log("warn", "no candidates", "falling back to direct import");
+```
+
+`console.log/info/warn/error/debug` are forwarded to the same stream. Every
+hook start/end, result, error, and `fetch`, `settings.get`, `spawn` call is
+recorded automatically.
+
+## `host.spawn(command, args?)`
+
+Run an executable declared in `permissions.process` after the user grants it in Settings. Returns stdout:
+
+```js
+const info = host.spawn("magick", ["identify", "-format", "%wx%h", item.filePath]);
+```
+
+## Hook return shapes
+
+- `inspect({ item })` → `{ sections: [{ title, rows, textBlocks }] }`
+- `resolveUrl({ url })` → `{ url, candidates, sourceUrl, name, tags }`
+- `actions(ctx)` → `[{ id, title, icon }]`
+- `runAction({ id, ...ctx })` → any JSON
+- `thumbnail({ filePath, mimeType })` → `{ imagePath, width, height }`
+
+The host renders these with shared `mygo/ui` components. Plugins cannot return HTML, CSS or React components.

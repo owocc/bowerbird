@@ -939,6 +939,13 @@ func (a *App) itemContextMenu(m *ui.Menu, item core.Item) {
 		_ = a.svc.WriteClipboardText(item.FilePath)
 		a.showToast(a.t("common.copied"))
 	}
+	if m.Item(a.t("contextMenu.generateThumbnails")).Chosen() {
+		ids := a.selectedIDs()
+		if len(ids) == 0 {
+			ids = []string{item.ID}
+		}
+		a.regenerateThumbnails(ids)
+	}
 	m.Separator()
 	if m.Item(a.t("contextMenu.addToFavorites")).Chosen() {
 		for _, id := range a.selectedIDs() {
@@ -988,12 +995,26 @@ func pluginContext(items []core.Item, folder string) plugin.ItemContext {
 	for _, it := range items {
 		out = append(out, map[string]any{
 			"id": it.ID, "name": it.Name, "filename": it.Filename, "filePath": it.FilePath,
-			"mimeType": it.MimeType, "extension": it.Extension, "url": it.URL,
-			"originalUrl": it.OriginalURL, "dominantColor": it.DominantColor,
-			"note": it.Note, "prompt": it.Prompt, "tags": it.Tags, "folders": it.Folders,
+			"itemPath": it.ItemPath, "fileUrl": it.FileURL, "mimeType": it.MimeType,
+			"extension": it.Extension, "size": it.Size, "width": it.Width, "height": it.Height,
+			"url": it.URL, "originalUrl": it.OriginalURL, "thumbnailUrl": it.ThumbnailURL,
+			"downloadUrl": it.DownloadURL, "dominantColor": it.DominantColor,
+			"palette": it.Palette, "meta": it.Meta, "hasThumbnail": it.HasThumbnail,
+			"note": it.Note, "prompt": it.Prompt, "rating": it.Rating,
+			"tags": it.Tags, "folders": it.Folders, "inTrash": it.InTrash,
+			"createdAt": it.CreatedAt, "importedAt": it.ImportedAt, "updatedAt": it.UpdatedAt,
 		})
 	}
 	return plugin.ItemContext{Items: out, Folder: folder}
+}
+
+// isTextDocument mirrors the extensions the native preview decodes as text.
+func isTextDocument(ext string) bool {
+	switch strings.ToLower(strings.TrimPrefix(ext, ".")) {
+	case "md", "markdown", "mdown", "mkd", "mdwn", "mdt", "txt", "json", "js", "ts", "tsx", "jsx", "go", "py", "css", "html", "xml", "yaml", "yml", "toml", "prompt":
+		return true
+	}
+	return false
 }
 
 func maxF(a, b float32) float32 {

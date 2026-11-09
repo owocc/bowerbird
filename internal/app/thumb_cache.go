@@ -85,6 +85,7 @@ func (c *thumbCache) get(path string, targetPx int) *ui.Bitmap {
 	}()
 	return nil
 }
+
 // getSystemIcon retrieves or generates the native OS system file icon as a bitmap.
 func (c *thumbCache) getSystemIcon(ext string, filePath string) *ui.Bitmap {
 	key := "sysicon:" + ext
@@ -132,7 +133,6 @@ func (c *thumbCache) getSystemIcon(ext string, filePath string) *ui.Bitmap {
 	return nil
 }
 
-
 func (c *thumbCache) touchLocked(key string) {
 	for i, k := range c.order {
 		if k == key {
@@ -156,6 +156,28 @@ func (c *thumbCache) trimLocked() {
 		delete(c.entries, key)
 	}
 	c.order = keep
+}
+
+// invalidate drops one decoded texture so a regenerated thumbnail.jpg is read
+// again on the next paint.
+func (c *thumbCache) invalidate(path string) {
+	if path == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.entries[path]; ok {
+		if e.bmp != nil {
+			e.bmp.ReleasePixels()
+		}
+		delete(c.entries, path)
+	}
+	for i, key := range c.order {
+		if key == path {
+			c.order = append(c.order[:i], c.order[i+1:]...)
+			break
+		}
+	}
 }
 
 // trim releases textures down to keep entries.

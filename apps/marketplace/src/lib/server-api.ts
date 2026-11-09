@@ -12,8 +12,11 @@ export interface PluginIndexItem {
   version: string;
   description: string;
   author: string;
-  kind: "preview" | "metadata";
+  kind: "preview" | "metadata" | "resolver" | "action";
   category?: "preview" | "metadata";
+  native?: string;
+  urlHosts?: string[];
+  urlPatterns?: string[];
   priority: number;
   extensions: string[];
   mimePrefixes?: string[];
@@ -255,11 +258,16 @@ export async function handlePluginApiRequest(
       description: plugin.description,
       author: plugin.author,
       kind: plugin.kind,
+      native: plugin.native,
+      urlHosts: plugin.urlHosts,
+      urlPatterns: plugin.urlPatterns,
       priority: plugin.priority,
       extensions: plugin.extensions || [],
       mimePrefixes: plugin.mimePrefixes,
       supportsZoom: plugin.supportsZoom,
-      main: "index.js",
+      // Native preview plugins have no entry module at all. Resolver/hook
+      // plugins keep the zero-build index.js.
+      main: plugin.native ? undefined : plugin.main || "index.js",
       style: plugin.style,
       icon: plugin.icon,
       license: plugin.license,

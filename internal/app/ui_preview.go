@@ -70,13 +70,25 @@ func (a *App) viewPreviewBody(c *ui.Context, item core.Item) {
 		ext := strings.ToLower(item.Extension)
 		switch {
 		case ext == "psd" || ext == "psb":
-			a.previewPSD(c, item)
+			if a.nativeFeature("official.psd-preview") {
+				a.previewPSD(c, item)
+			} else {
+				a.previewDocument(c, item)
+			}
 		case categoryOf(item) == "image":
 			a.previewImage(c, item)
 		case categoryOf(item) == "audio":
-			a.previewAudio(c, item)
+			if a.nativeFeature("official.audio-player") {
+				a.previewAudio(c, item)
+			} else {
+				a.previewDocument(c, item)
+			}
 		case categoryOf(item) == "video":
-			a.previewVideo(c, item)
+			if a.nativeFeature("builtin.video") {
+				a.previewVideo(c, item)
+			} else {
+				a.previewDocument(c, item)
+			}
 		default:
 			a.previewDocument(c, item)
 		}
@@ -259,16 +271,70 @@ func (a *App) previewAudio(c *ui.Context, item core.Item) {
 
 func (a *App) previewVideo(c *ui.Context, item core.Item) {
 	p := paletteFor(c.Theme())
-	ui.Column(c).Fill().Grow(1).Center().Gap(14).Children(func() {
-		ui.Box(c).Size(120, 120).Radius(22).Background(p.surface2).Center().Children(func() {
-			ui.Icon(c, iconVideo).Size(48, 48).TextColor(p.muted)
+	if a.video == nil {
+		ui.Column(c).Fill().Grow(1).Center().Gap(14).Children(func() {
+			ui.Box(c).Size(120, 120).Radius(22).Background(p.surface2).Center().Children(func() {
+				if a.videoErr != "" {
+					ui.Icon(c, iconVideo).Size(48, 48).TextColor(p.faint)
+				} else {
+					ui.Spinner(c)
+				}
+			})
+			ui.Text(c, item.Name).FontSize(16).FontWeight(650).TextColor(p.text)
+			if a.videoErr != "" {
+				ui.Text(c, a.videoErr).FontSize(11.5).TextColor(p.muted).MaxWidth(520).Wrap().TextAlign(ui.Center)
+			} else {
+				ui.Text(c, a.t("preview.videoLoading")).FontSize(11.5).TextColor(p.muted)
+			}
+			ui.Textf(c, "%d × %d · %s", item.Width, item.Height, formatBytes(item.Size)).FontSize(11).TextColor(p.muted)
+			if ui.PrimaryButton(c.Key("video-open"), a.t("contextMenu.openWithDefaultApp")).Clicked() {
+				_ = a.svc.OpenWithDefaultApp(item.ID)
+			}
 		})
-		ui.Text(c, item.Name).FontSize(16).FontWeight(650).TextColor(p.text)
-		ui.Textf(c, "%d × %d · %s", item.Width, item.Height, formatBytes(item.Size)).FontSize(11).TextColor(p.muted)
-		if ui.PrimaryButton(c.Key("video-open"), a.t("contextMenu.openWithDefaultApp")).Clicked() {
-			_ = a.svc.OpenWithDefaultApp(item.ID)
-		}
+		return
+	}
+
+	ui.Column(c).Fill().Grow(1).Children(func() {
+		ui.Box(c).FillWidth().Grow(1).Shrink(1).Background(ui.RGBA(0, 0, 0, 0.86)).Clip().Children(func() {
+			ui.Video(c, a.video.Native()).Fill().Fit(ui.Contain)
+		})
+		ui.Box(c).FillWidth().Height(1).Background(p.hairline)
+		ui.Row(c).FillWidth().Height(54).PaddingX(18).Gap(12).AlignItems(ui.Center).Children(func() {
+			playing := a.video.Playing()
+			label := "▶"
+			if playing {
+				label = "❚❚"
+			}
+			if ui.Button(c.Key("video-play"), label).Size(36, 36).Radius(999).Clicked() {
+				a.video.Toggle()
+			}
+			if ui.Button(c.Key("video-back"), "−10s").Height(30).Radius(7).Clicked() {
+				_ = a.video.Seek(a.video.Position() - 10*time.Second)
+			}
+			if ui.Button(c.Key("video-forward"), "+10s").Height(30).Radius(7).Clicked() {
+				_ = a.video.Seek(a.video.Position() + 10*time.Second)
+			}
+			duration := a.video.Duration().Seconds()
+			position := a.video.Position().Seconds()
+			ui.Text(c, formatDuration(position)).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
+			if duration > 0 {
+				a.videoScrub = position
+				seek := ui.Slider(c.Key("video-seek"), &a.videoScrub, 0, duration).Grow(1)
+				if seek.Changed() {
+					_ = a.video.Seek(time.Duration(a.videoScrub * float64(time.Second)))
+				}
+			} else {
+				ui.Box(c).Grow(1)
+			}
+			ui.Text(c, formatDuration(duration)).FontSize(10.5).TextColor(p.faint).FontFeatures("tnum")
+			if ui.Button(c.Key("video-open"), a.t("contextMenu.openWithDefaultApp")).Height(30).Radius(7).Clicked() {
+				_ = a.svc.OpenWithDefaultApp(item.ID)
+			}
+		})
 	})
+	if a.video.Playing() {
+		c.After(100 * time.Millisecond)
+	}
 }
 
 func (a *App) previewDocument(c *ui.Context, item core.Item) {
@@ -277,7 +343,9 @@ func (a *App) previewDocument(c *ui.Context, item core.Item) {
 	isText := ext == "md" || ext == "markdown" || ext == "txt" || ext == "json" || ext == "js" || ext == "ts" || ext == "go" || ext == "py" || ext == "prompt"
 	if isText && a.previewText != "" {
 		ui.Scroll(c).Fill().Grow(1).Shrink(1).Padding(28, 48, 28, 48).Children(func() {
-			if ext == "md" || ext == "markdown" || ext == "prompt" {
+			if (ext == "md" || ext == "markdown") && a.nativeFeature("official.markdown-preview") {
+				markdown.View(c, a.previewText, nil).MaxWidth(820)
+			} else if ext == "prompt" && a.nativeFeature("official.prompt-metadata") {
 				markdown.View(c, a.previewText, nil).MaxWidth(820)
 			} else {
 				ui.Column(c).FillWidth().Gap(4).Children(func() {
@@ -307,6 +375,7 @@ func (a *App) previewDocument(c *ui.Context, item core.Item) {
 }
 
 func (a *App) loadPreviewContent() {
+	a.closeVideo()
 	a.previewText = ""
 	a.previewError = ""
 	if a.previewIndex < 0 || a.previewIndex >= len(a.items) {
@@ -335,6 +404,25 @@ func (a *App) loadPreviewContent() {
 		}()
 	} else if strings.TrimSpace(item.Prompt) != "" && ext == "prompt" {
 		a.previewText = item.Prompt
+	} else if categoryOf(item) == "video" && a.nativeFeature("builtin.video") {
+		path, width, height := item.FilePath, item.Width, item.Height
+		seq := a.videoSeq
+		go func() {
+			v, err := player.OpenVideo(path, width, height)
+			a.post(func() {
+				if seq != a.videoSeq {
+					if v != nil {
+						v.Close()
+					}
+					return
+				}
+				if err != nil {
+					a.videoErr = err.Error()
+					return
+				}
+				a.video = v
+			})
+		}()
 	} else if ext == "psd" || ext == "psb" {
 		a.previewBitmap = nil
 		a.psdInfo = nil
@@ -362,6 +450,17 @@ func (a *App) loadPreviewContent() {
 }
 
 func playerOpen(path string) (*player.Player, error) { return player.Open(path) }
+
+// closeVideo stops the native video player and invalidates any pending open.
+func (a *App) closeVideo() {
+	a.videoSeq++
+	if a.video != nil {
+		a.video.Close()
+		a.video = nil
+	}
+	a.videoErr = ""
+	a.videoScrub = 0
+}
 
 func (a *App) previewPSD(c *ui.Context, item core.Item) {
 	p := paletteFor(c.Theme())

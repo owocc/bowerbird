@@ -1,0 +1,34 @@
+{
+  "id": "official.markdown-preview",
+  "name": "Markdown Preview",
+  "version": "2.0.0",
+  "minAppVersion": "1.0.0",
+  "kind": "preview",
+  "native": "markdown",
+  "description": "Native GitHub-flavored Markdown preview rendered with mygo/ui, with no JavaScript entry module.",
+  "author": "Bowerbird Team",
+  "license": "MIT",
+  "priority": 50,
+  "extensions": [
+    "md",
+    "markdown",
+    "mdown",
+    "mkd",
+    "mdwn",
+    "mdt"
+  ],
+  "mimePrefixes": [
+    "text/markdown",
+    "text/x-markdown"
+  ],
+  "supportsZoom": false,
+  "capabilities": [
+    "preview"
+  ],
+  "builtin": true,
+  "permissions": {
+    "network": [],
+    "process": []
+  },
+  "settings": []
+}

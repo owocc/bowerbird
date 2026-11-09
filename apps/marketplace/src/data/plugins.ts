@@ -41,7 +41,7 @@ export const BUILTIN_MARKETPLACE_PLUGINS: MarketplacePlugin[] = [
     extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "svg", "ico", "tiff", "tif", "avif"],
     mimePrefixes: ["image/"],
     supportsZoom: true,
-    main: "index.js",
+    native: "image",
     license: "MIT",
     iconName: "image",
     featured: false,
@@ -66,10 +66,11 @@ export const BUILTIN_MARKETPLACE_PLUGINS: MarketplacePlugin[] = [
   {
     id: "builtin.video",
     name: "Video Player",
-    tagline: "多引擎视频播放，支持 HLS / MPEG-TS / DASH 与逐帧控制",
-    version: "1.0.0",
+    tagline: "mygo native 视频播放：ffmpeg 解码 + GPU 纹理逐帧呈现",
+    version: "2.0.0",
+    native: "video",
     description:
-      "Multi-engine video player (HLS, MPEG-TS/FLV, DASH & HTML5 Native) with frame-accurate controls and automatic cover color extraction.",
+      "Native video playback rendered by mygo/ui, with ffmpeg frame decoding, mygo audio output and native transport controls.",
     author: "Bowerbird Team",
     kind: "preview",
     category: "preview",
@@ -110,7 +111,6 @@ export const BUILTIN_MARKETPLACE_PLUGINS: MarketplacePlugin[] = [
       "application/dash+xml",
     ],
     supportsZoom: false,
-    main: "index.js",
     license: "MIT",
     iconName: "video",
     featured: false,
@@ -120,11 +120,20 @@ export const BUILTIN_MARKETPLACE_PLUGINS: MarketplacePlugin[] = [
     manifestUrl: "/api/plugins/builtin.video/manifest.json",
     downloadUrl: "/api/plugins/builtin.video/download",
     longDescription: `### 核心功能 (Key Features)
-- **多引擎播放**: 自动选择 HLS、MPEG-TS/FLV、DASH 或 HTML5 原生解码。
-- **精确控制**: 0.25x–8x 变速、±5s 跳转、循环与全屏。
-- **封面取色**: 自动提取首帧封面色彩用于资源库展示。
+- **mygo native 渲染**: 视频帧解码为 RGBA，由 \`ui.Video\` 直接上传 GPU 纹理，无 WebView / HTML5 video。
+- **原生播放控制**: 播放/暂停、±10 秒跳转、进度拖拽定位。
+- **同步音频**: 后台用 ffmpeg 提取音轨到临时 WAV，由 mygo 音频输出播放。
+- **自动封面**: 资源库导入时继续使用原生首帧提取，供画廊缩略图使用。
 - **内置核心**: 随 Bowerbird 桌面端一同提供，可在偏好设置中启用或禁用。`,
     changelog: [
+      {
+        version: "2.0.0",
+        date: "2026-11-08",
+        notes: [
+          "移除 JS/HTML5 video 插件，改为 mygo/ui 原生视频播放",
+          "ffmpeg 解码帧、mygo 音频输出、原生进度与跳转控制",
+        ],
+      },
       {
         version: "1.0.0",
         date: "2026-10-18",
@@ -157,8 +166,9 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     id: "official.markdown-preview",
     name: "Markdown Preview",
     tagline: "丰富格式 GFM 实时渲染、大纲导航与前置元数据检验",
-    version: "1.0.0",
-    description: "Rich Markdown preview with syntax highlighting, task lists, frontmatter inspection, and table of contents outline.",
+    version: "2.0.0",
+    native: "markdown",
+    description: "Native GitHub-flavored Markdown preview rendered with mygo/ui, plus frontmatter and outline inspection.",
     author: "Bowerbird Team",
     kind: "preview",
     category: "preview",
@@ -167,7 +177,6 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     extensions: ["md", "markdown", "mdown", "mkd", "mdwn", "mdt"],
     mimePrefixes: ["text/markdown", "text/x-markdown"],
     supportsZoom: false,
-    main: "index.js",
     license: "MIT",
     iconName: "file-text",
     featured: true,
@@ -182,6 +191,14 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
 - **视口平滑缩放与拖拽**: 支持鼠标滚轮与快捷键交互式视口缩放控制。
 - **一键复制渲染格式与源码**: 快速动作提取干净格式化文本或原始 Markdown 代码。`,
     changelog: [
+      {
+        version: "2.0.0",
+        date: "2026-11-08",
+        notes: [
+          "重写为 mygo native 渲染：正文由 ui/markdown 绘制，无 React/WebView",
+          "inspect 钩子提供 Frontmatter、大纲与字数统计",
+        ],
+      },
       {
         version: "1.0.0",
         date: "2026-10-18",
@@ -199,8 +216,9 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     id: "official.audio-player",
     name: "Audio Player",
     tagline: "现代波形音频播放器，支持变速与 ID3 标签检视",
-    version: "1.0.0",
-    description: "Interactive audio player with waveform scrubber, playback rate, volume control, and ID3 metadata display.",
+    version: "2.0.0",
+    native: "audio",
+    description: "Native audio playback with spectrum bars, scrubber and technical metadata rendered by mygo/ui.",
     author: "Bowerbird Team",
     kind: "preview",
     category: "preview",
@@ -209,7 +227,6 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     extensions: ["mp3", "wav", "ogg", "flac", "m4a", "aac", "webm"],
     mimePrefixes: ["audio/"],
     supportsZoom: false,
-    main: "index.js",
     license: "MIT",
     iconName: "music",
     featured: true,
@@ -223,6 +240,14 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
 - **变速与音量均衡**: 0.5x、1x、1.25x、1.5x、2x 无损变调变速播放，静音切换与平滑音量控制。
 - **右侧 ID3 元数据卡片**: 实时解析显示比特率、采样率、声道、持续时间以及音频封面。`,
     changelog: [
+      {
+        version: "2.0.0",
+        date: "2026-11-08",
+        notes: [
+          "重写为 mygo native 渲染：播放与频谱由 Go 内核绘制",
+          "inspect 钩子补充时长、比特率、采样率与声道信息",
+        ],
+      },
       {
         version: "1.0.0",
         date: "2026-10-18",
@@ -240,8 +265,9 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     id: "official.prompt-metadata",
     name: "AI Prompt Metadata",
     tagline: "全库记录并检索 Midjourney、SD 与大模型生图提示词",
-    version: "1.0.1",
-    description: "Extends asset metadata with a dedicated Prompt field for recording and searching AI generation prompts.",
+    version: "2.0.0",
+    native: "prompt",
+    description: "Native AI prompt field with full-text editor, copy action and inspector statistics.",
     author: "Bowerbird Team",
     kind: "metadata",
     category: "metadata",
@@ -249,7 +275,6 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     priority: 50,
     extensions: [],
     supportsZoom: false,
-    main: "index.js",
     license: "MIT",
     iconName: "sparkles",
     featured: true,
@@ -265,6 +290,14 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
 - **无缝嵌入检视器侧边栏**: 在 Bowerbird 右侧属性栏无缝渲染轻量优雅的折叠面板，失焦即存，⌘/Ctrl + Enter 保存、Esc 取消。
 - **全库索引关键字搜索**: 记录的 Prompt 将同步写入资产清单，支持在主界面通过任意词汇全局秒搜素材。`,
     changelog: [
+      {
+        version: "2.0.0",
+        date: "2026-11-08",
+        notes: [
+          "重写为 mygo native 渲染：提示词编辑、复制与全文弹窗全部由宿主原生绘制",
+          "inspect 钩子提供字符、词数与行数统计",
+        ],
+      },
       {
         version: "1.0.1",
         date: "2026-11-03",
@@ -294,8 +327,9 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     id: "official.psd-preview",
     name: "PSD Studio",
     tagline: "Photoshop 文档合成预览、图层结构与色彩模式一览",
-    version: "1.0.0",
-    description: "Native Photoshop (.psd / .psb) preview: renders the flattened composite, reports document properties and exposes the layer tree.",
+    version: "2.0.0",
+    native: "psd",
+    description: "Native Photoshop (.psd / .psb) preview: composite decode, zoom and layer tree rendered by mygo/ui.",
     author: "Bowerbird Team",
     kind: "preview",
     category: "preview",
@@ -304,7 +338,6 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
     extensions: ["psd", "psb"],
     mimePrefixes: ["image/vnd.adobe.photoshop", "image/x-photoshop"],
     supportsZoom: true,
-    main: "index.js",
     license: "MIT",
     iconName: "file-image",
     featured: true,
@@ -319,6 +352,14 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
 - **缩略图优先**: 检查器先用文件内嵌缩略图，浏览一屏 PSD 时依然跟手。
 - **缩放与拖拽**: 百分比缩放、适应窗口，走宿主统一的缩放控件。`,
     changelog: [
+      {
+        version: "2.0.0",
+        date: "2026-11-08",
+        notes: [
+          "重写为 mygo native 渲染：合成图、缩放与图层树全部由 Go 绘制",
+          "移除浏览器端 PSD 解析器与 canvas 渲染",
+        ],
+      },
       {
         version: "1.0.0",
         date: "2026-11-02",
@@ -335,16 +376,24 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
   {
     id: "official.pinterest",
     name: "Pinterest",
-    tagline: "粘贴 Pin 链接，自动保存 /originals/ 原图",
-    version: "1.0.0",
+    tagline: "拖入 Pin 链接即匹配解析，自动保存 /originals/ 原图",
+    version: "2.2.0",
     description:
-      "Parse Pinterest pin URLs and save the original image into your Bowerbird library.",
+      "Sandboxed zero-build resolver for Pinterest pin URLs and pin.it short links.",
     author: "Bowerbird Team",
-    kind: "metadata",
+    kind: "resolver",
     category: "metadata",
     subCategory: "media",
     priority: 55,
     extensions: [],
+    permissions: { network: ["pinterest.com", "*.pinterest.com", "pinterest.*", "*.pinterest.*", "pin.it", "*.pinimg.com", "pinterest.ru", "pinterest.co.kr"], process: [], openExternal: true },
+    urlHosts: ["pinterest.com", "*.pinterest.com", "pinterest.*", "*.pinterest.*", "pin.it", "i.pinimg.com", "*.pinimg.com"],
+    urlPatterns: [
+      "^https?://(?:[a-z0-9-]+\\.)*pinterest\\.[a-z.]+/pin/\\d+",
+      "^https?://(?:[a-z0-9-]+\\.)*pinterest\\.[a-z.]+/",
+      "^https?://pin\\.it/[A-Za-z0-9]+",
+      "^https?://i(?:-[a-z0-9]+)?\\.pinimg\\.com/",
+    ],
     supportsZoom: false,
     main: "index.js",
     license: "MIT",
@@ -361,6 +410,22 @@ export const INITIAL_OFFICIAL_PLUGINS: MarketplacePlugin[] = [
 - **检视器快捷操作**: 当素材来源 URL 是 Pin 链接时，侧边栏提供一键 **Save image**。
 - **右键菜单**: 在画布空白处右键，从插件动作中选择 **Save Pinterest Pin…** 即可粘贴链接保存。`,
     changelog: [
+      {
+        version: "2.2.0",
+        date: "2026-11-08",
+        notes: [
+          "新增 urlHosts / urlPatterns 声明，支持拖入 URL 自动匹配解析",
+          "宿主建立域名索引与优先级队列，首个返回候选的插件立即生效",
+        ],
+      },
+      {
+        version: "2.1.0",
+        date: "2026-11-08",
+        notes: [
+          "迁移到免构建 plugin.json + index.js 原生沙箱格式",
+          "保留 resolveUrl、inspect 与右键动作钩子",
+        ],
+      },
       {
         version: "1.0.0",
         date: "2026-11-07",

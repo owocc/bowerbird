@@ -97,7 +97,8 @@
     "searchFolderPlaceholder": "搜索文件夹…",
     "searchPlaceholder": "搜索操作…",
     "selectAll": "全选",
-    "shortcutSpace": "空格"
+    "shortcutSpace": "空格",
+    "generateThumbnails": "重新生成缩略图"
   },
   "dropzone": {
     "badge": {
@@ -109,7 +110,9 @@
     "processing": "正在处理…",
     "releaseToAll": "松开即可导入至所有素材",
     "releaseToFolder": "松开即可导入至“{{name}}”",
-    "supportedHint": "支持拖入外部文件与文件夹 · 文件夹将扁平化处理为独立资源"
+    "supportedHint": "支持拖入外部文件与文件夹 · 文件夹将扁平化处理为独立资源",
+    "urlImporting": "正在解析链接…",
+    "urlImported": "链接导入完成"
   },
   "importing": {
     "analyzing_one": "正在分析 {{count}} 个文件…",
@@ -331,7 +334,8 @@
     "audioHint": "原生音频播放",
     "fit": "适应窗口",
     "next": "下一个",
-    "previous": "上一个"
+    "previous": "上一个",
+    "videoLoading": "正在准备原生视频帧…"
   },
   "settings": {
     "appearance": {
@@ -525,7 +529,7 @@
     "plugins": {
       "alwaysEnabled": "内置 · 常驻开启",
       "builtinBadge": "内置",
-      "cannotDisableHint": "内置核心功能插件无法停用",
+      "cannotDisableHint": "内置插件可在设置中随时停用",
       "description": "管理已安装的预览与元数据插件。点击卡片打开商店详情页。内置插件也可以禁用。",
       "disabled": "已禁用",
       "enabled": "已启用",
@@ -565,7 +569,10 @@
       "installed": "插件已安装",
       "marketplace": "插件市场",
       "native": "内置原生视图",
-      "openFolder": "打开文件夹"
+      "openFolder": "打开文件夹",
+      "openStore": "在商店中打开",
+      "uninstall": "卸载插件",
+      "uninstalled": "插件已卸载"
     },
     "mobile": {
       "title": "移动端连接",
@@ -674,7 +681,11 @@
     "themeDark": "深色",
     "themeLight": "浅色",
     "themeSystem": "跟随系统",
-    "vibrancyHelp": "在 Header 后方使用系统模糊材质，此开关控制全部模糊"
+    "vibrancyHelp": "在 Header 后方使用系统模糊材质，此开关控制全部模糊",
+    "recordURL": {
+      "title": "记录来源 URL",
+      "description": "从链接下载素材后，把解析后的页面/来源 URL 自动写入素材元数据。这是应用级设置，不受插件控制。"
+    }
   },
   "setup": {
     "back": "返回",
