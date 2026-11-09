@@ -25,6 +25,14 @@ import (
 //go:embed assets/branding/app-icon.png
 var appIcon []byte
 
+// appIconRounded is the Windows/Linux icon: those platforms draw the icon
+// verbatim and do not round its corners themselves. macOS keeps the square
+// source because the system applies its own mask (see macos.icon in
+// mygo.json).
+//
+//go:embed assets/branding/app-icon-rounded.png
+var appIconRounded []byte
+
 // trayIconTemplate is the macOS menu bar icon: black shapes on transparent,
 // 18pt (36px @2x), so the system can tint it for light and dark menu bars.
 //
@@ -666,17 +674,17 @@ func trayIcon() []byte {
 	return trayIconPNG()
 }
 
-// trayIconPNG downsizes the 1024px app icon to a 32px tray icon.
+// trayIconPNG downsizes the rounded 1024px app icon to a 32px tray icon.
 func trayIconPNG() []byte {
-	src, _, err := image.Decode(bytes.NewReader(appIcon))
+	src, _, err := image.Decode(bytes.NewReader(appIconRounded))
 	if err != nil {
-		return appIcon
+		return appIconRounded
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, 32, 32))
 	xdraw.ApproxBiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), xdraw.Over, nil)
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, dst); err != nil {
-		return appIcon
+		return appIconRounded
 	}
 	return buf.Bytes()
 }
