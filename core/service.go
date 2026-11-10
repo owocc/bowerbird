@@ -843,6 +843,46 @@ func (s *Service) SetMobileServerEnabled(enabled bool) error {
 	return nil
 }
 
+// SetMobileServerPort changes the LAN listener port and restarts the server
+// when it is running. A busy port is reported instead of silently binding a
+// random one, and the previous port is restored when the switch fails.
+func (s *Service) SetMobileServerPort(port int) error {
+	if s.mgr == nil {
+		return ErrCoreNotInitialized
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("invalid mobile server port %d", port)
+	}
+	ms := s.mgr.userData.GetMobileSettings()
+	if ms.Port == port {
+		return nil
+	}
+	oldPort := ms.Port
+	ms.Port = port
+	if err := s.mgr.userData.SetMobileSettings(ms); err != nil {
+		return err
+	}
+
+	server := s.mgr.GetMobileServer()
+	if server == nil || !server.IsRunning() {
+		return nil
+	}
+	if err := server.Stop(); err != nil {
+		return err
+	}
+	if err := server.Start(); err != nil || server.GetPort() != port {
+		_ = server.Stop()
+		ms.Port = oldPort
+		_ = s.mgr.userData.SetMobileSettings(ms)
+		_ = server.Start()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("mobile server port %d is unavailable", port)
+	}
+	return nil
+}
+
 // RegenerateMobilePairingCode generates and returns a new 6-digit pairing code.
 func (s *Service) RegenerateMobilePairingCode() (string, error) {
 	if s.mgr == nil || s.mgr.GetMobileServer() == nil {

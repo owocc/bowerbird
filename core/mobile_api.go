@@ -40,19 +40,19 @@ type wsClient struct {
 
 // MobileServer handles LAN HTTP endpoints and mDNS discovery for mobile clients.
 type MobileServer struct {
-	mu          sync.RWMutex
-	manager     *LibraryManager
-	listener    net.Listener
-	httpServer  *http.Server
-	mdnsServer  *zeroconf.Server
-	port        int
-	running     bool
-	pairingCode          string
-	legacyPairToken      string
-	legacyPairTokenCode  string
-	codeMu      sync.RWMutex
-	clientsMu   sync.Mutex
-	clients     map[*wsClient]bool
+	mu                  sync.RWMutex
+	manager             *LibraryManager
+	listener            net.Listener
+	httpServer          *http.Server
+	mdnsServer          *zeroconf.Server
+	port                int
+	running             bool
+	pairingCode         string
+	legacyPairToken     string
+	legacyPairTokenCode string
+	codeMu              sync.RWMutex
+	clientsMu           sync.Mutex
+	clients             map[*wsClient]bool
 }
 
 // MobileItemSummary represents an item in the lightweight mobile timeline view.
@@ -1942,7 +1942,11 @@ func (s *MobileServer) GetPairingURL() string {
 			name = active.Name
 		}
 		if s.manager.userData != nil {
-			allowed = s.manager.userData.GetMobileSettings().AllowedNetworks
+			settings := s.manager.userData.GetMobileSettings()
+			allowed = settings.AllowedNetworks
+			if !s.running && settings.Port > 0 {
+				port = settings.Port
+			}
 		}
 	}
 
@@ -1970,6 +1974,7 @@ func (s *MobileServer) GetStatus() MobileServerStatus {
 	enabled := true
 	pairedCount := 0
 	pairingRequired := true
+	port := s.port
 	var allowed []string
 	if s.manager != nil && s.manager.userData != nil {
 		ms := s.manager.userData.GetMobileSettings()
@@ -1977,6 +1982,9 @@ func (s *MobileServer) GetStatus() MobileServerStatus {
 		pairedCount = len(ms.Tokens)
 		pairingRequired = ms.PairingRequired
 		allowed = ms.AllowedNetworks
+		if !s.running && ms.Port > 0 {
+			port = ms.Port
+		}
 	}
 
 	var itemCount int64
@@ -1989,7 +1997,7 @@ func (s *MobileServer) GetStatus() MobileServerStatus {
 	return MobileServerStatus{
 		Enabled:           enabled,
 		Running:           s.running,
-		Port:              s.port,
+		Port:              port,
 		PairingCode:       s.GetPairingCode(),
 		Addresses:         GetFilteredLocalIPs(allowed),
 		PairedDevices:     pairedCount,

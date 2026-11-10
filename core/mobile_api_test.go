@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -309,7 +310,6 @@ func TestMobileAPIEndpoints(t *testing.T) {
 			t.Errorf("expected Content-Range header for Range request")
 		}
 	}
-
 
 	// 12a. Test GET /api/v1/tags
 	req, _ = http.NewRequest(http.MethodGet, baseURL+"/api/v1/tags", nil)
@@ -855,5 +855,103 @@ func TestMobileDeleteItem(t *testing.T) {
 	// Direct second MoveToTrash must stay a no-op (idempotency guard).
 	if err := mgr.MoveToTrash(imported.ID); err != nil {
 		t.Fatalf("expected idempotent MoveToTrash, got error: %v", err)
+	}
+}
+
+func TestMobileServerPortSwitch(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "mobile_port_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	t.Setenv("BOWERBIRD_USER_DATA_DIR", filepath.Join(tempDir, "userdata"))
+
+	mgr := NewLibraryManager()
+	defer func() {
+		if mgr.assetServer != nil {
+			_ = mgr.assetServer.Stop()
+		}
+		if mgr.mobileServer != nil {
+			_ = mgr.mobileServer.Stop()
+		}
+	}()
+	if _, err := mgr.CreateLibrary(tempDir, "PortSwitchLib"); err != nil {
+		t.Fatalf("failed to create library: %v", err)
+	}
+	svc := NewService(mgr)
+	server := mgr.GetMobileServer()
+	oldPort := server.GetPort()
+
+	// Reserve a free port, then release it for the switch.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve port: %v", err)
+	}
+	newPort := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	if newPort == oldPort {
+		t.Skip("allocated port equals the current port")
+	}
+
+	if err := svc.SetMobileServerPort(newPort); err != nil {
+		t.Fatalf("SetMobileServerPort failed: %v", err)
+	}
+	if got := server.GetPort(); got != newPort {
+		t.Fatalf("expected server port %d, got %d", newPort, got)
+	}
+	if got := mgr.GetUserDataStore().GetMobileSettings().Port; got != newPort {
+		t.Fatalf("expected persisted port %d, got %d", newPort, got)
+	}
+	status, err := svc.GetMobileServerStatus()
+	if err != nil {
+		t.Fatalf("GetMobileServerStatus failed: %v", err)
+	}
+	if status.Port != newPort {
+		t.Fatalf("expected status port %d, got %d", newPort, status.Port)
+	}
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", newPort)
+	resp, err := http.Get(baseURL + "/api/v1/status")
+	if err != nil {
+		t.Fatalf("GET /api/v1/status on new port failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on new port, got %d", resp.StatusCode)
+	}
+
+	if err := svc.SetMobileServerPort(0); err == nil {
+		t.Fatal("expected invalid port to be rejected")
+	}
+	if err := svc.SetMobileServerPort(70000); err == nil {
+		t.Fatal("expected out-of-range port to be rejected")
+	}
+
+	// A stopped server should still report and persist the configured port so
+	// the settings UI does not snap back to the last bound one.
+	if err := svc.SetMobileServerEnabled(false); err != nil {
+		t.Fatalf("SetMobileServerEnabled(false) failed: %v", err)
+	}
+	listener, err = net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to reserve stopped port: %v", err)
+	}
+	stoppedPort := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	if err := svc.SetMobileServerPort(stoppedPort); err != nil {
+		t.Fatalf("SetMobileServerPort while stopped failed: %v", err)
+	}
+	status, err = svc.GetMobileServerStatus()
+	if err != nil {
+		t.Fatalf("GetMobileServerStatus while stopped failed: %v", err)
+	}
+	if status.Port != stoppedPort {
+		t.Fatalf("expected stopped status port %d, got %d", stoppedPort, status.Port)
+	}
+	pairingURL, err := svc.GetMobilePairingURL()
+	if err != nil {
+		t.Fatalf("GetMobilePairingURL while stopped failed: %v", err)
+	}
+	if !strings.Contains(pairingURL, fmt.Sprintf("%d", stoppedPort)) {
+		t.Fatalf("expected pairing URL to contain port %d, got %s", stoppedPort, pairingURL)
 	}
 }

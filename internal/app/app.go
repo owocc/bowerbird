@@ -216,14 +216,17 @@ type App struct {
 	previewSeq     uint64
 
 	// Settings values.
-	themeValue    string
-	languageValue string
-	vibrancyValue bool
-	network       core.NetworkSettings
-	shortcuts     core.ShortcutSettings
-	mobile        *core.MobileServerStatus
-	mobileDevices []core.MobileDeviceInfo
-	settingsDirty bool
+	themeValue       string
+	languageValue    string
+	vibrancyValue    bool
+	network          core.NetworkSettings
+	shortcuts        core.ShortcutSettings
+	mobile           *core.MobileServerStatus
+	mobileDevices    []core.MobileDeviceInfo
+	mobilePort       string
+	mobilePairingURL string
+	mobileQR         *ui.Bitmap
+	settingsDirty    bool
 
 	// Settings.
 	settingsSection int

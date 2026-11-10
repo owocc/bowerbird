@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,18 @@ func (a *App) refreshSettings() {
 	}
 	if devices, err := a.svc.ListMobileDevices(); err == nil {
 		a.mobileDevices = devices
+	}
+	if url, err := a.svc.GetMobilePairingURL(); err == nil && url != "" {
+		if url != a.mobilePairingURL {
+			a.mobilePairingURL = url
+			a.mobileQR = mobileQRBitmap(url)
+		}
+	} else {
+		a.mobilePairingURL = ""
+		a.mobileQR = nil
+	}
+	if a.mobile != nil && a.mobilePort == "" {
+		a.mobilePort = strconv.Itoa(a.mobile.Port)
 	}
 	if plugins, err := a.svc.ListInstalledPlugins(); err == nil {
 		a.plugins = a.pluginRows(plugins)
@@ -538,8 +551,22 @@ func (a *App) settingsMobile(c *ui.Context) {
 			}
 		})
 		if status != nil {
+			label := a.t("settings.mobile.stopped")
+			if status.Running {
+				label = a.tf("settings.mobile.running", map[string]any{"port": status.Port})
+			}
 			a.settingsRow(c, a.t("settings.mobile.running"), "", func() {
-				ui.Text(c, map[bool]string{true: a.t("settings.mobile.online"), false: a.t("settings.mobile.offline")}[status.Running]).FontSize(11).TextColor(p.muted)
+				ui.Text(c, label).FontSize(11).TextColor(p.muted).FontFeatures("tnum")
+			})
+			a.settingsRow(c, a.t("settings.mobile.port"), a.t("settings.mobile.portHelp"), func() {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.TextInput(c.Key("mobile-port"), &a.mobilePort).Width(88).FontSize(12).FontFeatures("tnum").Placeholder("17878").OnSubmit(func() {
+						a.applyMobilePort()
+					})
+					if ui.Button(c, a.t("settings.mobile.applyPort")).Clicked() {
+						a.applyMobilePort()
+					}
+				})
 			})
 			a.settingsRow(c, a.t("settings.mobile.pairingCode"), "", func() {
 				ui.Text(c, status.PairingCode).FontSize(16).FontWeight(700).FontFeatures("tnum").TextColor(p.text)
@@ -559,6 +586,27 @@ func (a *App) settingsMobile(c *ui.Context) {
 				ui.Text(c, strings.Join(status.Addresses, "  ")).FontSize(11).TextColor(p.muted).MaxWidth(360).Wrap()
 			})
 		}
+	})
+	a.settingsCard(c, a.t("settings.mobile.qrTitle"), func() {
+		ui.Row(c).FillWidth().Gap(20).AlignItems(ui.Start).Children(func() {
+			ui.Column(c).Grow(1).Shrink(1).Gap(8).Children(func() {
+				ui.Text(c, a.t("settings.mobile.qrDesc")).FontSize(11.5).TextColor(p.muted).Wrap()
+				if a.mobilePairingURL != "" {
+					if ui.Button(c, a.t("settings.mobile.copyUrl")).Clicked() {
+						_ = a.svc.WriteClipboardText(a.mobilePairingURL)
+						a.showToast(a.t("settings.mobile.copiedUrl"))
+					}
+				}
+				ui.Text(c, a.t("settings.mobile.qrTip")).FontSize(10.5).TextColor(p.faint).Wrap()
+			})
+			if status != nil && status.Running && a.mobileQR != nil {
+				ui.Box(c).Padding(8).Radius(8).Background(ui.RGB(255, 255, 255)).Children(func() {
+					ui.Image(c, a.mobileQR).Size(176, 176).Fit(ui.Contain)
+				})
+			} else {
+				ui.Text(c, a.t("settings.mobile.qrUnavailable")).FontSize(11.5).TextColor(p.faint).MaxWidth(220).Wrap()
+			}
+		})
 	})
 	a.settingsCard(c, a.t("settings.mobile.devices"), func() {
 		if len(a.mobileDevices) == 0 {
@@ -582,6 +630,33 @@ func (a *App) settingsMobile(c *ui.Context) {
 			})
 		}
 	})
+}
+
+// applyMobilePort validates the port field and switches the LAN listener.
+func (a *App) applyMobilePort() {
+	port, err := strconv.Atoi(strings.TrimSpace(a.mobilePort))
+	if err != nil || port < 1 || port > 65535 {
+		a.showToast(a.t("settings.mobile.portInvalid"))
+		return
+	}
+	go func() {
+		err := a.svc.SetMobileServerPort(port)
+		a.postSettings(func() {
+			if err != nil {
+				a.showToast(err.Error())
+				a.refreshSettings()
+				if a.mobile != nil {
+					a.mobilePort = strconv.Itoa(a.mobile.Port)
+				}
+				return
+			}
+			a.showToast(a.tf("settings.mobile.portChanged", map[string]any{"port": port}))
+			a.refreshSettings()
+			if a.mobile != nil {
+				a.mobilePort = strconv.Itoa(a.mobile.Port)
+			}
+		})
+	}()
 }
 
 func (a *App) settingsNetwork(c *ui.Context) {

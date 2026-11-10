@@ -617,6 +617,12 @@
       "devices": "已授权设备",
       "enabled": "启用移动端服务",
       "enabledHelp": "允许手机应用通过局域网浏览素材库",
+      "port": "监听端口",
+      "portHelp": "手机 App 连接的端口，修改后会自动重启局域网服务。",
+      "portInvalid": "请输入 1 到 65535 之间的端口号。",
+      "portChanged": "移动端服务已切换到端口 {{port}}。",
+      "applyPort": "应用",
+      "qrUnavailable": "启用移动端服务后将显示配对二维码。",
       "pairingCode": "配对码",
       "server": "局域网服务"
     },

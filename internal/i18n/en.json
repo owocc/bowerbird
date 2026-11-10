@@ -617,6 +617,12 @@
       "devices": "Authorized devices",
       "enabled": "Enable mobile server",
       "enabledHelp": "Allow the mobile app to browse this library over the LAN",
+      "port": "Listen port",
+      "portHelp": "Port the mobile app connects to. Changing it restarts the LAN service.",
+      "portInvalid": "Enter a port between 1 and 65535.",
+      "portChanged": "Mobile server is now listening on port {{port}}.",
+      "applyPort": "Apply",
+      "qrUnavailable": "Start the mobile service to show the pairing QR code.",
       "pairingCode": "Pairing code",
       "server": "LAN service"
     },
